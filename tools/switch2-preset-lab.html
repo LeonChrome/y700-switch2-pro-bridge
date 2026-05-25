@@ -1,0 +1,701 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Switch 2 Pro Preset Lab</title>
+  <style>
+    :root {
+      --bg: #f5f7fa;
+      --panel: #ffffff;
+      --ink: #16202a;
+      --muted: #647180;
+      --line: #d8dee7;
+      --blue: #2563eb;
+      --green: #168255;
+      --red: #c23333;
+      --amber: #a46112;
+      --violet: #6d4cc2;
+      --shadow: 0 10px 26px rgba(22, 32, 42, 0.08);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+      font-size: 14px;
+    }
+
+    button,
+    input,
+    select {
+      font: inherit;
+    }
+
+    .shell {
+      min-height: 100vh;
+      display: grid;
+      grid-template-rows: auto 1fr;
+    }
+
+    header {
+      background: #101820;
+      color: #f8fafc;
+      border-bottom: 1px solid #0b1117;
+    }
+
+    .topbar {
+      max-width: 1420px;
+      margin: 0 auto;
+      padding: 12px 18px;
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 16px;
+      align-items: center;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 18px;
+      font-weight: 650;
+    }
+
+    .status {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+      color: #d7dde5;
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      min-height: 28px;
+      padding: 4px 10px;
+      border: 1px solid rgba(255, 255, 255, 0.18);
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.08);
+      white-space: nowrap;
+    }
+
+    main {
+      max-width: 1420px;
+      width: 100%;
+      margin: 0 auto;
+      padding: 18px;
+      display: grid;
+      grid-template-columns: minmax(360px, 500px) minmax(520px, 1fr) minmax(300px, 360px);
+      gap: 16px;
+      align-items: start;
+    }
+
+    section {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+
+    .section-head {
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--line);
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      align-items: center;
+      background: #fbfcfe;
+    }
+
+    h2 {
+      margin: 0;
+      font-size: 14px;
+      font-weight: 700;
+    }
+
+    .section-body {
+      padding: 14px;
+    }
+
+    .preset-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+    }
+
+    .preset {
+      min-height: 58px;
+      border: 1px solid var(--line);
+      background: #fff;
+      border-radius: 8px;
+      padding: 9px 10px;
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: 8px;
+      align-items: center;
+      cursor: pointer;
+      text-align: left;
+    }
+
+    .preset:hover {
+      border-color: #9ab4d8;
+      background: #f7fbff;
+    }
+
+    .preset.active {
+      border-color: var(--blue);
+      box-shadow: inset 0 0 0 1px var(--blue);
+    }
+
+    .preset-code {
+      width: 34px;
+      height: 34px;
+      border-radius: 8px;
+      display: inline-grid;
+      place-items: center;
+      background: #eef2ff;
+      color: #27348b;
+      font-family: Consolas, "Courier New", monospace;
+      font-weight: 700;
+    }
+
+    .preset-title {
+      font-weight: 650;
+      line-height: 1.2;
+    }
+
+    .preset-sub {
+      color: var(--muted);
+      font-size: 12px;
+      margin-top: 3px;
+    }
+
+    .byte-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 9px;
+    }
+
+    .byte-cell {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 8px;
+      background: #fff;
+    }
+
+    .byte-label {
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      color: var(--muted);
+      font-size: 12px;
+      margin-bottom: 6px;
+    }
+
+    .byte-label code {
+      color: var(--ink);
+      font-weight: 700;
+    }
+
+    .byte-row {
+      display: grid;
+      grid-template-columns: 1fr 46px;
+      gap: 6px;
+      align-items: center;
+    }
+
+    input[type="range"] {
+      width: 100%;
+      accent-color: var(--blue);
+    }
+
+    input[type="number"],
+    input[type="text"],
+    select {
+      min-height: 34px;
+      width: 100%;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 5px 8px;
+      background: #fff;
+      color: var(--ink);
+    }
+
+    .controls {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .control-field {
+      display: grid;
+      gap: 5px;
+    }
+
+    label {
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .actions {
+      margin-top: 14px;
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+    }
+
+    .btn {
+      min-height: 38px;
+      border: 1px solid transparent;
+      border-radius: 8px;
+      padding: 8px 10px;
+      cursor: pointer;
+      font-weight: 650;
+      background: #edf2f7;
+      color: var(--ink);
+    }
+
+    .btn:hover {
+      filter: brightness(0.98);
+    }
+
+    .btn.primary {
+      background: var(--blue);
+      color: #fff;
+    }
+
+    .btn.good {
+      background: var(--green);
+      color: #fff;
+    }
+
+    .btn.warn {
+      background: var(--amber);
+      color: #fff;
+    }
+
+    .btn.danger {
+      background: var(--red);
+      color: #fff;
+    }
+
+    .btn.ghost {
+      border-color: var(--line);
+      background: #fff;
+    }
+
+    .btn:disabled {
+      opacity: 0.55;
+      cursor: not-allowed;
+    }
+
+    .hex-line {
+      margin-top: 12px;
+      display: grid;
+      gap: 6px;
+    }
+
+    .hex-output {
+      min-height: 42px;
+      border: 1px solid #ccd6e3;
+      border-radius: 8px;
+      background: #f8fafc;
+      padding: 10px;
+      font-family: Consolas, "Courier New", monospace;
+      word-break: break-all;
+      line-height: 1.45;
+    }
+
+    .log {
+      height: 520px;
+      overflow: auto;
+      background: #0f1720;
+      color: #d9e2ec;
+      padding: 12px;
+      font-family: Consolas, "Courier New", monospace;
+      font-size: 12px;
+      line-height: 1.55;
+    }
+
+    .log .ok {
+      color: #96e6b3;
+    }
+
+    .log .err {
+      color: #ffaaa5;
+    }
+
+    .log .muted {
+      color: #94a3b8;
+    }
+
+    .split {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+
+    .wide {
+      grid-column: 1 / -1;
+    }
+
+    @media (max-width: 1180px) {
+      main {
+        grid-template-columns: 1fr 1fr;
+      }
+
+      .right-panel {
+        grid-column: 1 / -1;
+      }
+    }
+
+    @media (max-width: 760px) {
+      .topbar,
+      main {
+        grid-template-columns: 1fr;
+      }
+
+      .status {
+        justify-content: flex-start;
+      }
+
+      .preset-grid,
+      .byte-grid,
+      .controls,
+      .actions {
+        grid-template-columns: 1fr;
+      }
+
+      .log {
+        height: 360px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <header>
+      <div class="topbar">
+        <h1>Switch 2 Pro Preset Lab</h1>
+        <div class="status">
+          <span class="pill" id="devicePill">ADB: 检测中</span>
+          <span class="pill" id="loopPill">循环: 停止</span>
+        </div>
+      </div>
+    </header>
+
+    <main>
+      <section>
+        <div class="section-head">
+          <h2>Preset</h2>
+          <button class="btn ghost" id="refreshBtn">刷新</button>
+        </div>
+        <div class="section-body">
+          <div class="preset-grid" id="presetGrid"></div>
+        </div>
+      </section>
+
+      <section>
+        <div class="section-head">
+          <h2>16 字节命令</h2>
+          <button class="btn ghost" id="resetBtn">重置模板</button>
+        </div>
+        <div class="section-body">
+          <div class="byte-grid" id="byteGrid"></div>
+          <div class="hex-line">
+            <label>当前 payload</label>
+            <div class="hex-output" id="hexOutput"></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="right-panel">
+        <div class="section-head">
+          <h2>发送</h2>
+          <button class="btn danger" id="stopBtn">停止</button>
+        </div>
+        <div class="section-body">
+          <div class="controls">
+            <div class="control-field">
+              <label for="target">BLE 目标</label>
+              <select id="target">
+                <option value="cmd">cmd / 649d</option>
+                <option value="649d">649d</option>
+                <option value="3dac">3dac</option>
+                <option value="4147">4147</option>
+                <option value="fdf">fdf</option>
+                <option value="cc48">cc48</option>
+              </select>
+            </div>
+            <div class="control-field">
+              <label for="holdMs">保持 ms</label>
+              <input id="holdMs" type="number" min="0" max="5000" value="260">
+            </div>
+            <div class="control-field">
+              <label for="intervalMs">间隔 ms</label>
+              <input id="intervalMs" type="number" min="250" max="10000" value="1000">
+            </div>
+            <div class="control-field">
+              <label for="burstCount">连发次数</label>
+              <input id="burstCount" type="number" min="1" max="30" value="5">
+            </div>
+            <div class="control-field wide">
+              <label for="autoStop">自动停止</label>
+              <select id="autoStop">
+                <option value="true">开启</option>
+                <option value="false">关闭</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="actions">
+            <button class="btn primary" id="fireBtn">单发</button>
+            <button class="btn good" id="burstBtn">1s 连发</button>
+            <button class="btn warn" id="loopBtn">1s 循环</button>
+            <button class="btn danger" id="loopStopBtn">停循环</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="right-panel">
+        <div class="section-head">
+          <h2>日志</h2>
+          <button class="btn ghost" id="clearLogBtn">清空</button>
+        </div>
+        <div class="log" id="log"></div>
+      </section>
+    </main>
+  </div>
+
+  <script>
+    const template = [0x0a, 0x91, 0x01, 0x02, 0x00, 0x08, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00];
+    const stopTemplate = [0x0a, 0x91, 0x01, 0x02, 0x00, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00];
+    const byteNames = ["cmd", "op", "sub", "type", "lenH", "lenL", "flag0", "flag1", "preset", "p1", "p2", "p3", "p4", "p5", "p6", "p7"];
+    const presets = [
+      { id: 0x00, title: "Stop", sub: "停止 / 中性" },
+      { id: 0x01, title: "Short Low", sub: "短震 + 低音" },
+      { id: 0x02, title: "Short Mid", sub: "短震 + 中音" },
+      { id: 0x03, title: "Silent?", sub: "已测无明显反馈" },
+      { id: 0x04, title: "Notify", sub: "滴滴声 / 接入提示" },
+      { id: 0x05, title: "Double", sub: "双震" },
+      { id: 0x06, title: "Long Mid", sub: "稍长震动 / 中音" },
+      { id: 0x07, title: "High Tone", sub: "高音提示" },
+      { id: 0x08, title: "Silent?", sub: "已测无明显反馈" },
+      { id: 0x09, title: "Silent?", sub: "已测无明显反馈" },
+      { id: 0x0a, title: "Custom 0A", sub: "未标定" },
+      { id: 0x0b, title: "Custom 0B", sub: "未标定" },
+      { id: 0x0c, title: "Custom 0C", sub: "未标定" },
+      { id: 0x0d, title: "Custom 0D", sub: "未标定" },
+      { id: 0x0e, title: "Custom 0E", sub: "未标定" },
+      { id: 0x0f, title: "Custom 0F", sub: "未标定" },
+    ];
+
+    let bytes = template.slice();
+    let loopTimer = null;
+    let busy = false;
+
+    const el = {
+      presetGrid: document.getElementById("presetGrid"),
+      byteGrid: document.getElementById("byteGrid"),
+      hexOutput: document.getElementById("hexOutput"),
+      log: document.getElementById("log"),
+      devicePill: document.getElementById("devicePill"),
+      loopPill: document.getElementById("loopPill"),
+      target: document.getElementById("target"),
+      holdMs: document.getElementById("holdMs"),
+      intervalMs: document.getElementById("intervalMs"),
+      burstCount: document.getElementById("burstCount"),
+      autoStop: document.getElementById("autoStop"),
+    };
+
+    function hexByte(value) {
+      return Number(value).toString(16).padStart(2, "0").toUpperCase();
+    }
+
+    function payloadHex() {
+      return bytes.map(hexByte).join("");
+    }
+
+    function formatPayload() {
+      return bytes.map(hexByte).join(" ");
+    }
+
+    function renderPresets() {
+      el.presetGrid.innerHTML = "";
+      for (const preset of presets) {
+        const button = document.createElement("button");
+        button.className = "preset" + (bytes[8] === preset.id ? " active" : "");
+        button.innerHTML = `
+          <span class="preset-code">${hexByte(preset.id)}</span>
+          <span>
+            <span class="preset-title">${preset.title}</span>
+            <span class="preset-sub">${preset.sub}</span>
+          </span>
+        `;
+        button.addEventListener("click", () => {
+          bytes[8] = preset.id;
+          render();
+          writeLog(`preset = ${hexByte(preset.id)} ${preset.title}`, "muted");
+        });
+        el.presetGrid.appendChild(button);
+      }
+    }
+
+    function renderBytes() {
+      el.byteGrid.innerHTML = "";
+      bytes.forEach((value, index) => {
+        const cell = document.createElement("div");
+        cell.className = "byte-cell";
+        cell.innerHTML = `
+          <div class="byte-label"><code>b${String(index).padStart(2, "0")}</code><span>${byteNames[index]}</span></div>
+          <div class="byte-row">
+            <input type="range" min="0" max="255" value="${value}" data-index="${index}">
+            <input type="text" maxlength="2" value="${hexByte(value)}" data-index="${index}" aria-label="byte ${index}">
+          </div>
+        `;
+        const range = cell.querySelector("input[type='range']");
+        const text = cell.querySelector("input[type='text']");
+        range.addEventListener("input", () => {
+          bytes[index] = Number(range.value);
+          text.value = hexByte(bytes[index]);
+          render(false);
+        });
+        text.addEventListener("change", () => {
+          const clean = text.value.replace(/[^0-9a-fA-F]/g, "").slice(0, 2);
+          const next = clean ? parseInt(clean, 16) : 0;
+          bytes[index] = Math.max(0, Math.min(255, next));
+          render();
+        });
+        el.byteGrid.appendChild(cell);
+      });
+    }
+
+    function render(rebuildBytes = true) {
+      renderPresets();
+      if (rebuildBytes) renderBytes();
+      el.hexOutput.textContent = formatPayload();
+    }
+
+    function writeLog(message, type = "") {
+      const row = document.createElement("div");
+      const time = new Date().toLocaleTimeString("zh-CN", { hour12: false });
+      row.className = type;
+      row.textContent = `[${time}] ${message}`;
+      el.log.prepend(row);
+    }
+
+    async function api(path, body) {
+      const response = await fetch(path, {
+        method: body ? "POST" : "GET",
+        headers: body ? { "content-type": "application/json" } : {},
+        body: body ? JSON.stringify(body) : undefined,
+      });
+      const data = await response.json();
+      if (!response.ok || !data.ok) throw new Error(data.error || "request failed");
+      return data;
+    }
+
+    async function refreshStatus() {
+      try {
+        const data = await api("/api/status");
+        const tail = data.tail || "";
+        const bleBad = /BLE write skipped|main service missing|no current GATT|status=147|scan timeout/i.test(tail);
+        el.devicePill.textContent = data.serial
+          ? (bleBad ? "ADB: 在线 / BLE: 未连" : `ADB: ${data.serial}`)
+          : "ADB: 未选择";
+        if (bleBad) {
+          writeLog("ADB 在线，但 BLE bridge 未连上 Pro2", "err");
+        } else {
+          writeLog("ADB 在线，BLE 日志未见断连告警", "ok");
+        }
+      } catch (err) {
+        el.devicePill.textContent = "ADB: 异常";
+        writeLog(err.message, "err");
+      }
+    }
+
+    async function fireOnce(label = "单发") {
+      if (busy) return;
+      busy = true;
+      try {
+        const body = {
+          target: el.target.value,
+          hex: payloadHex(),
+          holdMs: Number(el.holdMs.value),
+          autoStop: el.autoStop.value === "true",
+        };
+        writeLog(`${label} -> ${body.target} ${formatPayload()}`, "muted");
+        const data = await api("/api/send", body);
+        writeLog(`已写入 Y700 ${data.target} hold=${data.holdMs}ms`, "ok");
+        refreshStatus();
+      } catch (err) {
+        writeLog(err.message, "err");
+      } finally {
+        busy = false;
+      }
+    }
+
+    async function burst() {
+      const count = Math.max(1, Math.min(30, Number(el.burstCount.value) || 1));
+      const interval = Math.max(250, Math.min(10000, Number(el.intervalMs.value) || 1000));
+      for (let i = 0; i < count; i++) {
+        await fireOnce(`连发 ${i + 1}/${count}`);
+        if (i + 1 < count) await new Promise((resolve) => setTimeout(resolve, interval));
+      }
+    }
+
+    function startLoop() {
+      if (loopTimer) return;
+      const interval = Math.max(250, Math.min(10000, Number(el.intervalMs.value) || 1000));
+      el.loopPill.textContent = `循环: ${interval}ms`;
+      writeLog(`循环开始 interval=${interval}ms`, "ok");
+      fireOnce("循环");
+      loopTimer = setInterval(() => fireOnce("循环"), interval);
+    }
+
+    function stopLoop() {
+      if (loopTimer) clearInterval(loopTimer);
+      loopTimer = null;
+      el.loopPill.textContent = "循环: 停止";
+      writeLog("循环停止", "muted");
+    }
+
+    async function stopHaptics() {
+      stopLoop();
+      try {
+        await api("/api/stop", {});
+        bytes = stopTemplate.slice();
+        render();
+        writeLog("已发送 stop preset", "ok");
+      } catch (err) {
+        writeLog(err.message, "err");
+      }
+    }
+
+    document.getElementById("fireBtn").addEventListener("click", () => fireOnce());
+    document.getElementById("burstBtn").addEventListener("click", burst);
+    document.getElementById("loopBtn").addEventListener("click", startLoop);
+    document.getElementById("loopStopBtn").addEventListener("click", stopLoop);
+    document.getElementById("stopBtn").addEventListener("click", stopHaptics);
+    document.getElementById("resetBtn").addEventListener("click", () => {
+      bytes = template.slice();
+      render();
+      writeLog("模板已重置", "muted");
+    });
+    document.getElementById("refreshBtn").addEventListener("click", refreshStatus);
+    document.getElementById("clearLogBtn").addEventListener("click", () => {
+      el.log.innerHTML = "";
+    });
+
+    render();
+    refreshStatus();
+  </script>
+</body>
+</html>

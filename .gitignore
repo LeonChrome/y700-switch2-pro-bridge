@@ -1,0 +1,22 @@
+build/
+logs/
+*.log
+*.tmp
+*.bak
+*.user
+*.suo
+*.pdb
+*.ilk
+*.obj
+*.class
+*.zip
+tools/*.exe
+tools/steam_input_probe_runtime/steam_api64.dll
+SUCCESS_MILESTONE_20260525_V3.md
+release/**/SUCCESS_MILESTONE_20260525_V3.md
+
+# Keep release artifacts, source jars, and the Windows launcher in the repo.
+!release/
+!*.jar
+!Y700Switch2Launcher.exe
+!release/**/Y700Switch2Launcher.exe
