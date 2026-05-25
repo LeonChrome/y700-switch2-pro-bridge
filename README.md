@@ -1,5 +1,13 @@
 # Y700 Switch 2 Pro Bridge
 
+中文说明：
+
+这个项目把一台已经 root 的联想 Y700 平板用作 Switch 2 Pro 手柄的 BLE 转 USB 桥接器。真实的 Switch 2 Pro 手柄通过蓝牙连接到 Y700，Y700 读取手柄的私有 BLE GATT 输入通知，然后在 USB 侧模拟一个 Nintendo 风格的 HID 设备，让 Windows / Steam 按 Nintendo 控制器路径识别它。
+
+当前 v3 稳定版已经完成异机测试：把 release 文件夹复制到另一台 Windows 电脑后，可以用 `Y700Switch2Launcher.exe` 部署并启动 Y700 端桥接程序，按键转发和基础震动反馈均已验证。
+
+English:
+
 Use a rooted Lenovo Y700 as a BLE-to-USB bridge for a real Switch 2 Pro Controller. The controller connects to the Y700 over BLE; the Y700 exposes a Nintendo-style USB HID gadget to Windows and Steam.
 
 Current stable release:
@@ -10,13 +18,36 @@ release/v3-stable-20260525-input-rumble
 
 The stable v3 package has been tested on another Windows PC with the generated `Y700Switch2Launcher.exe`.
 
-For the shortest setup path, see [QUICKSTART.md](QUICKSTART.md).
+快速上手 / Quickstart: [QUICKSTART.md](QUICKSTART.md)
 
 ## Acknowledgements
 
+中文：
+
+本项目受到 `switch2-controller-windows10-dual-layouts` 以及相关 Switch 2 手柄 Windows 兼容性研究的启发。这里的实现路线不同：不是让手柄直接通过 BLE 连到 Windows，而是使用 root 后的 Y700 作为中间桥，解析 Switch 2 Pro 手柄的私有 BLE GATT 数据，再通过 USB Gadget / FunctionFS 向 Windows 和 Steam 暴露 Nintendo 风格的 HID 设备。
+
+English:
+
 This project was inspired in part by `switch2-controller-windows10-dual-layouts` and the community research around Switch 2 controller layouts on Windows. The implementation here uses a different route: instead of connecting the controller directly to Windows over BLE, a rooted Lenovo Y700 parses the Switch 2 Pro Controller's private BLE GATT notifications and presents a Nintendo-style USB HID gadget to Windows and Steam.
 
-See [ACKNOWLEDGEMENTS.md](ACKNOWLEDGEMENTS.md) for the full note.
+完整致谢 / Full note: [ACKNOWLEDGEMENTS.md](ACKNOWLEDGEMENTS.md)
+
+## 当前能力
+
+- Switch 2 Pro 手柄通过 BLE 连接到 Y700。
+- Y700 读取手柄输入并写入 Android 本地状态文件。
+- Y700 通过 USB Gadget / FunctionFS 暴露 Nintendo 风格 USB HID。
+- Windows / Steam 可走 Nintendo 控制器识别路径。
+- v3 已验证按键、方向键、肩键、摇杆、`C`、`GL`、`GR`。
+- v3 已验证基础震动/HD rumble 转发路径。
+- Windows 侧提供 `Y700Switch2Launcher.exe`，用于部署、启动、查看状态、测试震动、停止和拉取日志。
+
+## 注意事项
+
+- 需要 root 后的 Lenovo Y700。
+- 建议使用无线 ADB 启动，因为重配 USB gadget 时可能会断开 USB ADB。
+- 这是研究和实验项目，不是 Nintendo 官方驱动。
+- 当前稳定包位于 `release/v3-stable-20260525-input-rumble`。
 
 ## Project Notes
 
