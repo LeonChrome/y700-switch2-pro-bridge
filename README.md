@@ -49,6 +49,19 @@ This project was inspired in part by `switch2-controller-windows10-dual-layouts`
 - 这是研究和实验项目，不是 Nintendo 官方驱动。
 - 当前稳定包位于 `release/v3-stable-20260525-input-rumble`。
 
+## 实验版 Release
+
+当前建议的公开 release 是 `v0.1.0-experimental`。它不是成熟的一键安装包，建议用两个文件发布：
+
+```text
+Y700Switch2Launcher.exe
+y700-switch2-y700-payload-v0.1.0-experimental.zip
+```
+
+不建议只发布单个 exe。当前 Windows 启动器可以把文件推送到 Y700，但它没有把 Y700/Android 端 jar 和 setup 脚本嵌入 exe 内部，所以单独一个 exe 并不能完整启动桥接流程。
+
+使用时请把 payload zip 解压到和 `Y700Switch2Launcher.exe` 同一个文件夹，再运行 launcher。详细说明见 [RELEASE_NOTES_v0.1.0-experimental.md](RELEASE_NOTES_v0.1.0-experimental.md)。
+
 ## Project Notes
 
 This folder contains a minimal USB HID gamepad setup for Lenovo Y700 2025.

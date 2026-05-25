@@ -14,6 +14,7 @@ tools/*.exe
 tools/steam_input_probe_runtime/steam_api64.dll
 SUCCESS_MILESTONE_20260525_V3.md
 release/**/SUCCESS_MILESTONE_20260525_V3.md
+release/v0.1.0-experimental/
 
 # Keep release artifacts, source jars, and the Windows launcher in the repo.
 !release/
