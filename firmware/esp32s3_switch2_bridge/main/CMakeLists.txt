@@ -1,0 +1,28 @@
+idf_component_register(
+    SRCS
+        "app_main.c"
+        "usb/usb_descriptors.c"
+        "usb/hid_report.c"
+        "usb/usb_hid_device.c"
+        "ble/ble_central.c"
+        "ble/switch2_gatt.c"
+        "bridge/switch2_state.c"
+        "bridge/report_mapper.c"
+        "control/control_protocol.c"
+        "log/app_log.c"
+        "config/device_config.c"
+    INCLUDE_DIRS
+        "."
+        "usb"
+        "ble"
+        "bridge"
+        "control"
+        "log"
+        "config"
+    REQUIRES
+        tinyusb
+        bt
+        nvs_flash
+        esp_timer
+        driver
+)

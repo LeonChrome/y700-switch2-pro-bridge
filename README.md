@@ -407,3 +407,35 @@ English:
 English:
 
 This stage is considered complete for now. A possible future direction is replacing the Y700 bridge role with a Raspberry Pi or a similar development board: BLE to the real Switch 2 Pro Controller on one side, Nintendo-style USB device emulation on the other. That direction should be revisited after the development board is available for testing.
+
+## ESP32-S3 MCU Track / ESP32-S3 MCU 分支
+
+中文：
+
+新增 ESP32-S3 MCU 版本的工程骨架已放在独立目录中，不覆盖当前 Y700 稳定路线：
+
+```text
+firmware/esp32s3_switch2_bridge/
+windows/manager_app/
+tools/esp32s3/
+docs/esp32s3/
+```
+
+当前 ESP32-S3 开发板尚未到货，因此所有固件烧录、USB HID 枚举、joy.cpl、Steam 识别、BLE scan/connect/notify、rumble 反向通道都统一标记为 `PENDING_HARDWARE_TEST`。
+
+English:
+
+An ESP32-S3 MCU track has been added in separate directories without overwriting the current Y700 stable route:
+
+```text
+firmware/esp32s3_switch2_bridge/
+windows/manager_app/
+tools/esp32s3/
+docs/esp32s3/
+```
+
+The ESP32-S3 board has not arrived yet, so firmware flashing, USB HID enumeration, joy.cpl behavior, Steam recognition, BLE scan/connect/notify, and the rumble reverse path are all marked `PENDING_HARDWARE_TEST`.
+
+Start here:
+
+[docs/esp32s3/README_ESP32S3.md](docs/esp32s3/README_ESP32S3.md)

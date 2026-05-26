@@ -9,6 +9,9 @@ logs/
 *.ilk
 *.obj
 *.class
+bin/
+obj/
+.vs/
 *.zip
 tools/*.exe
 tools/steam_input_probe_runtime/steam_api64.dll
