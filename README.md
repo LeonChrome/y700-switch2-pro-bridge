@@ -1,253 +1,198 @@
 # Y700 / ESP32-S3 Switch 2 Pro Bridge
 
-## All-in-one Flasher + Manager / 一体化刷机包 + 控制软件
+## Project Positioning / 项目定位
 
-## 中文
+### 中文
 
-如果只是想把 ESP32-S3 开发板刷成 Switch 2 Pro Bridge，优先下载 GitHub Release 里的：
+这是一个低成本、低延迟的 Switch 2 Pro Controller BLE-to-USB 硬件桥接项目。当前主线是 ESP32-S3 开发板方案：真实 Switch 2 Pro Controller 通过 BLE 连接开发板，开发板通过 USB HID 输出到主机设备。Windows / Steam 端优先优化 Nintendo / Switch Pro 风格识别路径。
+
+本项目最早从 root 后的 Lenovo Y700 平板方案开始。Y700 Android USB Gadget 路线仍保留在仓库中作为历史稳定路线和 research path，但当前开发重心已经转向 ESP32-S3 独立硬件桥接器。
+
+### English
+
+A low-cost, low-latency BLE-to-USB hardware bridge for the Switch 2 Pro Controller. The current mainline is the ESP32-S3 receiver: the real controller connects over BLE, and the board exposes a USB HID gamepad to the host, with Windows / Steam optimized for a Nintendo / Switch Pro-style path.
+
+This project started as a rooted Lenovo Y700 Android USB Gadget bridge. The Y700 route is still kept as a historical stable/research path, but the current development focus is the standalone ESP32-S3 hardware bridge.
+
+## Current Status / 当前状态
+
+| Track | Status | Use case | Notes |
+| --- | --- | --- | --- |
+| V4.0.0 ESP32-S3 Pro2 Bridge | Stable / 推荐稳定版 | 普通测试者优先使用 | ESP32-S3 BLE input + USB HID output + Windows / Steam Nintendo-style path |
+| V5.0.0 All-in-one Manager Preview | Preview / 预览版 | 仅适合测试用户 | A Windows EXE that bundles the V4 firmware payload, flasher, and manager UI. It does not fully replace V4 stable yet. |
+| Y700 Android USB Gadget route | Legacy / 历史方案 | Research path / 历史稳定路线 | Kept for reference and previous Y700 users. The mainline has moved to ESP32-S3. |
+
+### 中文说明
+
+- **推荐稳定版：V4.0.0 ESP32-S3 Pro2 Bridge**。适合普通测试者，重点是 ESP32-S3 BLE 输入、USB HID 输出、Windows / Steam 路径。
+- **预览版：V5.0.0 All-in-one Manager Preview**。它是刷机与管理工具预览版，内置 V4 固件 payload，方便不会手动烧录的用户测试，但不要理解为 V5 已经完全取代 V4。
+- **历史方案：Y700 Android USB Gadget**。保留为历史稳定路线和研究资料，当前主线已经转向 ESP32-S3。
+
+### English Notes
+
+- **Stable: V4.0.0 ESP32-S3 Pro2 Bridge**. Recommended for normal testers. Focus: ESP32-S3 BLE input, USB HID output, and the Windows / Steam path.
+- **Preview: V5.0.0 All-in-one Manager Preview**. This is a flasher/manager preview that bundles the V4 firmware payload. It should not be read as a full replacement for V4 stable yet.
+- **Legacy: Y700 Android USB Gadget route**. Kept as the historical stable/research route. The mainline is now ESP32-S3.
+
+## Verified vs Planned / 已验证与规划
+
+### Verified / 已验证
+
+- Real Switch 2 Pro Controller BLE input on ESP32-S3.
+- 133Hz-class BLE input rate with BLE connection interval request `6` / `7.5 ms` in the current tested environment.
+- 1000Hz-class USB HID report output; host-side Windows test has measured about `993 Hz` over a 10-second window.
+- Windows / Steam Nintendo-style controller path.
+- Basic input mapping: buttons, D-pad, sticks, stick clicks, `+`, `-`, `Home`, `Capture`, `C`, `GL`, `GR`.
+- Basic rumble / haptic forwarding has produced physical feedback.
+- Windows Manager / status view for USB state, BLE state, actual report rate, BLE input Hz, BLE interval, HID OUT/GET, bulk control, and rumble counters.
+- All-in-one Manager preview can flash, erase, reflash, detect CH343/CH340/WCH ports, and show BLE candidates.
+
+### Planned / 规划中
+
+- macOS Generic USB HID Gamepad Mode. **Planned / Not yet verified as stable.**
+- Android OTG Generic USB HID Gamepad Mode. **Planned / Not yet verified as stable.**
+- Dual Controller Mode. **Planned / Not tested.**
+- Profile switching across Windows / Steam, macOS Generic, and Android Generic modes.
+- Cross-platform test matrix with host-observed input rates.
+- Better release packaging, SHA256 summaries, and clearer stable/preview download flow.
+
+macOS, Android, and Dual Controller Mode are future planning or experimental directions. They are not current V4 stable capabilities.
+
+## Performance Notes / 性能说明
+
+- Real BLE input freshness is represented by `BLE input Hz` / `ble_input_actual_mhz`.
+- USB HID report output can run faster than BLE input. When USB report rate is higher than BLE input rate, the USB side repeats the latest BLE controller state.
+- 1000Hz-class USB output does not mean the physical controller generates 1000 new BLE samples per second.
+- Host applications may show lower rates because OS/game APIs can coalesce or throttle events.
+- Performance claims should be checked with firmware logs and host-side test tools.
+
+## Release Downloads / 发布下载
+
+普通用户建议优先从 GitHub Releases 下载 EXE、JAR、firmware zip 等发布包，而不是从仓库根目录手动挑二进制文件。
+
+Normal users should prefer GitHub Releases for EXE, JAR, firmware zip, and packaged tools.
+
+### Stable / 推荐稳定版
+
+```text
+esp32s3-pro2-bridge-v4.0.0-20260529.zip
+esp32s3-pro2-bridge-firmware-v4.0.0-20260529.zip
+Y700Switch2Manager-v4.0.0.exe
+```
+
+### Preview / 预览版
 
 ```text
 Y700Switch2Manager-aio-v5.0.0-preview.exe
 ```
 
-这是新的 All-in-one Windows 10 / Windows 11 单文件工具，已经内置 ESP32-S3 固件、bootloader、partition table、独立 esptool 烧录器和 Manager 控制面板。用户只需要插开发板的 `CH343P Type-C` 口，打开 EXE，选择对应 COM 口，就可以执行一键刷入、仅清除、清除并重刷、修复重刷。刷完后同一个 EXE 会继续负责 USB/BLE/速率/rumble 状态查看和控制。
-
-这版还提供 CH343/CH340/WCH 驱动检测提示、官方驱动下载入口、启动后自动连接控制通道、自动同步状态，以及 BLE 搜索/候选列表/连接选中流程。候选列表里标记 `推荐` 的设备，是广播信息看起来更像 Switch Pro / Pro2 的目标。
-
-## English
-
-If you only want to flash an ESP32-S3 board into the Switch 2 Pro Bridge, start with the GitHub Release asset:
-
-```text
-Y700Switch2Manager-aio-v5.0.0-preview.exe
-```
-
-This is the new All-in-one Windows 10 / Windows 11 single-file tool. It embeds the ESP32-S3 firmware, bootloader, partition table, standalone esptool flasher, and the Manager control panel. Plug the board's `CH343P Type-C` port, open the EXE, select the COM port, then use one-click flash, erase-only, erase-and-flash, or repair reflash. After flashing, the same EXE continues to show and control USB, BLE, report-rate, and rumble status.
-
-It also includes CH343/CH340/WCH driver detection hints, official driver download links, automatic control-channel connection on startup, automatic status sync, and a BLE search/candidate/connect-selected flow. Entries marked `推荐` are devices whose advertisements look more like Switch Pro / Pro2 controllers.
-
-## 中文
-
-这个项目最初使用 root 后的联想 Y700 平板，把真实 Switch 2 Pro Controller 的 BLE 输入转成 Windows / Steam 可识别的 Nintendo 风格 USB HID 设备。
-
-V4 版本把这条链路移植到了 ESP32-S3 开发板上：真实 Pro2 手柄通过 BLE 连接 ESP32-S3，ESP32-S3 再通过原生 USB 模拟 Nintendo Switch Pro Controller。Y700 v3 路线仍保留在仓库里作为历史稳定版本，但 V4 的主线目标已经是独立 MCU 桥接器。
-
-## English
-
-This project started as a rooted Lenovo Y700 BLE-to-USB bridge for a real Switch 2 Pro Controller. The Y700 read private BLE GATT notifications and exposed a Nintendo-style USB HID device to Windows / Steam.
-
-V4 moves that bridge onto an ESP32-S3 development board: the real Pro2 controller connects to the ESP32-S3 over BLE, and the ESP32-S3 exposes a Nintendo Switch Pro Controller-compatible USB device to the PC. The Y700 v3 path is still kept in the repository as the previous stable route, while V4 is now the primary MCU bridge path.
-
-## V4 Status / V4 状态
-
-## 中文
-
-V4 已在当前测试环境验证：
-
-- ESP32-S3 通过 BLE 直接连接真实 Switch 2 Pro Controller。
-- Steam 可识别为 Nintendo Switch Pro / Pro2 控制器路径。
-- A/B/X/Y、方向键、肩键、摇杆、摇杆按下、`+`、`-`、`Home`、`Capture`、`C`、`GL`、`GR` 输入已跑通。
-- Pro2 rumble / HD rumble 转发已产生物理反馈。
-- BLE connection interval 固定请求为 `6`，即 `7.5 ms`，真实 BLE 输入约 `133.3 Hz`。
-- ESP32-S3 USB HID 端点 interval 为 `1 ms`，USB report loop 可接近 `1000 Hz`，当前 10 秒窗口 Windows 侧实测约 `993.3 Hz`；高于 BLE 输入频率的 USB report 会重复最新 BLE 状态。
-- 右摇杆 neutral 偏移问题已修复：FD2 与 legacy BLE notify 流使用独立自动中心校准。
-- Windows Manager exe 可显示 USB、BLE、report rate、rumble、HID OUT/GET、bulk control 等状态。
-
-## English
-
-V4 has been verified in the current test environment:
-
-- ESP32-S3 connects directly to the real Switch 2 Pro Controller over BLE.
-- Steam recognizes the device through the Nintendo Switch Pro / Pro2 controller path.
-- A/B/X/Y, D-pad, shoulders, sticks, stick clicks, `+`, `-`, `Home`, `Capture`, `C`, `GL`, and `GR` input paths are working.
-- Pro2 rumble / HD rumble forwarding produces physical feedback.
-- BLE connection interval is requested as `6`, which is `7.5 ms`; real BLE input is about `133.3 Hz`.
-- The ESP32-S3 USB HID endpoint uses a `1 ms` interval, and the USB report loop can approach `1000 Hz`, with a current 10-second Windows-side measurement of about `993.3 Hz`; USB reports above the BLE input cadence repeat the latest BLE state.
-- The right-stick neutral drift issue is fixed by giving the FD2 and legacy BLE notify streams separate auto-center calibration.
-- The Windows Manager exe shows USB, BLE, report-rate, rumble, HID OUT/GET, and bulk-control status.
-
-## Release Files / 发布文件
-
-## 中文
-
-V4 GitHub Release 会提供：
-
-- `esp32s3-pro2-bridge-v4.0.0-20260529.zip`：完整发布包，包含 ESP32-S3 烧录固件、烧录脚本、Windows Manager exe、诊断工具和说明。
-- `Y700Switch2Manager-v4.0.0.exe`：单独的 Windows Manager 控制台。
-- `esp32s3-pro2-bridge-firmware-v4.0.0-20260529.zip`：仅固件和烧录脚本，适合只想刷板子的情况。
-
-## English
-
-The V4 GitHub Release provides:
-
-- `esp32s3-pro2-bridge-v4.0.0-20260529.zip`: full package with ESP32-S3 firmware binaries, flash scripts, Windows Manager exe, diagnostic tools, and documentation.
-- `Y700Switch2Manager-v4.0.0.exe`: standalone Windows Manager console.
-- `esp32s3-pro2-bridge-firmware-v4.0.0-20260529.zip`: firmware-only flasher package for users who only need to flash the board.
+The V5 preview is useful if you want one Windows EXE that includes the firmware payload, flasher, driver hints, BLE scan list, and manager panel. It is still a preview.
 
 ## Hardware / 硬件
 
-## 中文
+Current ESP32-S3 tested board shape:
 
-V4 使用的开发板假设：
+- ESP32-S3-N16R8.
+- 16MB flash.
+- 8MB PSRAM.
+- CH343P Type-C for flashing, logs, and serial control.
+- ESP32-S3 native USB & OTG Type-C for USB HID output to the host.
 
-- ESP32-S3-N16R8
-- 16MB flash
-- 8MB PSRAM
-- CH343P Type-C：烧录、日志、串口控制
-- ESP32-S3 native USB & OTG Type-C：对 Windows / Steam 暴露 USB HID
+Other board ports are welcome, but they should be documented with hardware model, SDK, USB path, BLE path, and measured test results.
 
-## English
+## Quick Start / 快速开始
 
-V4 assumes this board shape:
+### V4 Stable Path
 
-- ESP32-S3-N16R8
-- 16MB flash
-- 8MB PSRAM
-- CH343P Type-C for flashing, logs, and serial control
-- ESP32-S3 native USB & OTG Type-C for the USB HID device exposed to Windows / Steam
-
-## Flashing / 烧录
-
-## 中文
-
-最简单的烧录方式：
-
-1. 下载并解压 `esp32s3-pro2-bridge-v4.0.0-20260529.zip`。
-2. 用 USB 线连接开发板的 `CH343P Type-C` 口到 Windows。
-3. native USB & OTG 口可以同时插着，用于刷完后让 Windows / Steam 识别 HID；如果识别不刷新，刷完后重新插拔 native USB 口。
-4. 在解压目录打开 PowerShell，运行：
-
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\esp32s3\flash_release.ps1 -Port COM12
-```
-
-如果 CH343P 不是 `COM12`，先运行：
-
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\esp32s3\detect_ports.ps1
-```
-
-然后把命令里的 `COM12` 改成实际端口。也可以双击：
-
-```text
-tools\esp32s3\Flash-Pro2Bridge.bat
-```
-
-如果烧录出现串口噪声或 stub 传输失败，可尝试：
-
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\esp32s3\flash_release.ps1 -Port COM12 -Baud 115200
-powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\esp32s3\flash_release.ps1 -Port COM12 -Baud 115200 -NoStub
-```
-
-## English
-
-The simplest flashing path:
-
-1. Download and extract `esp32s3-pro2-bridge-v4.0.0-20260529.zip`.
+1. Download and extract the V4 stable release package.
 2. Connect the board's `CH343P Type-C` port to Windows.
-3. The native USB & OTG port may stay connected so Windows / Steam can enumerate the HID device after flashing; if enumeration does not refresh, replug the native USB port.
-4. Open PowerShell in the extracted folder and run:
+3. Flash the firmware:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\esp32s3\flash_release.ps1 -Port COM12
 ```
 
-If the CH343P port is not `COM12`, first run:
+4. If the port is not `COM12`, detect the CH343P port first:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\esp32s3\detect_ports.ps1
 ```
 
-Then replace `COM12` with the actual port. You can also double-click:
+5. Replug the native USB & OTG port if Windows / Steam does not refresh HID enumeration after flashing.
+6. Use the Manager or serial commands to reconnect BLE and inspect status.
 
-```text
-tools\esp32s3\Flash-Pro2Bridge.bat
-```
+### V5 Preview Path
 
-If flashing reports serial noise or stub transfer failures, try:
-
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\esp32s3\flash_release.ps1 -Port COM12 -Baud 115200
-powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\esp32s3\flash_release.ps1 -Port COM12 -Baud 115200 -NoStub
-```
-
-## Windows Manager / Windows 管理器
-
-## 中文
-
-`Y700Switch2Manager.exe` 会优先使用 CH343P 串口控制；没有串口时会尝试 native USB HID feature report 和 WinUSB bulk fallback。面板可查看：
-
-- 控制连接方式
-- USB HID / bulk mounted 状态
-- Steam init guard 状态
-- BLE connected / scanning / idle
-- BLE target、自动重连、live input 状态
-- BLE input Hz、BLE interval、BLE gap
-- USB report target / actual rate
-- HID OUT / GET 和 bulk control 计数
-- rumble 状态、写入次数、错误数和调参值
-
-## English
-
-`Y700Switch2Manager.exe` prefers CH343P serial control, then falls back to native USB HID feature reports and WinUSB bulk control. The panel shows:
-
-- Control transport
-- USB HID / bulk mounted state
-- Steam init guard state
-- BLE connected / scanning / idle
-- BLE target, auto-reconnect, and live input state
-- BLE input Hz, BLE interval, and BLE gaps
-- USB report target / actual rate
-- HID OUT / GET and bulk-control counters
-- Rumble state, write count, error count, and tuning values
+1. Download `Y700Switch2Manager-aio-v5.0.0-preview.exe` from GitHub Releases.
+2. Connect the board's `CH343P Type-C` port.
+3. Open the EXE, choose the COM port, then use one-click flash.
+4. Use erase-only or erase-and-flash only if you are intentionally testing recovery/blank-board flows.
 
 ## Useful Commands / 常用命令
 
 ```powershell
-# Query firmware status / 查询固件状态
+# Query firmware status
 powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\esp32s3\send_command.ps1 -Port COM12 -Command status -ReadSeconds 5
 
-# Force reconnect to the saved Pro2 target / 重连已保存的 Pro2
+# Force reconnect to the saved Pro2 target
 powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\esp32s3\send_command.ps1 -Port COM12 -Command "ble reconnect" -ReadSeconds 30
 
-# Set USB report loop to 1000 Hz / 设置 USB report loop 为 1000 Hz
+# Set USB report loop to 1000 Hz
 powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\esp32s3\send_command.ps1 -Port COM12 -Command "rate 1000" -ReadSeconds 3
 
-# Measure host-observed HID report rate / 测量 Windows 侧 HID report rate
+# Measure host-observed HID report rate on Windows
 powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\Measure-SwitchHidRate.ps1 -Seconds 5
 
-# Rumble smoke test / 震动冒烟测试
+# Rumble smoke test
 powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\esp32s3\send_command.ps1 -Port COM12 -Command "rumble hold 3000" -ReadSeconds 5
 ```
+
+## Documentation / 文档
+
+- [Quickstart](QUICKSTART.md)
+- [V4.0.0 Release Notes](RELEASE_NOTES_v4.0.0.md)
+- [V5.0.0 Preview Release Notes](RELEASE_NOTES_v5.0.0-preview.md)
+- [ESP32-S3 documentation](docs/esp32s3/README_ESP32S3.md)
+- [Control protocol](docs/esp32s3/CONTROL_PROTOCOL.md)
+- [Next generation plan](docs/NEXT_GENERATION_PLAN.md)
+- [Test matrix](docs/TEST_MATRIX.md)
+- [Release packaging plan](docs/RELEASE_PACKAGING_PLAN.md)
+- [Contributing](CONTRIBUTING.md)
 
 ## Repository Layout / 仓库结构
 
 ```text
-firmware/esp32s3_switch2_bridge/   ESP-IDF firmware for the ESP32-S3 V4 bridge
-windows/manager_app/               .NET 8 WPF Manager
+firmware/esp32s3_switch2_bridge/   ESP-IDF firmware for the ESP32-S3 bridge
+windows/manager_app/               .NET 8 WPF Manager and all-in-one flasher source
 tools/esp32s3/                     Build, flash, monitor, and serial command scripts
-docs/esp32s3/                      ESP32-S3 protocol and troubleshooting docs
-release/                           Local packaged artifacts; large release assets are uploaded to GitHub Releases
+tools/                             HID, Steam, haptic, and rate-test helper tools
+docs/esp32s3/                      ESP32-S3 protocol, design, and troubleshooting docs
+release/                           Local packaged artifacts; public downloads should use GitHub Releases
 src/                               Historical Y700 Android bridge/responder sources
 ```
 
-## Safety Notes / 注意事项
+## Contributing / 贡献
 
-## 中文
+Contributions are welcome. Good areas include board ports, HID descriptor experiments, macOS / Android compatibility testing, BLE rate and latency testing, documentation, and release packaging improvements.
 
-这仍然是研究型项目，不是 Nintendo 官方驱动。不同 ESP32-S3 开发板、Windows 版本、Steam 版本、USB 线材和蓝牙环境可能会影响结果。刷机前请确认使用的是 CH343P 烧录口，不要把 native USB HID 口误当作烧录口。
+See [CONTRIBUTING.md](CONTRIBUTING.md) for a simple contribution guide.
 
-## English
+## Disclaimer / 免责声明
 
-This is still a research project, not an official Nintendo driver. Results may vary with different ESP32-S3 boards, Windows builds, Steam versions, USB cables, and BLE environments. Before flashing, make sure you are using the CH343P flashing port, not the native USB HID port.
+This project is not affiliated with, endorsed by, or sponsored by Nintendo, Valve, Microsoft, Apple, Google, Espressif, or any other hardware/software vendor. Nintendo Switch, Switch Pro Controller, Steam, Windows, macOS, Android, ESP32, and related names are trademarks of their respective owners.
+
+本项目不是 Nintendo、Valve、Microsoft、Apple、Google、Espressif 或其他厂商的官方项目，也未获得上述公司的认可或赞助。Nintendo Switch、Switch Pro Controller、Steam、Windows、macOS、Android、ESP32 等名称归各自权利人所有。
+
+This is an experimental research project. Results may vary with different ESP32-S3 boards, Windows builds, Steam versions, USB cables, BLE environments, and controller firmware.
+
+这是一个实验性研究项目。不同 ESP32-S3 开发板、Windows 版本、Steam 版本、USB 线材、BLE 环境和手柄固件版本都可能影响结果。
 
 ## License / 许可证
 
-## 中文
+This project is licensed under the Apache License 2.0. See [LICENSE](LICENSE) for details.
 
-本项目以 Apache License 2.0 发布，详见 [LICENSE](LICENSE)。第三方依赖、组件或工具仍按其各自许可证授权。
+本项目采用 Apache License 2.0 开源协议，详见 [LICENSE](LICENSE) 文件。
 
-## English
+Ports to other boards are welcome, as long as the Apache-2.0 license terms are followed.
 
-This project is licensed under the Apache License 2.0. See [LICENSE](LICENSE). Third-party dependencies, components, and tools remain under their respective licenses.
+欢迎移植到其他开发板，但请遵守 Apache-2.0 开源协议条款。
