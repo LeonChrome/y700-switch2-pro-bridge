@@ -241,3 +241,13 @@ src/                               Historical Y700 Android bridge/responder sour
 ## English
 
 This is still a research project, not an official Nintendo driver. Results may vary with different ESP32-S3 boards, Windows builds, Steam versions, USB cables, and BLE environments. Before flashing, make sure you are using the CH343P flashing port, not the native USB HID port.
+
+## License / 许可证
+
+## 中文
+
+本项目以 Apache License 2.0 发布，详见 [LICENSE](LICENSE)。第三方依赖、组件或工具仍按其各自许可证授权。
+
+## English
+
+This project is licensed under the Apache License 2.0. See [LICENSE](LICENSE). Third-party dependencies, components, and tools remain under their respective licenses.
