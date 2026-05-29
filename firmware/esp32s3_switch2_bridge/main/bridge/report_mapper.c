@@ -1,5 +1,8 @@
 #include <string.h>
+#include "esp_timer.h"
 #include "report_mapper.h"
+
+static uint8_t s_nintendo_input_seq;
 
 static int8_t axis12_to_i8(uint16_t value)
 {
@@ -17,21 +20,21 @@ static int8_t axis12_to_i8(uint16_t value)
 static uint8_t map_hat(const switch2_state_t *state)
 {
     if (switch2_state_get_button(state, SWITCH2_BUTTON_DUP)) {
-        return 0;
+        return 1;
     }
     if (switch2_state_get_button(state, SWITCH2_BUTTON_DRIGHT)) {
-        return 2;
+        return 3;
     }
     if (switch2_state_get_button(state, SWITCH2_BUTTON_DDOWN)) {
-        return 4;
+        return 5;
     }
     if (switch2_state_get_button(state, SWITCH2_BUTTON_DLEFT)) {
-        return 6;
+        return 7;
     }
-    return 8;
+    return 0;
 }
 
-void report_mapper_state_to_generic_report(const switch2_state_t *state, hid_gamepad_report_t *report)
+void report_mapper_state_to_generic_report(const switch2_state_t *state, bridge_hid_gamepad_report_t *report)
 {
     hid_report_make_neutral(report);
     report->hat = map_hat(state);
@@ -67,6 +70,7 @@ static void pack12_pair(uint8_t *out, int offset, uint16_t x, uint16_t y)
 void report_mapper_state_to_nintendo_report(const switch2_state_t *state, uint8_t report[NINTENDO_REPORT_SIZE])
 {
     hid_report_make_nintendo_neutral(report);
+    report[1] = s_nintendo_input_seq++;
 
     if (switch2_state_get_button(state, SWITCH2_BUTTON_Y)) report[5] |= 0x01;
     if (switch2_state_get_button(state, SWITCH2_BUTTON_X)) report[5] |= 0x02;
@@ -95,4 +99,10 @@ void report_mapper_state_to_nintendo_report(const switch2_state_t *state, uint8_
 
     pack12_pair(report, 11, state->lx, state->ly);
     pack12_pair(report, 14, state->rx, state->ry);
+
+    uint32_t now_us = (uint32_t)esp_timer_get_time();
+    report[0x2b] = (uint8_t)(now_us & 0xff);
+    report[0x2c] = (uint8_t)((now_us >> 8) & 0xff);
+    report[0x2d] = (uint8_t)((now_us >> 16) & 0xff);
+    report[0x2e] = (uint8_t)((now_us >> 24) & 0xff);
 }

@@ -28,8 +28,9 @@ public sealed class SerialDeviceClient : IDisposable
             Encoding = Encoding.UTF8,
             ReadTimeout = 500,
             WriteTimeout = 1000,
-            DtrEnable = true,
-            RtsEnable = true
+            Handshake = Handshake.None,
+            DtrEnable = false,
+            RtsEnable = false
         };
         port.Open();
         readCts = new CancellationTokenSource();

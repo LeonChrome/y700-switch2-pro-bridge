@@ -2,16 +2,41 @@
 #include "hid_report.h"
 #include "usb_descriptors.h"
 
+#define EPNUM_HID_OUT 0x01
 #define EPNUM_HID 0x81
+#define EPNUM_VENDOR_OUT 0x02
+#define EPNUM_VENDOR_IN 0x82
 #define ITF_NUM_HID 0
-#define ITF_NUM_TOTAL 1
-#define CONFIG_TOTAL_LEN (TUD_CONFIG_DESC_LEN + TUD_HID_DESC_LEN)
+#define ITF_NUM_VENDOR USB_SWITCH2_VENDOR_INTERFACE
+#define ITF_NUM_TOTAL_GENERIC 1
+#define ITF_NUM_TOTAL_NINTENDO 2
+#define CONFIG_TOTAL_LEN_GENERIC (TUD_CONFIG_DESC_LEN + TUD_HID_DESC_LEN)
+#define CONFIG_TOTAL_LEN_NINTENDO (TUD_CONFIG_DESC_LEN + TUD_HID_INOUT_DESC_LEN + TUD_VENDOR_DESC_LEN)
+#define HID_POLL_INTERVAL_MS 1
+#define VENDOR_BULK_PACKET_SIZE 64
+#define CONFIG_ATTR_NINTENDO 0
+#define CONFIG_POWER_MA_NINTENDO 500
+
+#define TUD_VENDOR_INOUT_DESCRIPTOR(_itfnum, _stridx, _epin, _epout, _epsize) \
+    9, TUSB_DESC_INTERFACE, _itfnum, 0, 2, TUSB_CLASS_VENDOR_SPECIFIC, 0x00, 0x00, _stridx, \
+    7, TUSB_DESC_ENDPOINT, _epin, TUSB_XFER_BULK, U16_TO_U8S_LE(_epsize), 0, \
+    7, TUSB_DESC_ENDPOINT, _epout, TUSB_XFER_BULK, U16_TO_U8S_LE(_epsize), 0
+
+#define TUD_HID_Y700_INOUT_DESCRIPTOR(_itfnum, _stridx, _boot_protocol, _report_desc_len, _epin, _epout, _epsize, _ep_interval) \
+    9, TUSB_DESC_INTERFACE, _itfnum, 0, 2, TUSB_CLASS_HID, (uint8_t)((_boot_protocol) ? (uint8_t)HID_SUBCLASS_BOOT : 0), _boot_protocol, _stridx, \
+    9, HID_DESC_TYPE_HID, U16_TO_U8S_LE(0x0101), 0, 1, HID_DESC_TYPE_REPORT, U16_TO_U8S_LE(_report_desc_len), \
+    7, TUSB_DESC_ENDPOINT, _epin, TUSB_XFER_INTERRUPT, U16_TO_U8S_LE(_epsize), _ep_interval, \
+    7, TUSB_DESC_ENDPOINT, _epout, TUSB_XFER_INTERRUPT, U16_TO_U8S_LE(_epsize), _ep_interval
 
 enum {
     STRID_LANGID = 0,
     STRID_MANUFACTURER,
     STRID_PRODUCT,
     STRID_SERIAL,
+    STRID_CONFIG,
+    STRID_HID_INTERFACE,
+    STRID_EMPTY,
+    STRID_VENDOR_INTERFACE,
 };
 
 const uint8_t desc_hid_report_generic[] = {
@@ -21,10 +46,11 @@ const uint8_t desc_hid_report_generic[] = {
 const uint8_t desc_hid_report_nintendo_experiment[] = {
     // Vendor/raw HID copied from Y700 v3:
     // input report 0x09 + 63 payload bytes, output report 0x02 + 63 payload bytes.
-    // PENDING_HARDWARE_TEST: host parsing and Steam path on ESP32-S3 are not verified.
+    // feature report 0x7f is a manager-only control channel and is ignored by Steam.
     0x06, 0x00, 0xff, 0x09, 0x01, 0xa1, 0x01, 0x15, 0x00, 0x26, 0xff, 0x00,
     0x75, 0x08, 0x85, 0x09, 0x95, 0x3f, 0x09, 0x01, 0x81, 0x02, 0x85, 0x02,
-    0x95, 0x3f, 0x09, 0x01, 0x91, 0x02, 0xc0
+    0x95, 0x3f, 0x09, 0x01, 0x91, 0x02, 0x85, MANAGER_FEATURE_REPORT_ID,
+    0x95, 0x3f, 0x09, 0x01, 0xb1, 0x02, 0xc0,
 };
 
 static const tusb_desc_device_t desc_device_generic = {
@@ -62,13 +88,14 @@ static const tusb_desc_device_t desc_device_nintendo = {
 };
 
 static const uint8_t desc_configuration_generic[] = {
-    TUD_CONFIG_DESCRIPTOR(1, ITF_NUM_TOTAL, 0, CONFIG_TOTAL_LEN, 0, 100),
-    TUD_HID_DESCRIPTOR(ITF_NUM_HID, 0, HID_ITF_PROTOCOL_NONE, sizeof(desc_hid_report_generic), EPNUM_HID, sizeof(hid_gamepad_report_t) + 1, 10),
+    TUD_CONFIG_DESCRIPTOR(1, ITF_NUM_TOTAL_GENERIC, 0, CONFIG_TOTAL_LEN_GENERIC, 0, 100),
+    TUD_HID_DESCRIPTOR(ITF_NUM_HID, 0, HID_ITF_PROTOCOL_NONE, sizeof(desc_hid_report_generic), EPNUM_HID, sizeof(bridge_hid_gamepad_report_t) + 1, HID_POLL_INTERVAL_MS),
 };
 
 static const uint8_t desc_configuration_nintendo[] = {
-    TUD_CONFIG_DESCRIPTOR(1, ITF_NUM_TOTAL, 0, CONFIG_TOTAL_LEN, 0, 100),
-    TUD_HID_DESCRIPTOR(ITF_NUM_HID, 0, HID_ITF_PROTOCOL_NONE, sizeof(desc_hid_report_nintendo_experiment), EPNUM_HID, NINTENDO_REPORT_SIZE, 10),
+    TUD_CONFIG_DESCRIPTOR(1, ITF_NUM_TOTAL_NINTENDO, STRID_CONFIG, CONFIG_TOTAL_LEN_NINTENDO, CONFIG_ATTR_NINTENDO, CONFIG_POWER_MA_NINTENDO),
+    TUD_HID_Y700_INOUT_DESCRIPTOR(ITF_NUM_HID, STRID_HID_INTERFACE, HID_ITF_PROTOCOL_NONE, sizeof(desc_hid_report_nintendo_experiment), EPNUM_HID, EPNUM_HID_OUT, NINTENDO_REPORT_SIZE, HID_POLL_INTERVAL_MS),
+    TUD_VENDOR_INOUT_DESCRIPTOR(ITF_NUM_VENDOR, STRID_VENDOR_INTERFACE, EPNUM_VENDOR_IN, EPNUM_VENDOR_OUT, VENDOR_BULK_PACKET_SIZE),
 };
 
 static const char *string_desc_generic[] = {
@@ -82,10 +109,12 @@ static const char *string_desc_nintendo[] = {
     "",
     "Nintendo Co., Ltd.",
     "Nintendo Switch Pro Controller",
-    "ESP32S3-NIN-EXP",
+    "HA2F83JF",
+    "Nintendo Switch Pro Controller",
+    "HID Interface",
+    "",
+    "Nintendo Switch 2 bulk",
 };
-
-static uint16_t _desc_str[32];
 
 uint16_t usb_descriptors_current_vid(void)
 {
@@ -108,10 +137,10 @@ const char *usb_descriptors_current_manufacturer(void)
     return device_config_get_mode() == NINTENDO_EXPERIMENT_MODE ? "Nintendo Co., Ltd." : "LeonChrome";
 }
 
-uint8_t const *tud_descriptor_device_cb(void)
+const tusb_desc_device_t *usb_descriptors_current_device(void)
 {
-    return (uint8_t const *)(device_config_get_mode() == NINTENDO_EXPERIMENT_MODE ?
-        &desc_device_nintendo : &desc_device_generic);
+    return device_config_get_mode() == NINTENDO_EXPERIMENT_MODE ?
+        &desc_device_nintendo : &desc_device_generic;
 }
 
 uint8_t const *tud_hid_descriptor_report_cb(uint8_t instance)
@@ -121,38 +150,19 @@ uint8_t const *tud_hid_descriptor_report_cb(uint8_t instance)
         desc_hid_report_nintendo_experiment : desc_hid_report_generic;
 }
 
-uint8_t const *tud_descriptor_configuration_cb(uint8_t index)
+const uint8_t *usb_descriptors_current_configuration(void)
 {
-    (void)index;
     return device_config_get_mode() == NINTENDO_EXPERIMENT_MODE ?
         desc_configuration_nintendo : desc_configuration_generic;
 }
 
-uint16_t const *tud_descriptor_string_cb(uint8_t index, uint16_t langid)
+const char **usb_descriptors_current_strings(void)
 {
-    (void)langid;
-
-    const char **strings = device_config_get_mode() == NINTENDO_EXPERIMENT_MODE ?
+    return device_config_get_mode() == NINTENDO_EXPERIMENT_MODE ?
         string_desc_nintendo : string_desc_generic;
-    const uint8_t count = 4;
+}
 
-    if (index >= count) {
-        return NULL;
-    }
-
-    uint8_t chr_count;
-    if (index == 0) {
-        _desc_str[1] = 0x0409;
-        chr_count = 1;
-    } else {
-        const char *str = strings[index];
-        chr_count = 0;
-        while (str[chr_count] && chr_count < 31) {
-            _desc_str[1 + chr_count] = str[chr_count];
-            chr_count++;
-        }
-    }
-
-    _desc_str[0] = (uint16_t)((TUSB_DESC_STRING << 8) | (2 * chr_count + 2));
-    return _desc_str;
+int usb_descriptors_current_string_count(void)
+{
+    return device_config_get_mode() == NINTENDO_EXPERIMENT_MODE ? 8 : 4;
 }

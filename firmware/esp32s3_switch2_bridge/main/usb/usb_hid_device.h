@@ -7,5 +7,16 @@
 esp_err_t usb_hid_device_init(void);
 bool usb_hid_device_ready(void);
 const char *usb_hid_device_state_string(void);
-esp_err_t usb_hid_device_send_generic_report(const hid_gamepad_report_t *report);
+uint32_t usb_hid_device_out_count(void);
+uint8_t usb_hid_device_last_out_report_id(void);
+uint8_t usb_hid_device_last_out_effective_report_id(void);
+uint8_t usb_hid_device_last_out_type(void);
+uint16_t usb_hid_device_last_out_len(void);
+uint8_t usb_hid_device_last_out_first_byte(void);
+uint32_t usb_hid_device_get_count(void);
+uint8_t usb_hid_device_last_get_report_id(void);
+uint8_t usb_hid_device_last_get_type(void);
+uint16_t usb_hid_device_last_get_req_len(void);
+uint16_t usb_hid_device_last_get_resp_len(void);
+esp_err_t usb_hid_device_send_generic_report(const bridge_hid_gamepad_report_t *report);
 esp_err_t usb_hid_device_send_nintendo_report(const uint8_t report[NINTENDO_REPORT_SIZE]);

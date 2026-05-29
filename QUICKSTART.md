@@ -1,144 +1,164 @@
-# Quickstart
+# Quickstart / 快速开始
 
-中文快速上手：
+## 中文
 
-这是在另一台 Windows 电脑上使用 v3 稳定包的最短流程。
+这是 V4 ESP32-S3 版本的最短使用流程。
 
 ## 需要准备
 
-- 已 root 的联想 Y700 平板。
-- Y700 已开启无线调试，或至少能通过 ADB 连接。
-- Switch 2 Pro 手柄可以通过蓝牙连接到 Y700。
-- Windows 电脑上有 `adb.exe`，可以放在 `PATH`、放在 `Y700Switch2Launcher.exe` 同目录，或用 `--adb` 指定路径。
-- 稳定版 release 文件夹：
+- ESP32-S3-N16R8 开发板，带 CH343P Type-C 和 native USB & OTG Type-C。
+- Windows PC。
+- 真实 Switch 2 Pro Controller。
+- V4 release 包：`esp32s3-pro2-bridge-v4.0.0-20260529.zip`。
+
+## 1. 解压 release
+
+解压后应能看到：
 
 ```text
-release/v3-stable-20260525-input-rumble
+manager\Y700Switch2Manager.exe
+tools\esp32s3\Flash-Pro2Bridge.bat
+tools\esp32s3\flash_release.ps1
+firmware\esp32s3_switch2_bridge\build\esp32s3_switch2_bridge.bin
 ```
 
-## 必要文件
+## 2. 烧录
 
-release 文件夹里至少需要：
+连接开发板的 `CH343P Type-C` 口，然后在 release 目录运行：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\esp32s3\flash_release.ps1 -Port COM12
+```
+
+如果端口不是 COM12：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\esp32s3\detect_ports.ps1
+```
+
+把命令里的 `COM12` 替换成检测到的 CH343P 端口。
+
+## 3. 连接 native USB
+
+刷完后，连接或重插 native USB & OTG Type-C。Windows 应枚举：
 
 ```text
-Y700Switch2Launcher.exe
-switch2_ble_bridge_v3.jar
-switch2_ffs_responder_v3.jar
-setup_y700_switch2_proto_v3.sh
+VID_057E PID_2069
+Nintendo Switch Pro Controller
+Nintendo Switch 2 bulk
 ```
 
-## 启动
+## 4. 连接 Pro2
 
-在稳定版 release 文件夹里打开 PowerShell：
+固件默认开启 BLE 自动重连。如果之前已保存 Pro2 地址，开机后会自动连接。也可以用 manager 点击“重连”，或运行：
 
 ```powershell
-.\Y700Switch2Launcher.exe start
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\esp32s3\send_command.ps1 -Port COM12 -Command "ble reconnect" -ReadSeconds 30
 ```
 
-更推荐使用无线 ADB serial，因为重配 USB gadget 时可能会断开 USB ADB：
+## 5. 打开 Manager
+
+运行：
+
+```text
+manager\Y700Switch2Manager.exe
+```
+
+面板应能看到：
+
+```text
+usb=mounted
+bulk=mounted
+ble=connected
+live=active
+BLE input Hz ~= 133.3 Hz
+BLE interval ~= 7.50 ms
+Actual rate ~= 1000 Hz, if rate is set to 1000
+```
+
+## 6. 测速
 
 ```powershell
-.\Y700Switch2Launcher.exe start --serial 192.168.x.x:port
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\Measure-SwitchHidRate.ps1 -Seconds 5
 ```
+## English
 
-如果 `adb.exe` 不在 `PATH` 里：
-
-```powershell
-.\Y700Switch2Launcher.exe start --adb C:\path\to\adb.exe --serial 192.168.x.x:port
-```
-
-## 查看状态
-
-```powershell
-.\Y700Switch2Launcher.exe status --serial 192.168.x.x:port
-```
-
-## 测试震动
-
-```powershell
-.\Y700Switch2Launcher.exe haptic-test --serial 192.168.x.x:port
-```
-
-## 停止
-
-```powershell
-.\Y700Switch2Launcher.exe stop --serial 192.168.x.x:port
-```
-
-## 拉取日志
-
-```powershell
-.\Y700Switch2Launcher.exe logs --serial 192.168.x.x:port
-```
-
----
-
-English:
-
-This is the shortest path for using the stable v3 package on another Windows PC.
+This is the shortest path for the V4 ESP32-S3 build.
 
 ## Requirements
 
-- Rooted Lenovo Y700 tablet with wireless debugging or USB ADB access.
-- Switch 2 Pro Controller paired or ready to connect to the Y700 over Bluetooth.
-- Windows PC with `adb.exe` available in `PATH`, beside `Y700Switch2Launcher.exe`, or passed with `--adb`.
-- The stable artifact folder:
+- ESP32-S3-N16R8 board with CH343P Type-C and native USB & OTG Type-C.
+- Windows PC.
+- Real Switch 2 Pro Controller.
+- V4 release package: `esp32s3-pro2-bridge-v4.0.0-20260529.zip`.
+
+## 1. Extract The Release
+
+After extraction, you should see:
 
 ```text
-release/v3-stable-20260525-input-rumble
+manager\Y700Switch2Manager.exe
+tools\esp32s3\Flash-Pro2Bridge.bat
+tools\esp32s3\flash_release.ps1
+firmware\esp32s3_switch2_bridge\build\esp32s3_switch2_bridge.bin
 ```
 
-## Files Needed
+## 2. Flash
 
-The stable folder should include at least:
+Connect the board's `CH343P Type-C` port, then run this from the release folder:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\esp32s3\flash_release.ps1 -Port COM12
+```
+
+If the port is not COM12:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\esp32s3\detect_ports.ps1
+```
+
+Replace `COM12` with the detected CH343P port.
+
+## 3. Connect Native USB
+
+After flashing, connect or replug the native USB & OTG Type-C port. Windows should enumerate:
 
 ```text
-Y700Switch2Launcher.exe
-switch2_ble_bridge_v3.jar
-switch2_ffs_responder_v3.jar
-setup_y700_switch2_proto_v3.sh
+VID_057E PID_2069
+Nintendo Switch Pro Controller
+Nintendo Switch 2 bulk
 ```
 
-## Start
+## 4. Connect The Pro2 Controller
 
-Open PowerShell in the stable release folder.
+BLE auto-reconnect is enabled by default. If a Pro2 address was saved before, the firmware connects automatically after boot. You can also click "Reconnect" in the manager or run:
 
 ```powershell
-.\Y700Switch2Launcher.exe start
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\esp32s3\send_command.ps1 -Port COM12 -Command "ble reconnect" -ReadSeconds 30
 ```
 
-Wireless ADB is strongly recommended, because reconfiguring the USB gadget can disconnect USB ADB:
+## 5. Open The Manager
 
-```powershell
-.\Y700Switch2Launcher.exe start --serial 192.168.x.x:port
+Run:
+
+```text
+manager\Y700Switch2Manager.exe
 ```
 
-If `adb.exe` is not in `PATH`:
+The panel should show:
 
-```powershell
-.\Y700Switch2Launcher.exe start --adb C:\path\to\adb.exe --serial 192.168.x.x:port
+```text
+usb=mounted
+bulk=mounted
+ble=connected
+live=active
+BLE input Hz ~= 133.3 Hz
+BLE interval ~= 7.50 ms
+Actual rate ~= 1000 Hz, if rate is set to 1000
 ```
 
-## Check Status
+## 6. Measure Report Rate
 
 ```powershell
-.\Y700Switch2Launcher.exe status --serial 192.168.x.x:port
-```
-
-## Rumble Smoke Test
-
-```powershell
-.\Y700Switch2Launcher.exe haptic-test --serial 192.168.x.x:port
-```
-
-## Stop
-
-```powershell
-.\Y700Switch2Launcher.exe stop --serial 192.168.x.x:port
-```
-
-## Pull Logs
-
-```powershell
-.\Y700Switch2Launcher.exe logs --serial 192.168.x.x:port
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\Measure-SwitchHidRate.ps1 -Seconds 5
 ```

@@ -12,6 +12,11 @@ public static class TestWinUsbBulk
     private const uint FILE_SHARE_WRITE = 0x00000002;
     private const uint OPEN_EXISTING = 3;
     private const uint FILE_ATTRIBUTE_NORMAL = 0x00000080;
+    private const uint FILE_FLAG_OVERLAPPED = 0x40000000;
+    private const int ERROR_IO_PENDING = 997;
+    private const uint WAIT_OBJECT_0 = 0x00000000;
+    private const uint WAIT_TIMEOUT = 0x00000102;
+    private const uint XFER_TIMEOUT_MS = 100;
     private static readonly Guid InterfaceGuid = new Guid("6F13725E-EF0E-4FD3-AE5F-B2DE989EC825");
 
     [StructLayout(LayoutKind.Sequential)]
@@ -54,6 +59,16 @@ public static class TestWinUsbBulk
         public byte Interval;
     }
 
+    [StructLayout(LayoutKind.Sequential)]
+    private struct OVERLAPPED
+    {
+        public IntPtr Internal;
+        public IntPtr InternalHigh;
+        public int Offset;
+        public int OffsetHigh;
+        public IntPtr hEvent;
+    }
+
     [DllImport("setupapi.dll", SetLastError = true)]
     private static extern IntPtr SetupDiGetClassDevs(ref Guid ClassGuid, IntPtr Enumerator, IntPtr hwndParent, uint Flags);
 
@@ -87,11 +102,26 @@ public static class TestWinUsbBulk
     [DllImport("winusb.dll", SetLastError = true)]
     private static extern bool WinUsb_ReadPipe(IntPtr InterfaceHandle, byte PipeID, byte[] Buffer, uint BufferLength, out uint LengthTransferred, IntPtr Overlapped);
 
-    public static int Main()
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern IntPtr CreateEvent(IntPtr lpEventAttributes, bool bManualReset, bool bInitialState, string lpName);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern uint WaitForSingleObject(IntPtr hHandle, uint dwMilliseconds);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool GetOverlappedResult(SafeFileHandle hFile, IntPtr lpOverlapped, out uint lpNumberOfBytesTransferred, bool bWait);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool CancelIoEx(SafeFileHandle hFile, IntPtr lpOverlapped);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool CloseHandle(IntPtr hObject);
+
+    public static int Main(string[] args)
     {
         try
         {
-            return Run();
+            return Run(args);
         }
         catch (Exception ex)
         {
@@ -106,12 +136,13 @@ public static class TestWinUsbBulk
         }
     }
 
-    private static int Run()
+    private static int Run(string[] args)
     {
+        bool single80 = args.Length > 0 && string.Equals(args[0], "single80", StringComparison.OrdinalIgnoreCase);
         string path = FindDevicePath();
         Console.WriteLine("Path: " + path);
 
-        using (SafeFileHandle file = CreateFile(path, GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, IntPtr.Zero, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, IntPtr.Zero))
+        using (SafeFileHandle file = CreateFile(path, GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, IntPtr.Zero, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OVERLAPPED, IntPtr.Zero))
         {
             if (file.IsInvalid) ThrowLast("CreateFile");
 
@@ -142,14 +173,28 @@ public static class TestWinUsbBulk
                 cmd[14] = 0x01;
                 cmd[15] = 0x00;
 
-                uint written;
-                if (!WinUsb_WritePipe(winusb, outPipe, cmd, (uint)cmd.Length, out written, IntPtr.Zero)) ThrowLast("WinUsb_WritePipe");
+                uint written = WritePipeAsync(file, winusb, outPipe, cmd, (uint)cmd.Length);
                 Console.WriteLine("Wrote {0} bytes to 0x{1:x2}", written, outPipe);
 
-                byte[] reply = new byte[128];
-                uint read;
-                if (!WinUsb_ReadPipe(winusb, inPipe, reply, (uint)reply.Length, out read, IntPtr.Zero)) ThrowLast("WinUsb_ReadPipe");
-                Console.WriteLine("Read {0} bytes from 0x{1:x2}: {2}", read, inPipe, Hex(reply, (int)read));
+                if (single80)
+                {
+                    byte[] reply = new byte[80];
+                    uint read = ReadPipeAsync(file, winusb, inPipe, reply, 80);
+                    Console.WriteLine("Read single {0} bytes from 0x{1:x2}: {2}", read, inPipe, Hex(reply, (int)read));
+                }
+                else
+                {
+                    byte[] reply = new byte[80];
+                    uint firstRead = ReadPipeAsync(file, winusb, inPipe, reply, 64);
+                    Console.WriteLine("Read first {0} bytes from 0x{1:x2}: {2}", firstRead, inPipe, Hex(reply, (int)firstRead));
+
+                    if (firstRead == 64)
+                    {
+                        byte[] tail = new byte[16];
+                        uint secondRead = ReadPipeAsync(file, winusb, inPipe, tail, 16);
+                        Console.WriteLine("Read second {0} bytes from 0x{1:x2}: {2}", secondRead, inPipe, Hex(tail, (int)secondRead));
+                    }
+                }
             }
             finally
             {
@@ -158,6 +203,74 @@ public static class TestWinUsbBulk
         }
 
         return 0;
+    }
+
+    private static uint WritePipeAsync(SafeFileHandle file, IntPtr winusb, byte pipeId, byte[] buffer, uint length)
+    {
+        return TransferAsync(file, "WinUsb_WritePipe", delegate(IntPtr overlapped, out uint transferred)
+        {
+            return WinUsb_WritePipe(winusb, pipeId, buffer, length, out transferred, overlapped);
+        });
+    }
+
+    private static uint ReadPipeAsync(SafeFileHandle file, IntPtr winusb, byte pipeId, byte[] buffer, uint length)
+    {
+        return TransferAsync(file, "WinUsb_ReadPipe", delegate(IntPtr overlapped, out uint transferred)
+        {
+            return WinUsb_ReadPipe(winusb, pipeId, buffer, length, out transferred, overlapped);
+        });
+    }
+
+    private delegate bool PipeTransfer(IntPtr overlapped, out uint transferred);
+
+    private static uint TransferAsync(SafeFileHandle file, string api, PipeTransfer transfer)
+    {
+        IntPtr evt = CreateEvent(IntPtr.Zero, true, false, null);
+        if (evt == IntPtr.Zero) ThrowLast("CreateEvent");
+
+        IntPtr ovPtr = IntPtr.Zero;
+        try
+        {
+            OVERLAPPED ov = new OVERLAPPED();
+            ov.hEvent = evt;
+            ovPtr = Marshal.AllocHGlobal(Marshal.SizeOf(typeof(OVERLAPPED)));
+            Marshal.StructureToPtr(ov, ovPtr, false);
+
+            uint immediate;
+            if (transfer(ovPtr, out immediate))
+            {
+                return immediate;
+            }
+
+            int err = Marshal.GetLastWin32Error();
+            if (err != ERROR_IO_PENDING)
+            {
+                throw new Win32Exception(err, api);
+            }
+
+            uint wait = WaitForSingleObject(evt, XFER_TIMEOUT_MS);
+            if (wait == WAIT_TIMEOUT)
+            {
+                CancelIoEx(file, ovPtr);
+                throw new TimeoutException(api + " timed out");
+            }
+            if (wait != WAIT_OBJECT_0)
+            {
+                ThrowLast("WaitForSingleObject");
+            }
+
+            uint transferred;
+            if (!GetOverlappedResult(file, ovPtr, out transferred, false))
+            {
+                ThrowLast("GetOverlappedResult");
+            }
+            return transferred;
+        }
+        finally
+        {
+            if (ovPtr != IntPtr.Zero) Marshal.FreeHGlobal(ovPtr);
+            CloseHandle(evt);
+        }
     }
 
     private static string FindDevicePath()

@@ -1,441 +1,217 @@
-# Y700 Switch 2 Pro Bridge
+# Y700 / ESP32-S3 Switch 2 Pro Bridge
 
-中文：
+## 中文
 
-这个项目把一台已经 root 的联想 Y700 平板用作 Switch 2 Pro 手柄的 BLE 转 USB 桥接器。真实的 Switch 2 Pro 手柄通过蓝牙连接到 Y700，Y700 读取手柄的私有 BLE GATT 输入通知，然后在 USB 侧模拟 Nintendo 风格的 HID 设备，让 Windows / Steam 按 Nintendo 控制器路径识别它。
+这个项目最初使用 root 后的联想 Y700 平板，把真实 Switch 2 Pro Controller 的 BLE 输入转成 Windows / Steam 可识别的 Nintendo 风格 USB HID 设备。
 
-English:
+V4 版本把这条链路移植到了 ESP32-S3 开发板上：真实 Pro2 手柄通过 BLE 连接 ESP32-S3，ESP32-S3 再通过原生 USB 模拟 Nintendo Switch Pro Controller。Y700 v3 路线仍保留在仓库里作为历史稳定版本，但 V4 的主线目标已经是独立 MCU 桥接器。
 
-This project uses a rooted Lenovo Y700 tablet as a BLE-to-USB bridge for a real Switch 2 Pro Controller. The controller connects to the Y700 over BLE; the Y700 reads the controller's private BLE GATT notifications and exposes a Nintendo-style USB HID device to Windows / Steam.
+## English
 
-## 当前状态 / Current Status
+This project started as a rooted Lenovo Y700 BLE-to-USB bridge for a real Switch 2 Pro Controller. The Y700 read private BLE GATT notifications and exposed a Nintendo-style USB HID device to Windows / Steam.
 
-中文：
+V4 moves that bridge onto an ESP32-S3 development board: the real Pro2 controller connects to the ESP32-S3 over BLE, and the ESP32-S3 exposes a Nintendo Switch Pro Controller-compatible USB device to the PC. The Y700 v3 path is still kept in the repository as the previous stable route, while V4 is now the primary MCU bridge path.
 
-当前 v3 稳定版已经完成作者环境和另一台 Windows 电脑的基本验证。按键转发、Switch 2 Pro 额外按键，以及基础震动/HD rumble 路径都已经跑通。但它仍然是实验项目，不是成熟的一键安装包，也不是 Nintendo 官方驱动。
+## V4 Status / V4 状态
 
-English:
+## 中文
 
-The current v3 stable build has been validated in the author's environment and on another Windows PC. Button forwarding, Switch 2 Pro extra buttons, and the basic rumble / HD rumble path are working. It is still an experimental research project, not a polished one-click installer or an official Nintendo driver.
+V4 已在当前测试环境验证：
 
-## 快速上手 / Quickstart
+- ESP32-S3 通过 BLE 直接连接真实 Switch 2 Pro Controller。
+- Steam 可识别为 Nintendo Switch Pro / Pro2 控制器路径。
+- A/B/X/Y、方向键、肩键、摇杆、摇杆按下、`+`、`-`、`Home`、`Capture`、`C`、`GL`、`GR` 输入已跑通。
+- Pro2 rumble / HD rumble 转发已产生物理反馈。
+- BLE connection interval 固定请求为 `6`，即 `7.5 ms`，真实 BLE 输入约 `133.3 Hz`。
+- ESP32-S3 USB HID 端点 interval 为 `1 ms`，USB report loop 可接近 `1000 Hz`，当前 10 秒窗口 Windows 侧实测约 `993.3 Hz`；高于 BLE 输入频率的 USB report 会重复最新 BLE 状态。
+- 右摇杆 neutral 偏移问题已修复：FD2 与 legacy BLE notify 流使用独立自动中心校准。
+- Windows Manager exe 可显示 USB、BLE、report rate、rumble、HID OUT/GET、bulk control 等状态。
 
-中文：
+## English
 
-最短使用流程见：
+V4 has been verified in the current test environment:
 
-English:
+- ESP32-S3 connects directly to the real Switch 2 Pro Controller over BLE.
+- Steam recognizes the device through the Nintendo Switch Pro / Pro2 controller path.
+- A/B/X/Y, D-pad, shoulders, sticks, stick clicks, `+`, `-`, `Home`, `Capture`, `C`, `GL`, and `GR` input paths are working.
+- Pro2 rumble / HD rumble forwarding produces physical feedback.
+- BLE connection interval is requested as `6`, which is `7.5 ms`; real BLE input is about `133.3 Hz`.
+- The ESP32-S3 USB HID endpoint uses a `1 ms` interval, and the USB report loop can approach `1000 Hz`, with a current 10-second Windows-side measurement of about `993.3 Hz`; USB reports above the BLE input cadence repeat the latest BLE state.
+- The right-stick neutral drift issue is fixed by giving the FD2 and legacy BLE notify streams separate auto-center calibration.
+- The Windows Manager exe shows USB, BLE, report-rate, rumble, HID OUT/GET, and bulk-control status.
 
-For the shortest setup path, see:
+## Release Files / 发布文件
 
-[QUICKSTART.md](QUICKSTART.md)
+## 中文
 
-## 实验版 Release / Experimental Release
+V4 GitHub Release 会提供：
 
-中文：
+- `esp32s3-pro2-bridge-v4.0.0-20260529.zip`：完整发布包，包含 ESP32-S3 烧录固件、烧录脚本、Windows Manager exe、诊断工具和说明。
+- `Y700Switch2Manager-v4.0.0.exe`：单独的 Windows Manager 控制台。
+- `esp32s3-pro2-bridge-firmware-v4.0.0-20260529.zip`：仅固件和烧录脚本，适合只想刷板子的情况。
 
-当前公开 release 是 `v0.1.0-experimental`。我不建议只发布单个 exe，因为当前 `Y700Switch2Launcher.exe` 可以推送 Y700 端文件，但没有把 Android/Y700 端 jar 和 setup 脚本嵌入 exe 内部。因此 release 采用两个文件：
+## English
 
-English:
+The V4 GitHub Release provides:
 
-The current public release is `v0.1.0-experimental`. A single exe is not recommended yet because `Y700Switch2Launcher.exe` can push files to the Y700, but the Android/Y700 jars and setup script are not embedded inside the exe. Therefore the release ships as two files:
+- `esp32s3-pro2-bridge-v4.0.0-20260529.zip`: full package with ESP32-S3 firmware binaries, flash scripts, Windows Manager exe, diagnostic tools, and documentation.
+- `Y700Switch2Manager-v4.0.0.exe`: standalone Windows Manager console.
+- `esp32s3-pro2-bridge-firmware-v4.0.0-20260529.zip`: firmware-only flasher package for users who only need to flash the board.
 
-```text
-Y700Switch2Launcher.exe
-y700-switch2-y700-payload-v0.1.0-experimental.zip
-```
+## Hardware / 硬件
 
-中文：
+## 中文
 
-使用时请把 payload zip 解压到和 `Y700Switch2Launcher.exe` 同一个文件夹，再运行 launcher。这个 release 已经明确标注为实验版，不保证在所有 Y700 固件、Windows、Steam 或 ADB 环境下可靠。
+V4 使用的开发板假设：
 
-English:
+- ESP32-S3-N16R8
+- 16MB flash
+- 8MB PSRAM
+- CH343P Type-C：烧录、日志、串口控制
+- ESP32-S3 native USB & OTG Type-C：对 Windows / Steam 暴露 USB HID
 
-Extract the payload zip next to `Y700Switch2Launcher.exe`, then run the launcher. This release is explicitly marked experimental and is not guaranteed to work across all Y700 firmware, Windows, Steam, or ADB environments.
+## English
 
-Release notes:
+V4 assumes this board shape:
 
-[RELEASE_NOTES_v0.1.0-experimental.md](RELEASE_NOTES_v0.1.0-experimental.md)
+- ESP32-S3-N16R8
+- 16MB flash
+- 8MB PSRAM
+- CH343P Type-C for flashing, logs, and serial control
+- ESP32-S3 native USB & OTG Type-C for the USB HID device exposed to Windows / Steam
 
-## 需要准备 / Requirements
+## Flashing / 烧录
 
-中文：
+## 中文
 
-- 已 root 的 Lenovo Y700 平板。
-- Y700 已开启无线调试，或至少能通过 ADB 连接。
-- Switch 2 Pro Controller 可以通过蓝牙连接到 Y700。
-- Windows PC 上有 `adb.exe`，可以放在 `PATH`、放在 launcher 同目录，或用 `--adb` 指定路径。
-- 推荐使用无线 ADB，因为重配 USB gadget 时可能断开 USB ADB。
+最简单的烧录方式：
 
-English:
-
-- A rooted Lenovo Y700 tablet.
-- Wireless debugging enabled on the Y700, or at least working ADB access.
-- A Switch 2 Pro Controller that can connect to the Y700 over Bluetooth.
-- `adb.exe` available on the Windows PC, either in `PATH`, next to the launcher, or passed with `--adb`.
-- Wireless ADB is recommended because reconfiguring the USB gadget can disconnect USB ADB.
-
-## 架构 / Architecture
-
-中文：
-
-当前工作链路：
-
-English:
-
-Current working route:
-
-```text
-real Switch 2 Pro Controller
--> BLE connection to Lenovo Y700
--> Y700 BLE bridge parses private GATT notifications
--> /data/local/tmp/switch2_state.txt
--> Y700 USB Gadget / FunctionFS responder
--> Nintendo-style USB HID device
--> Windows / Steam Nintendo controller path
-```
-
-中文：
-
-核心思路不是让手柄直接连 Windows，而是让 Y700 承担中间桥的角色：一边和真实手柄走 BLE，一边对 Windows 暴露 USB HID。
-
-English:
-
-The core idea is not to connect the controller directly to Windows. Instead, the Y700 acts as the bridge: BLE on the real-controller side, USB HID on the Windows side.
-
-## 已验证能力 / Verified Capabilities
-
-中文：
-
-- Switch 2 Pro 手柄通过 BLE 连接到 Y700。
-- Y700 读取 BLE 输入并写入 Android 本地状态文件。
-- Y700 通过 USB Gadget / FunctionFS 暴露 Nintendo 风格 USB HID。
-- Windows / Steam 可走 Nintendo 控制器识别路径。
-- 已验证 A/B/X/Y、方向键、肩键、摇杆、摇杆按下、`+`、`-`。
-- 已验证 Switch 2 Pro 额外按键 `C`、`GL`、`GR`。
-- 已验证基础震动/HD rumble 路径有物理反馈。
-- Windows 侧 `Y700Switch2Launcher.exe` 可部署、启动、查看状态、测试震动、停止和拉取日志。
-
-English:
-
-- The Switch 2 Pro Controller connects to the Y700 over BLE.
-- The Y700 reads BLE input and writes an Android-local state file.
-- The Y700 exposes a Nintendo-style USB HID device through USB Gadget / FunctionFS.
-- Windows / Steam can use the Nintendo controller recognition path.
-- A/B/X/Y, D-pad, shoulders, sticks, stick clicks, `+`, and `-` have been verified.
-- Switch 2 Pro extra buttons `C`, `GL`, and `GR` have been verified.
-- The basic rumble / HD rumble path has produced physical feedback.
-- The Windows-side `Y700Switch2Launcher.exe` can deploy, start, check status, test rumble, stop, and pull logs.
-
-## Windows Launcher 用法 / Windows Launcher Usage
-
-中文：
-
-在 release 文件夹里打开 PowerShell：
-
-English:
-
-Open PowerShell in the release folder:
+1. 下载并解压 `esp32s3-pro2-bridge-v4.0.0-20260529.zip`。
+2. 用 USB 线连接开发板的 `CH343P Type-C` 口到 Windows。
+3. native USB & OTG 口可以同时插着，用于刷完后让 Windows / Steam 识别 HID；如果识别不刷新，刷完后重新插拔 native USB 口。
+4. 在解压目录打开 PowerShell，运行：
 
 ```powershell
-.\Y700Switch2Launcher.exe start
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\esp32s3\flash_release.ps1 -Port COM12
 ```
 
-中文：
-
-推荐显式指定无线 ADB serial：
-
-English:
-
-Passing a wireless ADB serial is recommended:
+如果 CH343P 不是 `COM12`，先运行：
 
 ```powershell
-.\Y700Switch2Launcher.exe start --serial 192.168.x.x:port
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\esp32s3\detect_ports.ps1
 ```
 
-中文：
+然后把命令里的 `COM12` 改成实际端口。也可以双击：
 
-如果 `adb.exe` 不在 `PATH`：
+```text
+tools\esp32s3\Flash-Pro2Bridge.bat
+```
 
-English:
-
-If `adb.exe` is not in `PATH`:
+如果烧录出现串口噪声或 stub 传输失败，可尝试：
 
 ```powershell
-.\Y700Switch2Launcher.exe start --adb C:\path\to\adb.exe --serial 192.168.x.x:port
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\esp32s3\flash_release.ps1 -Port COM12 -Baud 115200
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\esp32s3\flash_release.ps1 -Port COM12 -Baud 115200 -NoStub
 ```
 
-中文：
+## English
 
-常用命令：
+The simplest flashing path:
 
-English:
-
-Common commands:
+1. Download and extract `esp32s3-pro2-bridge-v4.0.0-20260529.zip`.
+2. Connect the board's `CH343P Type-C` port to Windows.
+3. The native USB & OTG port may stay connected so Windows / Steam can enumerate the HID device after flashing; if enumeration does not refresh, replug the native USB port.
+4. Open PowerShell in the extracted folder and run:
 
 ```powershell
-.\Y700Switch2Launcher.exe status --serial 192.168.x.x:port
-.\Y700Switch2Launcher.exe haptic-test --serial 192.168.x.x:port
-.\Y700Switch2Launcher.exe stop --serial 192.168.x.x:port
-.\Y700Switch2Launcher.exe logs --serial 192.168.x.x:port
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\esp32s3\flash_release.ps1 -Port COM12
 ```
 
-## 稳定包 / Stable Package
-
-中文：
-
-当前已验证稳定包位于：
-
-English:
-
-The current validated stable package is:
-
-```text
-release/v3-stable-20260525-input-rumble
-```
-
-中文：
-
-这个目录冻结了当前已验证的 v3 artifacts，包括 Windows launcher、Y700 端 BLE bridge jar、FunctionFS responder jar、setup 脚本、辅助 PowerShell 脚本和 manifest。
-
-English:
-
-This folder freezes the validated v3 artifacts, including the Windows launcher, Y700-side BLE bridge jar, FunctionFS responder jar, setup script, helper PowerShell scripts, and manifest.
-
-## 关键运行文件 / Key Runtime Files
-
-中文：
-
-Y700/Android 端主要文件：
-
-English:
-
-Main Y700/Android-side files:
-
-```text
-/data/local/tmp/switch2_ble_bridge_v3.jar
-/data/local/tmp/switch2_ffs_responder_v3.jar
-/data/local/tmp/setup_y700_switch2_proto_v3.sh
-/data/local/tmp/switch2_state.txt
-/data/local/tmp/switch2_ble_write_v3.txt
-```
-
-中文：
-
-Windows/release 侧主要文件：
-
-English:
-
-Main Windows/release-side files:
-
-```text
-Y700Switch2Launcher.exe
-switch2_ble_bridge_v3.jar
-switch2_ffs_responder_v3.jar
-setup_y700_switch2_proto_v3.sh
-MANIFEST.md
-```
-
-## USB Gadget 信息 / USB Gadget Details
-
-中文：
-
-当前目标 USB gadget 状态：
-
-English:
-
-Current target USB gadget state:
-
-```text
-Gadget path: /config/usb_gadget/g1
-UDC: a600000.dwc3
-HID node: /dev/hidg0
-FunctionFS path: /dev/usb-ffs/switch2
-VID/PID: 057e:2069
-Manufacturer: Nintendo Co., Ltd.
-Product: Nintendo Switch Pro Controller
-```
-
-中文：
-
-Steam / Windows 侧的目标是走 Nintendo/Switch 控制器识别路径，而不是普通 generic HID gamepad 路径。
-
-English:
-
-The goal on the Steam / Windows side is to enter the Nintendo/Switch controller path rather than the generic HID gamepad path.
-
-## BLE 与输入映射 / BLE And Input Mapping
-
-中文：
-
-v3 bridge 同时处理两个输入通知来源：
-
-English:
-
-The v3 bridge handles two input notification sources:
-
-```text
-ab7de9be-89fe-49ad-828f-118f09df7fd2
-7492866c-ec3e-4619-8258-32755ffcc0f8
-```
-
-中文：
-
-`ab7...fd2` 按较新的 32-bit button field 解析，`749...cc0f8` 按旧的 byte2/byte3/byte4 输入流解析。两者最终都写入 `/data/local/tmp/switch2_state.txt`，供 USB responder 读取。
-
-English:
-
-`ab7...fd2` is parsed as the newer 32-bit button field. `749...cc0f8` is parsed as the legacy byte2/byte3/byte4 input stream. Both paths write to `/data/local/tmp/switch2_state.txt`, which is consumed by the USB responder.
-
-## 震动 / Rumble
-
-中文：
-
-当前 v3 已验证基础震动/HD rumble 路径有物理反馈。它不是最终的高质量 HD rumble 翻译器，但已经证明 Windows/Steam 侧 rumble 事件可以经由 Y700 转发到真实 Switch 2 Pro 手柄。
-
-English:
-
-The current v3 build has verified physical feedback through the basic rumble / HD rumble path. It is not a final high-quality HD rumble translator, but it proves that Windows/Steam rumble events can be forwarded through the Y700 to the real Switch 2 Pro Controller.
-
-中文：
-
-快速震动测试：
-
-English:
-
-Quick rumble smoke test:
+If the CH343P port is not `COM12`, first run:
 
 ```powershell
-.\Y700Switch2Launcher.exe haptic-test --serial 192.168.x.x:port
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\esp32s3\detect_ports.ps1
 ```
 
-## 仓库结构 / Repository Layout
-
-中文：
-
-主要目录和文件：
-
-English:
-
-Main folders and files:
+Then replace `COM12` with the actual port. You can also double-click:
 
 ```text
-src/
-  Switch2BleBridgeV3.java
-  Switch2FfsResponderV3.java
-
-tools/
-  Y700Switch2Launcher.cs
-  helper scripts and research tools
-
-release/v3-stable-20260525-input-rumble/
-  frozen stable v3 package
-
-Y700Switch2Launcher.exe
-  Windows launcher build output
-
-QUICKSTART.md
-  short setup guide
-
-ACKNOWLEDGEMENTS.md
-  project acknowledgements
-
-RELEASE_NOTES_v0.1.0-experimental.md
-  experimental release notes
+tools\esp32s3\Flash-Pro2Bridge.bat
 ```
 
-## 研究记录 / Research Notes
+If flashing reports serial noise or stub transfer failures, try:
 
-中文：
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\esp32s3\flash_release.ps1 -Port COM12 -Baud 115200
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\esp32s3\flash_release.ps1 -Port COM12 -Baud 115200 -NoStub
+```
 
-更详细的研究过程、稳定节点、rumble 记录和 payload 实验保存在这些文件里：
+## Windows Manager / Windows 管理器
 
-English:
+## 中文
 
-Detailed research notes, stable checkpoints, rumble notes, and payload experiments are kept in:
+`Y700Switch2Manager.exe` 会优先使用 CH343P 串口控制；没有串口时会尝试 native USB HID feature report 和 WinUSB bulk fallback。面板可查看：
+
+- 控制连接方式
+- USB HID / bulk mounted 状态
+- Steam init guard 状态
+- BLE connected / scanning / idle
+- BLE target、自动重连、live input 状态
+- BLE input Hz、BLE interval、BLE gap
+- USB report target / actual rate
+- HID OUT / GET 和 bulk control 计数
+- rumble 状态、写入次数、错误数和调参值
+
+## English
+
+`Y700Switch2Manager.exe` prefers CH343P serial control, then falls back to native USB HID feature reports and WinUSB bulk control. The panel shows:
+
+- Control transport
+- USB HID / bulk mounted state
+- Steam init guard state
+- BLE connected / scanning / idle
+- BLE target, auto-reconnect, and live input state
+- BLE input Hz, BLE interval, and BLE gaps
+- USB report target / actual rate
+- HID OUT / GET and bulk-control counters
+- Rumble state, write count, error count, and tuning values
+
+## Useful Commands / 常用命令
+
+```powershell
+# Query firmware status / 查询固件状态
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\esp32s3\send_command.ps1 -Port COM12 -Command status -ReadSeconds 5
+
+# Force reconnect to the saved Pro2 target / 重连已保存的 Pro2
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\esp32s3\send_command.ps1 -Port COM12 -Command "ble reconnect" -ReadSeconds 30
+
+# Set USB report loop to 1000 Hz / 设置 USB report loop 为 1000 Hz
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\esp32s3\send_command.ps1 -Port COM12 -Command "rate 1000" -ReadSeconds 3
+
+# Measure host-observed HID report rate / 测量 Windows 侧 HID report rate
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\Measure-SwitchHidRate.ps1 -Seconds 5
+
+# Rumble smoke test / 震动冒烟测试
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\esp32s3\send_command.ps1 -Port COM12 -Command "rumble hold 3000" -ReadSeconds 5
+```
+
+## Repository Layout / 仓库结构
 
 ```text
-STABLE_CHECKPOINT_20260525_V3_INPUT_RUMBLE.md
-switch2_v3_hd_bridge_notes.md
-switch2_steam_rumble_notes.md
-switch2_hd_rumble_research.md
-switch2_rumble_presets.md
-switch2_payload_human_observations.md
-release/v3-stable-20260525-input-rumble/MANIFEST.md
+firmware/esp32s3_switch2_bridge/   ESP-IDF firmware for the ESP32-S3 V4 bridge
+windows/manager_app/               .NET 8 WPF Manager
+tools/esp32s3/                     Build, flash, monitor, and serial command scripts
+docs/esp32s3/                      ESP32-S3 protocol and troubleshooting docs
+release/                           Local packaged artifacts; large release assets are uploaded to GitHub Releases
+src/                               Historical Y700 Android bridge/responder sources
 ```
 
-## 致谢 / Acknowledgements
+## Safety Notes / 注意事项
 
-中文：
+## 中文
 
-本项目受到 `switch2-controller-windows10-dual-layouts` 以及相关 Switch 2 手柄 Windows 兼容性研究的启发。这里的实现路线不同：不是让手柄直接通过 BLE 连到 Windows，而是使用 root 后的 Y700 作为中间桥，解析 Switch 2 Pro 手柄的私有 BLE GATT 数据，再通过 USB Gadget / FunctionFS 向 Windows 和 Steam 暴露 Nintendo 风格的 HID 设备。
+这仍然是研究型项目，不是 Nintendo 官方驱动。不同 ESP32-S3 开发板、Windows 版本、Steam 版本、USB 线材和蓝牙环境可能会影响结果。刷机前请确认使用的是 CH343P 烧录口，不要把 native USB HID 口误当作烧录口。
 
-English:
+## English
 
-This project was inspired in part by `switch2-controller-windows10-dual-layouts` and community research around Switch 2 controller layouts on Windows. This implementation uses a different route: instead of connecting the controller directly to Windows over BLE, a rooted Y700 acts as the bridge, parses the Switch 2 Pro Controller's private BLE GATT data, and exposes a Nintendo-style HID device to Windows and Steam through USB Gadget / FunctionFS.
-
-完整致谢 / Full note:
-
-[ACKNOWLEDGEMENTS.md](ACKNOWLEDGEMENTS.md)
-
-## 限制与风险 / Limitations And Risks
-
-中文：
-
-- 需要 root 后的 Y700。
-- 重配 USB gadget 有可能断开 USB ADB，所以推荐无线 ADB。
-- 不同 Y700 固件、Windows、Steam、ADB 环境可能有差异。
-- 当前 release 是实验版，不保证一键成功。
-- 当前 Windows exe 没有内嵌 Android/Y700 payload。
-- 本项目与 Nintendo 无关，也不是官方驱动。
-
-English:
-
-- A rooted Y700 is required.
-- Reconfiguring the USB gadget may disconnect USB ADB, so wireless ADB is recommended.
-- Different Y700 firmware, Windows, Steam, and ADB environments may behave differently.
-- The current release is experimental and is not guaranteed to work as a one-click package.
-- The current Windows exe does not embed the Android/Y700 payload.
-- This project is not affiliated with Nintendo and is not an official driver.
-
-## 后续方向 / Future Direction
-
-中文：
-
-这个阶段先告一段落。后续如果要继续演进，一个值得考虑的方向是用树莓派或类似开发板直接承担 Y700 当前的桥接角色：BLE 连接真实 Switch 2 Pro 手柄，同时在 USB 侧模拟 Nintendo 风格设备。这个方向需要等开发板到手后再验证。
-
-English:
-
-This stage is considered complete for now. A possible future direction is replacing the Y700 bridge role with a Raspberry Pi or a similar development board: BLE to the real Switch 2 Pro Controller on one side, Nintendo-style USB device emulation on the other. That direction should be revisited after the development board is available for testing.
-
-## ESP32-S3 MCU Track / ESP32-S3 MCU 分支
-
-中文：
-
-新增 ESP32-S3 MCU 版本的工程骨架已放在独立目录中，不覆盖当前 Y700 稳定路线：
-
-```text
-firmware/esp32s3_switch2_bridge/
-windows/manager_app/
-tools/esp32s3/
-docs/esp32s3/
-```
-
-当前 ESP32-S3 开发板尚未到货，因此所有固件烧录、USB HID 枚举、joy.cpl、Steam 识别、BLE scan/connect/notify、rumble 反向通道都统一标记为 `PENDING_HARDWARE_TEST`。
-
-English:
-
-An ESP32-S3 MCU track has been added in separate directories without overwriting the current Y700 stable route:
-
-```text
-firmware/esp32s3_switch2_bridge/
-windows/manager_app/
-tools/esp32s3/
-docs/esp32s3/
-```
-
-The ESP32-S3 board has not arrived yet, so firmware flashing, USB HID enumeration, joy.cpl behavior, Steam recognition, BLE scan/connect/notify, and the rumble reverse path are all marked `PENDING_HARDWARE_TEST`.
-
-Start here:
-
-[docs/esp32s3/README_ESP32S3.md](docs/esp32s3/README_ESP32S3.md)
+This is still a research project, not an official Nintendo driver. Results may vary with different ESP32-S3 boards, Windows builds, Steam versions, USB cables, and BLE environments. Before flashing, make sure you are using the CH343P flashing port, not the native USB HID port.

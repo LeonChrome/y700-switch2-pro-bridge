@@ -36,9 +36,21 @@ typedef struct {
     uint16_t ry;
 } switch2_state_t;
 
+typedef struct {
+    uint32_t updates_total;
+    uint32_t actual_millihz;
+    uint32_t last_gap_us;
+    uint32_t max_gap_us;
+} switch2_live_stats_t;
+
 void switch2_state_init(void);
 void switch2_state_reset(switch2_state_t *state);
 void switch2_state_set_button(switch2_state_t *state, switch2_button_t button, bool pressed);
 bool switch2_state_get_button(const switch2_state_t *state, switch2_button_t button);
+void switch2_state_store_live(const switch2_state_t *state);
+bool switch2_state_get_live(switch2_state_t *out_state, uint32_t *out_updates, int64_t *out_age_us);
+void switch2_state_get_live_stats(switch2_live_stats_t *out_stats);
+bool switch2_state_live_active(int64_t max_age_us);
+void switch2_state_clear_live(void);
 void switch2_state_update_from_legacy_bytes(switch2_state_t *state, uint8_t b2, uint8_t b3, uint8_t b4);
 void switch2_state_update_from_fd2_buttons(switch2_state_t *state, uint32_t buttons);

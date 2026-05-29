@@ -26,6 +26,18 @@ Install or update the CH343/CH34x driver, then reconnect the CH343P Type-C cable
 
 Check the selected COM port, cable, boot mode, ESP-IDF target, and permissions.
 
+If `Invalid head of packet` or serial noise/corruption appears, retry at a lower baud rate:
+
+```powershell
+.\tools\esp32s3\flash.ps1 -Port COM12 -Baud 115200
+```
+
+If the stub still reports serial noise/corruption, use the no-stub recovery path:
+
+```powershell
+.\tools\esp32s3\flash.ps1 -Port COM12 -Baud 115200 -NoStub
+```
+
 ## Monitor Shows No Logs
 
 Confirm you are connected to CH343P Type-C, not the native USB HID port.

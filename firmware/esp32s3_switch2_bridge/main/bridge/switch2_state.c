@@ -1,10 +1,27 @@
 #include <string.h>
+#include "freertos/FreeRTOS.h"
+#include "freertos/portmacro.h"
+#include "esp_timer.h"
 #include "switch2_state.h"
 
 #define CENTER_12BIT 2048
 
+static portMUX_TYPE s_live_lock = portMUX_INITIALIZER_UNLOCKED;
+static switch2_state_t s_live_state;
+static bool s_live_valid;
+static uint32_t s_live_updates;
+static int64_t s_live_updated_us;
+static uint32_t s_live_actual_millihz;
+static uint32_t s_live_last_gap_us;
+static uint32_t s_live_max_gap_us;
+static uint32_t s_live_window_updates;
+static uint32_t s_live_window_max_gap_us;
+static int64_t s_live_last_update_us;
+static int64_t s_live_window_start_us;
+
 void switch2_state_init(void)
 {
+    switch2_state_clear_live();
 }
 
 void switch2_state_reset(switch2_state_t *state)
@@ -35,6 +52,115 @@ bool switch2_state_get_button(const switch2_state_t *state, switch2_button_t but
         return false;
     }
     return (state->buttons & (1u << button)) != 0;
+}
+
+void switch2_state_store_live(const switch2_state_t *state)
+{
+    if (!state) {
+        return;
+    }
+
+    portENTER_CRITICAL(&s_live_lock);
+    int64_t now_us = esp_timer_get_time();
+    if (s_live_window_start_us == 0) {
+        s_live_window_start_us = now_us;
+    }
+    if (s_live_last_update_us > 0 && now_us > s_live_last_update_us) {
+        uint32_t gap_us = (uint32_t)(now_us - s_live_last_update_us);
+        s_live_last_gap_us = gap_us;
+        if (gap_us > s_live_window_max_gap_us) {
+            s_live_window_max_gap_us = gap_us;
+        }
+    }
+    s_live_last_update_us = now_us;
+
+    s_live_state = *state;
+    s_live_valid = true;
+    s_live_updates++;
+    s_live_window_updates++;
+    s_live_updated_us = now_us;
+
+    int64_t elapsed_us = now_us - s_live_window_start_us;
+    if (elapsed_us >= 1000000LL) {
+        s_live_actual_millihz = (uint32_t)(((uint64_t)s_live_window_updates * 1000000000ULL +
+                                            (uint64_t)(elapsed_us / 2)) /
+                                           (uint64_t)elapsed_us);
+        s_live_max_gap_us = s_live_window_max_gap_us;
+        s_live_window_updates = 0;
+        s_live_window_max_gap_us = 0;
+        s_live_window_start_us = now_us;
+    }
+    portEXIT_CRITICAL(&s_live_lock);
+}
+
+bool switch2_state_get_live(switch2_state_t *out_state, uint32_t *out_updates, int64_t *out_age_us)
+{
+    bool valid;
+    switch2_state_t snapshot;
+    uint32_t updates;
+    int64_t updated_us;
+
+    portENTER_CRITICAL(&s_live_lock);
+    valid = s_live_valid;
+    snapshot = s_live_state;
+    updates = s_live_updates;
+    updated_us = s_live_updated_us;
+    portEXIT_CRITICAL(&s_live_lock);
+
+    if (out_state) {
+        if (valid) {
+            *out_state = snapshot;
+        } else {
+            switch2_state_reset(out_state);
+        }
+    }
+    if (out_updates) {
+        *out_updates = updates;
+    }
+    if (out_age_us) {
+        *out_age_us = valid ? esp_timer_get_time() - updated_us : INT64_MAX;
+    }
+    return valid;
+}
+
+void switch2_state_get_live_stats(switch2_live_stats_t *out_stats)
+{
+    if (!out_stats) {
+        return;
+    }
+
+    portENTER_CRITICAL(&s_live_lock);
+    out_stats->updates_total = s_live_updates;
+    out_stats->actual_millihz = s_live_actual_millihz;
+    out_stats->last_gap_us = s_live_last_gap_us;
+    out_stats->max_gap_us = s_live_max_gap_us;
+    portEXIT_CRITICAL(&s_live_lock);
+}
+
+bool switch2_state_live_active(int64_t max_age_us)
+{
+    int64_t age_us = 0;
+    return switch2_state_get_live(NULL, NULL, &age_us) && age_us <= max_age_us;
+}
+
+void switch2_state_clear_live(void)
+{
+    switch2_state_t neutral;
+    switch2_state_reset(&neutral);
+
+    portENTER_CRITICAL(&s_live_lock);
+    s_live_state = neutral;
+    s_live_valid = false;
+    s_live_updates = 0;
+    s_live_updated_us = 0;
+    s_live_actual_millihz = 0;
+    s_live_last_gap_us = 0;
+    s_live_max_gap_us = 0;
+    s_live_window_updates = 0;
+    s_live_window_max_gap_us = 0;
+    s_live_last_update_us = 0;
+    s_live_window_start_us = 0;
+    portEXIT_CRITICAL(&s_live_lock);
 }
 
 void switch2_state_update_from_legacy_bytes(switch2_state_t *state, uint8_t b2, uint8_t b3, uint8_t b4)
