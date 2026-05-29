@@ -5,7 +5,7 @@ namespace Y700Switch2Manager;
 
 public sealed class ManagerSettings
 {
-    public bool AutoConnectLastPort { get; set; }
+    public bool AutoConnectLastPort { get; set; } = true;
     public bool StartWithWindows { get; set; }
     public bool MinimizeToTray { get; set; }
     public string DefaultMode { get; set; } = "generic";

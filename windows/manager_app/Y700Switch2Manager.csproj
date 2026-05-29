@@ -9,8 +9,10 @@
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="System.IO.Ports" Version="8.0.0" />
+    <PackageReference Include="System.Management" Version="8.0.0" />
   </ItemGroup>
   <ItemGroup>
     <Content Include="assets\icon.ico" CopyToOutputDirectory="PreserveNewest" />
+    <EmbeddedResource Include="embedded\**\*.*" LogicalName="embedded/%(RecursiveDir)%(Filename)%(Extension)" />
   </ItemGroup>
 </Project>

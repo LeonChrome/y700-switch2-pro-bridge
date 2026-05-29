@@ -644,6 +644,84 @@ static bool select_connect_target(const char *target, ble_addr_t *out, char *lab
     return find_cached_by_name(target, out, label, label_len);
 }
 
+static void json_escape_small(const char *in, char *out, size_t out_len)
+{
+    if (!out || out_len == 0) {
+        return;
+    }
+    size_t used = 0;
+    for (const char *p = in ? in : ""; *p && used + 1 < out_len; p++) {
+        unsigned char ch = (unsigned char)*p;
+        if ((ch == '"' || ch == '\\') && used + 2 < out_len) {
+            out[used++] = '\\';
+            out[used++] = (char)ch;
+        } else if (ch >= 0x20) {
+            out[used++] = (char)ch;
+        }
+    }
+    out[used] = 0;
+}
+
+void ble_central_format_scan_results_json(char *out, size_t out_len)
+{
+    if (!out || out_len == 0) {
+        return;
+    }
+
+    size_t used = (size_t)snprintf(out, out_len,
+                                   "\"scan_seen\":%lu,\"devices\":[",
+                                   (unsigned long)s_scan_seen_count);
+    if (used >= out_len) {
+        out[out_len - 1] = 0;
+        return;
+    }
+
+    uint32_t below_index = UINT32_MAX;
+    bool first = true;
+    for (int item = 0; item < 12; item++) {
+        const scanned_device_t *best = NULL;
+        for (size_t i = 0; i < BLE_SCAN_CACHE_MAX; i++) {
+            const scanned_device_t *dev = &s_scan_cache[i];
+            if (!dev->used || dev->index >= below_index) {
+                continue;
+            }
+            if (!best ||
+                (dev->candidate && !best->candidate) ||
+                (dev->candidate == best->candidate && dev->index > best->index)) {
+                best = dev;
+            }
+        }
+        if (!best) {
+            break;
+        }
+
+        below_index = best->index;
+        char addr[32];
+        char name[64];
+        format_addr(&best->addr, addr, sizeof(addr));
+        json_escape_small(best->name, name, sizeof(name));
+
+        int written = snprintf(out + used,
+                               out_len - used,
+                               "%s{\"index\":%lu,\"target\":\"#%lu\",\"addr\":\"%s\",\"name\":\"%s\",\"rssi\":%d,\"candidate\":%s}",
+                               first ? "" : ",",
+                               (unsigned long)best->index,
+                               (unsigned long)best->index,
+                               addr,
+                               name[0] ? name : "<unnamed>",
+                               best->rssi,
+                               best->candidate ? "true" : "false");
+        if (written < 0 || (size_t)written >= out_len - used) {
+            out[out_len - 1] = 0;
+            return;
+        }
+        used += (size_t)written;
+        first = false;
+    }
+
+    snprintf(out + used, out_len - used, "]");
+}
+
 static discovered_char_t *find_chr_by_value_handle(uint16_t value_handle)
 {
     for (size_t i = 0; i < s_char_count; i++) {

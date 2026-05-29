@@ -6,9 +6,11 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Management;
 using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Input;
@@ -22,6 +24,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private readonly SerialDeviceClient serial = new();
     private readonly HidFeatureControlClient hidFeature = new();
     private readonly BulkControlClient bulk = new();
+    private readonly FirmwareFlasher firmwareFlasher = new();
     private readonly StringBuilder log = new();
     private readonly DispatcherTimer statusTimer = new();
 
@@ -62,11 +65,18 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private int rumbleTickMs = 20;
     private int rumbleStopPackets = 3;
     private string bleConnectTarget = "";
+    private string? selectedBleCandidate;
+    private string bleSearchStatus = "Auto search will run after Manager connects to the board.";
     private string customCommand = "";
     private string lastDeviceMessage = "";
     private string lastCommandJson = "";
     private string scriptOutput = "";
     private string portHint = "Refresh ports to find the CH343P control port.";
+    private string selectedPortDetails = "No serial port selected.";
+    private string driverStatusText = "Driver status has not been checked yet.";
+    private string embeddedFirmwareText = $"Bundled firmware {EmbeddedAssets.BundledFirmwareVersion}, BLE 7.5 ms / 133.3 Hz, USB up to 1000 Hz.";
+    private string flashStatus = "Ready.";
+    private bool isFlashing;
     private int reportActualMilliHz;
     private int reportSent;
     private int reportFailed;
@@ -81,13 +91,16 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private int bleConnUpdateStartRc = -1;
     private int bleConnUpdateStatus = -1;
     private int bleConnUpdateRequests;
+    private IReadOnlyList<SerialPortInfo> lastPortInfos = Array.Empty<SerialPortInfo>();
+    private bool startupBleAssistSent;
 
     public ObservableCollection<string> Ports { get; } = new();
+    public ObservableCollection<string> BleCandidates { get; } = new();
     public ObservableCollection<int> ReportRatePresets { get; } = new(new[] { 60, 125, 250, 500, 1000 });
     public ManagerSettings Settings { get; } = ManagerSettings.Load();
     public bool AutoScroll { get; set; } = true;
 
-    public string? SelectedPort { get => selectedPort; set { selectedPort = value; OnPropertyChanged(); } }
+    public string? SelectedPort { get => selectedPort; set { selectedPort = value; OnPropertyChanged(); UpdateSelectedPortDetails(); } }
     public string ConnectionStatus { get => connectionStatus; set { connectionStatus = value; OnPropertyChanged(); OnPropertyChanged(nameof(ConnectionLampBrush)); } }
     public string FirmwareVersion { get => firmwareVersion; set { firmwareVersion = value; OnPropertyChanged(); } }
     public string DeviceMode { get => deviceMode; set { deviceMode = value; OnPropertyChanged(); OnPropertyChanged(nameof(UsbIdentityText)); } }
@@ -124,11 +137,19 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public int RumbleTickMs { get => rumbleTickMs; set { rumbleTickMs = Math.Clamp(value, 5, 50); OnPropertyChanged(); } }
     public int RumbleStopPackets { get => rumbleStopPackets; set { rumbleStopPackets = Math.Clamp(value, 1, 8); OnPropertyChanged(); } }
     public string BleConnectTarget { get => bleConnectTarget; set { bleConnectTarget = value; OnPropertyChanged(); } }
+    public string? SelectedBleCandidate { get => selectedBleCandidate; set { selectedBleCandidate = value; OnPropertyChanged(); } }
+    public string BleSearchStatus { get => bleSearchStatus; set { bleSearchStatus = value; OnPropertyChanged(); } }
     public string CustomCommand { get => customCommand; set { customCommand = value; OnPropertyChanged(); } }
     public string LastDeviceMessage { get => lastDeviceMessage; set { lastDeviceMessage = value; OnPropertyChanged(); } }
     public string LastCommandJson { get => lastCommandJson; set { lastCommandJson = value; OnPropertyChanged(); } }
     public string ScriptOutput { get => scriptOutput; set { scriptOutput = value; OnPropertyChanged(); } }
     public string PortHint { get => portHint; set { portHint = value; OnPropertyChanged(); } }
+    public string SelectedPortDetails { get => selectedPortDetails; set { selectedPortDetails = value; OnPropertyChanged(); } }
+    public string DriverStatusText { get => driverStatusText; set { driverStatusText = value; OnPropertyChanged(); } }
+    public string EmbeddedFirmwareText { get => embeddedFirmwareText; set { embeddedFirmwareText = value; OnPropertyChanged(); } }
+    public string FlashStatus { get => flashStatus; set { flashStatus = value; OnPropertyChanged(); } }
+    public bool IsFlashing { get => isFlashing; set { isFlashing = value; OnPropertyChanged(); OnPropertyChanged(nameof(FlashButtonText)); } }
+    public string FlashButtonText => IsFlashing ? "Flashing..." : "一键刷入";
     public int ReportActualMilliHz { get => reportActualMilliHz; set { reportActualMilliHz = value; OnPropertyChanged(); OnPropertyChanged(nameof(ReportActualText)); } }
     public int ReportSent { get => reportSent; set { reportSent = value; OnPropertyChanged(); OnPropertyChanged(nameof(ReportCounterText)); } }
     public int ReportFailed { get => reportFailed; set { reportFailed = value; OnPropertyChanged(); OnPropertyChanged(nameof(ReportCounterText)); } }
@@ -194,6 +215,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public ICommand BleFastCommand { get; }
     public ICommand BleAutoOnCommand { get; }
     public ICommand BleAutoOffCommand { get; }
+    public ICommand BleScanCommand { get; }
+    public ICommand BleListCommand { get; }
+    public ICommand BleConnectSelectedCommand { get; }
     public ICommand RumbleShortCommand { get; }
     public ICommand RumbleHoldCommand { get; }
     public ICommand RumbleStopCommand { get; }
@@ -206,6 +230,12 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public ICommand SaveLogsCommand { get; }
     public ICommand CopyLogsCommand { get; }
     public ICommand FlashFirmwareCommand { get; }
+    public ICommand RepairFlashCommand { get; }
+    public ICommand EraseFirmwareCommand { get; }
+    public ICommand EraseAndFlashCommand { get; }
+    public ICommand OpenCh343DriverCommand { get; }
+    public ICommand OpenCh341DriverCommand { get; }
+    public ICommand OpenLocalDriverFolderCommand { get; }
     public ICommand OpenJoyCommand { get; }
     public ICommand OpenDeviceManagerCommand { get; }
 
@@ -241,6 +271,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
         BleFastCommand = new RelayCommand(_ => Send("ble fast"));
         BleAutoOnCommand = new RelayCommand(_ => Send("ble auto on"));
         BleAutoOffCommand = new RelayCommand(_ => Send("ble auto off"));
+        BleScanCommand = new RelayCommand(async _ => await StartBleSearchAsync());
+        BleListCommand = new RelayCommand(_ => Send("ble list"));
+        BleConnectSelectedCommand = new RelayCommand(_ => ConnectSelectedBleCandidate());
         RumbleShortCommand = new RelayCommand(_ => Send("rumble hdtest"));
         RumbleHoldCommand = new RelayCommand(_ => Send("rumble hold 3000"));
         RumbleStopCommand = new RelayCommand(_ => Send("rumble stop"));
@@ -258,22 +291,27 @@ public sealed class MainViewModel : INotifyPropertyChanged
         ClearLogsCommand = new RelayCommand(_ => { log.Clear(); OnPropertyChanged(nameof(LogText)); });
         SaveLogsCommand = new RelayCommand(_ => SaveLogs());
         CopyLogsCommand = new RelayCommand(_ => Clipboard.SetText(log.ToString()));
-        FlashFirmwareCommand = new RelayCommand(_ => RunScript("flash.ps1", SelectedPort));
+        FlashFirmwareCommand = new RelayCommand(async _ => await FlashAsync(FlashMode.Upgrade));
+        RepairFlashCommand = new RelayCommand(async _ => await FlashAsync(FlashMode.Repair));
+        EraseFirmwareCommand = new RelayCommand(async _ => await FlashAsync(FlashMode.EraseOnly));
+        EraseAndFlashCommand = new RelayCommand(async _ => await FlashAsync(FlashMode.EraseAndFlash));
+        OpenCh343DriverCommand = new RelayCommand(_ => OpenUrl("https://www.wch-ic.com/downloads/CH343CDC_EXE.html"));
+        OpenCh341DriverCommand = new RelayCommand(_ => OpenUrl("https://www.wch-ic.com/downloads/CH341SER.EXE.html?type=en"));
+        OpenLocalDriverFolderCommand = new RelayCommand(_ => OpenLocalDriverFolder());
         OpenJoyCommand = new RelayCommand(_ => Process.Start(new ProcessStartInfo("joy.cpl") { UseShellExecute = true }));
         OpenDeviceManagerCommand = new RelayCommand(_ => Process.Start(new ProcessStartInfo("devmgmt.msc") { UseShellExecute = true }));
 
         RefreshPorts();
-        if (Settings.AutoConnectLastPort && !string.IsNullOrWhiteSpace(SelectedPort))
-        {
-            _ = Task.Delay(500).ContinueWith(_ => Application.Current.Dispatcher.Invoke(Connect));
-        }
+        _ = Task.Delay(650).ContinueWith(_ => Application.Current.Dispatcher.Invoke(Connect));
     }
 
     private void RefreshPorts()
     {
         string? previous = SelectedPort;
         var portInfos = GetSerialPortInfos();
-        var controlPorts = portInfos.Where(p => !p.IsBluetooth).ToList();
+        lastPortInfos = portInfos;
+        var controlPorts = portInfos.Where(p => !p.IsBluetooth && !string.IsNullOrWhiteSpace(p.PortName)).ToList();
+        var likelyWchPorts = portInfos.Where(p => p.IsLikelyWch).ToList();
 
         Ports.Clear();
         foreach (var port in controlPorts)
@@ -294,15 +332,20 @@ public sealed class MainViewModel : INotifyPropertyChanged
                 ? previous
                 : Settings.LastPort != null && Ports.Contains(Settings.LastPort)
                     ? Settings.LastPort
-                    : controlPorts[0].PortName;
-            PortHint = "Serial control candidate: " + string.Join(", ", controlPorts.Select(p => $"{p.PortName} ({p.DeviceName})")) + ". Native USB HID feature/bulk are also available when firmware supports them.";
+                    : likelyWchPorts.Count > 0
+                        ? likelyWchPorts[0].PortName
+                        : controlPorts[0].PortName;
+            PortHint = "Serial candidates: " + string.Join(", ", controlPorts.Select(p => $"{p.PortName} ({p.DeviceName})")) + ". Prefer the CH343P/WCH port for flashing.";
         }
+        DriverStatusText = BuildDriverStatus(portInfos);
+        UpdateSelectedPortDetails();
         AppendLog("manager refreshed COM ports: " + PortHint);
     }
 
     private void Connect()
     {
         Disconnect();
+        startupBleAssistSent = false;
 
         if (string.IsNullOrWhiteSpace(SelectedPort))
         {
@@ -387,6 +430,182 @@ public sealed class MainViewModel : INotifyPropertyChanged
         bulk.Disconnect();
         ConnectionStatus = "Disconnected";
         OnPropertyChanged(nameof(ConnectionLampBrush));
+    }
+
+    private async Task StartBleSearchAsync()
+    {
+        try
+        {
+            EnsureConnectedForUserAction();
+            BleCandidates.Clear();
+            BleSearchStatus = "Scanning for Switch Pro / Pro2-looking BLE devices...";
+            Send("ble scan");
+            await Task.Delay(TimeSpan.FromSeconds(16));
+            if (serial.IsConnected || hidFeature.IsConnected || bulk.IsConnected)
+            {
+                Send("ble list");
+            }
+        }
+        catch (Exception ex)
+        {
+            BleSearchStatus = "BLE search failed: " + ex.Message;
+            AppendLog("ERROR ble search " + ex.Message);
+        }
+    }
+
+    private void ConnectSelectedBleCandidate()
+    {
+        string target = ExtractBleCandidateTarget(SelectedBleCandidate);
+        if (string.IsNullOrWhiteSpace(target))
+        {
+            target = string.IsNullOrWhiteSpace(BleConnectTarget) ? "last" : BleConnectTarget.Trim();
+        }
+
+        BleSearchStatus = "Connecting BLE target " + target;
+        Send("ble connect " + target);
+    }
+
+    private void EnsureConnectedForUserAction()
+    {
+        if (serial.IsConnected || hidFeature.IsConnected || bulk.IsConnected)
+        {
+            return;
+        }
+
+        Connect();
+        if (!(serial.IsConnected || hidFeature.IsConnected || bulk.IsConnected))
+        {
+            throw new InvalidOperationException("Manager is not connected to serial, HID feature, or bulk control.");
+        }
+    }
+
+    private static string ExtractBleCandidateTarget(string? candidate)
+    {
+        if (string.IsNullOrWhiteSpace(candidate))
+        {
+            return "";
+        }
+
+        string trimmed = candidate.Trim();
+        int space = trimmed.IndexOf(' ');
+        return space > 0 ? trimmed[..space] : trimmed;
+    }
+
+    private void MaybeStartBleAssist()
+    {
+        if (startupBleAssistSent || !(serial.IsConnected || hidFeature.IsConnected || bulk.IsConnected))
+        {
+            return;
+        }
+
+        if (BleStatus is "connected" or "connecting" or "scanning")
+        {
+            return;
+        }
+
+        startupBleAssistSent = true;
+        BleSearchStatus = string.IsNullOrWhiteSpace(BleTarget)
+            ? "No saved BLE target. Auto-scanning for a Pro2-looking controller."
+            : "Trying saved BLE target: " + BleTarget;
+        AppendLog("manager auto BLE assist: " + BleSearchStatus);
+        Send("ble auto on");
+        Send("ble reconnect");
+        _ = Task.Delay(TimeSpan.FromSeconds(16)).ContinueWith(_ =>
+            Application.Current.Dispatcher.Invoke(() =>
+            {
+                if (serial.IsConnected || hidFeature.IsConnected || bulk.IsConnected)
+                {
+                    Send("ble list");
+                    Send("status", logTx: false);
+                }
+            }));
+    }
+
+    private async Task FlashAsync(FlashMode mode)
+    {
+        if (IsFlashing)
+        {
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(SelectedPort))
+        {
+            FlashStatus = "Choose the CH343P COM port first.";
+            AppendLog("FLASH blocked: no COM port selected");
+            return;
+        }
+
+        if (mode is FlashMode.EraseOnly or FlashMode.EraseAndFlash)
+        {
+            var result = MessageBox.Show(
+                mode == FlashMode.EraseOnly
+                    ? "This will erase the whole ESP32-S3 flash and leave the board blank until you flash firmware again. Continue?"
+                    : "This will erase the whole ESP32-S3 flash and then write the bundled firmware. Continue?",
+                mode == FlashMode.EraseOnly ? "Erase firmware only" : "Erase and reflash",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Warning);
+            if (result != MessageBoxResult.Yes)
+            {
+                return;
+            }
+        }
+
+        string port = SelectedPort;
+        IsFlashing = true;
+        FlashStatus = "Starting flash...";
+        AppendLog($"FLASH {mode} requested on {port}");
+
+        try
+        {
+            Disconnect();
+            var progress = new Progress<string>(line =>
+            {
+                FlashStatus = line;
+                AppendLog("FLASH " + line);
+            });
+            await firmwareFlasher.FlashAsync(port, mode, progress);
+            if (mode == FlashMode.EraseOnly)
+            {
+                FlashStatus = "Erase complete. The ESP32-S3 is blank; use 一键刷入 or 清除并重刷 to restore firmware.";
+                return;
+            }
+            FlashStatus = "Flash complete. Waiting for reboot, then reconnecting serial...";
+            await Task.Delay(1600);
+            RefreshPorts();
+            if (Ports.Contains(port))
+            {
+                SelectedPort = port;
+                Connect();
+            }
+        }
+        catch (Exception ex)
+        {
+            FlashStatus = "Flash failed: " + ex.Message;
+            AppendLog("ERROR flash " + ex.Message);
+        }
+        finally
+        {
+            IsFlashing = false;
+        }
+    }
+
+    private void OpenLocalDriverFolder()
+    {
+        try
+        {
+            FirmwarePackage package = EmbeddedAssets.EnsureFirmwarePackage();
+            Process.Start(new ProcessStartInfo(package.DriverDirectory) { UseShellExecute = true });
+            AppendLog("driver folder opened: " + package.DriverDirectory);
+        }
+        catch (Exception ex)
+        {
+            AppendLog("ERROR driver folder " + ex.Message);
+        }
+    }
+
+    private static void OpenUrl(string url)
+    {
+        Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
     }
 
     private void Send(string command, bool logTx = true)
@@ -499,6 +718,26 @@ public sealed class MainViewModel : INotifyPropertyChanged
             if (root.TryGetProperty("rumble_hold_ms", out var rumbleHold) && rumbleHold.TryGetInt32(out int parsedHold)) RumbleHoldMs = parsedHold;
             if (root.TryGetProperty("rumble_tick_ms", out var rumbleTick) && rumbleTick.TryGetInt32(out int parsedTick)) RumbleTickMs = parsedTick;
             if (root.TryGetProperty("rumble_stop_packets", out var rumbleStopPacketsJson) && rumbleStopPacketsJson.TryGetInt32(out int parsedStopPackets)) RumbleStopPackets = parsedStopPackets;
+            if (root.TryGetProperty("devices", out var devices) && devices.ValueKind == JsonValueKind.Array)
+            {
+                BleCandidates.Clear();
+                foreach (JsonElement device in devices.EnumerateArray())
+                {
+                    string candidateTarget = device.TryGetProperty("target", out var targetJson) ? targetJson.GetString() ?? "" : "";
+                    string addr = device.TryGetProperty("addr", out var addrJson) ? addrJson.GetString() ?? "" : "";
+                    string name = device.TryGetProperty("name", out var nameJson) ? nameJson.GetString() ?? "" : "";
+                    int rssi = device.TryGetProperty("rssi", out var rssiJson) && rssiJson.TryGetInt32(out int parsedRssi) ? parsedRssi : 0;
+                    bool recommended = device.TryGetProperty("candidate", out var candidateJson) && candidateJson.ValueKind == JsonValueKind.True;
+                    string label = $"{candidateTarget} {addr} {name} RSSI {rssi}" + (recommended ? " 推荐" : "");
+                    BleCandidates.Add(label);
+                }
+
+                SelectedBleCandidate = BleCandidates.FirstOrDefault();
+                BleSearchStatus = BleCandidates.Count == 0
+                    ? "No BLE candidates cached yet. Put the controller in pairing mode, then search again."
+                    : $"Found {BleCandidates.Count} BLE candidate(s). Recommended entries are marked 推荐.";
+            }
+            MaybeStartBleAssist();
         }
         catch (Exception ex)
         {
@@ -571,20 +810,97 @@ public sealed class MainViewModel : INotifyPropertyChanged
         return Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
     }
 
+    private void UpdateSelectedPortDetails()
+    {
+        if (string.IsNullOrWhiteSpace(SelectedPort))
+        {
+            SelectedPortDetails = "No serial port selected.";
+            return;
+        }
+
+        SerialPortInfo? info = lastPortInfos.FirstOrDefault(p =>
+            string.Equals(p.PortName, SelectedPort, StringComparison.OrdinalIgnoreCase));
+        SelectedPortDetails = info == null
+            ? SelectedPort
+            : $"{info.PortName} | {info.DeviceName} | {info.Manufacturer} | {info.DeviceId}";
+    }
+
+    private static string BuildDriverStatus(IReadOnlyList<SerialPortInfo> portInfos)
+    {
+        var likelyWchPorts = portInfos
+            .Where(p => p.IsLikelyWch && !string.IsNullOrWhiteSpace(p.PortName))
+            .Select(p => p.PortName)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        if (likelyWchPorts.Count > 0)
+        {
+            return "CH343P/WCH driver ready: " + string.Join(", ", likelyWchPorts);
+        }
+
+        if (portInfos.Any(p => p.HasWchVid))
+        {
+            return "WCH VID_1A86 device detected, but no COM port is exposed. Install the CH343/CH340 driver, then refresh.";
+        }
+
+        return "No WCH CH343P/CH340 device detected. Connect the board's CH343P Type-C port, then refresh.";
+    }
+
     private static IReadOnlyList<SerialPortInfo> GetSerialPortInfos()
     {
         var names = SerialDeviceClient.GetPorts().ToHashSet(StringComparer.OrdinalIgnoreCase);
         var infos = new List<SerialPortInfo>();
 
-        using RegistryKey? key = Registry.LocalMachine.OpenSubKey(@"HARDWARE\DEVICEMAP\SERIALCOMM");
-        if (key != null)
+        try
         {
-            foreach (string valueName in key.GetValueNames())
+            using var searcher = new ManagementObjectSearcher(
+                "SELECT Name, Manufacturer, DeviceID, PNPClass, Status FROM Win32_PnPEntity");
+            foreach (ManagementObject device in searcher.Get().Cast<ManagementObject>())
             {
-                if (key.GetValue(valueName) is string portName && names.Contains(portName))
+                string name = Convert.ToString(device["Name"]) ?? "";
+                string manufacturer = Convert.ToString(device["Manufacturer"]) ?? "unknown";
+                string deviceId = Convert.ToString(device["DeviceID"]) ?? "";
+                string pnpClass = Convert.ToString(device["PNPClass"]) ?? "";
+                string portName = ExtractPortName(name);
+                bool hasWchVid = deviceId.Contains("VID_1A86", StringComparison.OrdinalIgnoreCase);
+                bool isPort = pnpClass.Equals("Ports", StringComparison.OrdinalIgnoreCase) ||
+                    !string.IsNullOrWhiteSpace(portName);
+                if (!isPort && !hasWchVid)
                 {
-                    bool isBluetooth = valueName.Contains("Bth", StringComparison.OrdinalIgnoreCase);
-                    infos.Add(new SerialPortInfo(portName, valueName, isBluetooth));
+                    continue;
+                }
+
+                bool isBluetooth = name.Contains("Bluetooth", StringComparison.OrdinalIgnoreCase) ||
+                    deviceId.Contains("BTH", StringComparison.OrdinalIgnoreCase);
+                bool isLikelyWch = hasWchVid ||
+                    name.Contains("CH343", StringComparison.OrdinalIgnoreCase) ||
+                    name.Contains("CH340", StringComparison.OrdinalIgnoreCase) ||
+                    name.Contains("USB-SERIAL", StringComparison.OrdinalIgnoreCase) ||
+                    name.Contains("USB Serial", StringComparison.OrdinalIgnoreCase) ||
+                    manufacturer.Contains("WCH", StringComparison.OrdinalIgnoreCase) ||
+                    manufacturer.Contains("QinHeng", StringComparison.OrdinalIgnoreCase);
+
+                if (!string.IsNullOrWhiteSpace(portName) || hasWchVid)
+                {
+                    infos.Add(new SerialPortInfo(portName, name, manufacturer, deviceId, isBluetooth, isLikelyWch, hasWchVid));
+                }
+            }
+        }
+        catch
+        {
+            using RegistryKey? key = Registry.LocalMachine.OpenSubKey(@"HARDWARE\DEVICEMAP\SERIALCOMM");
+            if (key != null)
+            {
+                foreach (string valueName in key.GetValueNames())
+                {
+                    if (key.GetValue(valueName) is string portName && names.Contains(portName))
+                    {
+                        bool isBluetooth = valueName.Contains("Bth", StringComparison.OrdinalIgnoreCase);
+                        bool isLikelyWch = valueName.Contains("CH343", StringComparison.OrdinalIgnoreCase) ||
+                            valueName.Contains("CH340", StringComparison.OrdinalIgnoreCase) ||
+                            valueName.Contains("VID_1A86", StringComparison.OrdinalIgnoreCase);
+                        bool hasWchVid = valueName.Contains("VID_1A86", StringComparison.OrdinalIgnoreCase);
+                        infos.Add(new SerialPortInfo(portName, valueName, "unknown", valueName, isBluetooth, isLikelyWch, hasWchVid));
+                    }
                 }
             }
         }
@@ -593,20 +909,36 @@ public sealed class MainViewModel : INotifyPropertyChanged
         {
             if (!infos.Any(info => string.Equals(info.PortName, portName, StringComparison.OrdinalIgnoreCase)))
             {
-                infos.Add(new SerialPortInfo(portName, "unknown serial device", false));
+                infos.Add(new SerialPortInfo(portName, "unknown serial device", "unknown", "", false, false, false));
             }
         }
 
         return infos
-            .OrderBy(info => info.IsBluetooth)
+            .GroupBy(info => string.IsNullOrWhiteSpace(info.PortName) ? info.DeviceId : info.PortName, StringComparer.OrdinalIgnoreCase)
+            .Select(group => group.First())
+            .OrderByDescending(info => info.IsLikelyWch)
+            .ThenBy(info => info.IsBluetooth)
             .ThenBy(info => PortSortKey(info.PortName))
             .ToList();
+    }
+
+    private static string ExtractPortName(string deviceName)
+    {
+        Match match = Regex.Match(deviceName, @"\((COM\d+)\)", RegexOptions.IgnoreCase);
+        return match.Success ? match.Groups[1].Value.ToUpperInvariant() : "";
     }
 
     private static int PortSortKey(string portName) =>
         int.TryParse(new string(portName.Where(char.IsDigit).ToArray()), out int parsed) ? parsed : int.MaxValue;
 
-    private sealed record SerialPortInfo(string PortName, string DeviceName, bool IsBluetooth);
+    private sealed record SerialPortInfo(
+        string PortName,
+        string DeviceName,
+        string Manufacturer,
+        string DeviceId,
+        bool IsBluetooth,
+        bool IsLikelyWch,
+        bool HasWchVid);
 
     private static string EscapeJson(string text) => text.Replace("\\", "\\\\").Replace("\"", "\\\"");
 

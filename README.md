@@ -1,5 +1,31 @@
 # Y700 / ESP32-S3 Switch 2 Pro Bridge
 
+## All-in-one Flasher + Manager / 一体化刷机包 + 控制软件
+
+## 中文
+
+如果只是想把 ESP32-S3 开发板刷成 Switch 2 Pro Bridge，优先下载 GitHub Release 里的：
+
+```text
+Y700Switch2Manager-aio-v5.0.0-preview.exe
+```
+
+这是新的 All-in-one Windows 10 / Windows 11 单文件工具，已经内置 ESP32-S3 固件、bootloader、partition table、独立 esptool 烧录器和 Manager 控制面板。用户只需要插开发板的 `CH343P Type-C` 口，打开 EXE，选择对应 COM 口，就可以执行一键刷入、仅清除、清除并重刷、修复重刷。刷完后同一个 EXE 会继续负责 USB/BLE/速率/rumble 状态查看和控制。
+
+这版还提供 CH343/CH340/WCH 驱动检测提示、官方驱动下载入口、启动后自动连接控制通道、自动同步状态，以及 BLE 搜索/候选列表/连接选中流程。候选列表里标记 `推荐` 的设备，是广播信息看起来更像 Switch Pro / Pro2 的目标。
+
+## English
+
+If you only want to flash an ESP32-S3 board into the Switch 2 Pro Bridge, start with the GitHub Release asset:
+
+```text
+Y700Switch2Manager-aio-v5.0.0-preview.exe
+```
+
+This is the new All-in-one Windows 10 / Windows 11 single-file tool. It embeds the ESP32-S3 firmware, bootloader, partition table, standalone esptool flasher, and the Manager control panel. Plug the board's `CH343P Type-C` port, open the EXE, select the COM port, then use one-click flash, erase-only, erase-and-flash, or repair reflash. After flashing, the same EXE continues to show and control USB, BLE, report-rate, and rumble status.
+
+It also includes CH343/CH340/WCH driver detection hints, official driver download links, automatic control-channel connection on startup, automatic status sync, and a BLE search/candidate/connect-selected flow. Entries marked `推荐` are devices whose advertisements look more like Switch Pro / Pro2 controllers.
+
 ## 中文
 
 这个项目最初使用 root 后的联想 Y700 平板，把真实 Switch 2 Pro Controller 的 BLE 输入转成 Windows / Steam 可识别的 Nintendo 风格 USB HID 设备。

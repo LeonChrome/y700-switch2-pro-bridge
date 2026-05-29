@@ -1,0 +1,26 @@
+{
+  "packageVersion": "v4.0.0-aio",
+  "firmwareVersion": "4.0.0",
+  "target": "esp32s3",
+  "flashMode": "dio",
+  "flashFreq": "80m",
+  "flashSize": "16MB",
+  "assets": [
+    {
+      "offset": "0x0",
+      "path": "bootloader/bootloader.bin",
+      "sha256": "FFC507CA6D7E39799EEBDD806E61B57086CBC6DB8CDC83ACA93088860FF6BE6C"
+    },
+    {
+      "offset": "0x8000",
+      "path": "partition_table/partition-table.bin",
+      "sha256": "7F00B6C042A89B15B0CAC534F82ED988CAF29278FF5700B0C511EB1B5BB7C820"
+    },
+    {
+      "offset": "0x10000",
+      "path": "esp32s3_switch2_bridge.bin",
+      "sha256": "42E0509A33CB538758D92D667BDDA9B2E036E12EC0117AC0FCF73261BE383390"
+    }
+  ],
+  "notes": "Bundled ESP32-S3 Switch 2 Pro bridge firmware. BLE interval request is 6 units / 7.5 ms; measured BLE input is about 133.3 Hz; USB report loop can run at 1000 Hz."
+}

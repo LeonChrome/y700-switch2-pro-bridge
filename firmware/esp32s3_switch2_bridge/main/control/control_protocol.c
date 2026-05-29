@@ -237,6 +237,11 @@ esp_err_t control_protocol_handle_line(const char *line, char *reply, int reply_
             json_ok(reply, reply_len, "ble scan", "\"ble\":\"scanning\"") :
             json_error(reply, reply_len, "ble scan", "scan start failed");
     }
+    if (strcmp(cmd, "ble list") == 0 || strcmp(cmd, "ble candidates") == 0) {
+        static char extra[1800];
+        ble_central_format_scan_results_json(extra, sizeof(extra));
+        return json_ok(reply, reply_len, "ble list", extra);
+    }
     if (strncmp(cmd, "ble connect", 11) == 0) {
         char target[96];
         snprintf(target, sizeof(target), "%s", cmd + 11);
