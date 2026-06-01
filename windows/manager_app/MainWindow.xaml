@@ -215,8 +215,8 @@
                             <Button Grid.Column="2" Style="{StaticResource SmallButton}" Content="应用 Hz" Command="{Binding SetRateCommand}"/>
                             <WrapPanel Grid.Column="3">
                                 <Button Style="{StaticResource SmallButton}" Content="60" Command="{Binding Rate60Command}"/>
-                                <Button Style="{StaticResource SmallButton}" Content="125 推荐" Command="{Binding Rate125Command}"/>
-                                <Button Style="{StaticResource SmallButton}" Content="250" Command="{Binding Rate250Command}"/>
+                                <Button Style="{StaticResource SmallButton}" Content="125 稳定" Command="{Binding Rate125Command}"/>
+                                <Button Style="{StaticResource SmallButton}" Content="250 陀螺仪推荐" Command="{Binding Rate250Command}"/>
                                 <Button Style="{StaticResource SmallButton}" Content="500" Command="{Binding Rate500Command}"/>
                                 <Button Style="{StaticResource SmallButton}" Content="1000 实验" Command="{Binding Rate1000Command}"/>
                             </WrapPanel>

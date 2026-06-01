@@ -3,6 +3,9 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#define SWITCH2_MOTION_SAMPLE_SIZE 12
+#define SWITCH2_MOTION_BLOCK_SIZE 36
+
 typedef enum {
     SWITCH2_BUTTON_B = 0,
     SWITCH2_BUTTON_A,
@@ -34,6 +37,8 @@ typedef struct {
     uint16_t ly;
     uint16_t rx;
     uint16_t ry;
+    bool motion_valid;
+    uint8_t motion[SWITCH2_MOTION_BLOCK_SIZE];
 } switch2_state_t;
 
 typedef struct {
@@ -52,5 +57,7 @@ bool switch2_state_get_live(switch2_state_t *out_state, uint32_t *out_updates, i
 void switch2_state_get_live_stats(switch2_live_stats_t *out_stats);
 bool switch2_state_live_active(int64_t max_age_us);
 void switch2_state_clear_live(void);
+void switch2_state_set_motion_raw(switch2_state_t *state, const uint8_t *data, uint8_t len);
+void switch2_state_set_motion_sample(switch2_state_t *state, const uint8_t *data, uint8_t len);
 void switch2_state_update_from_legacy_bytes(switch2_state_t *state, uint8_t b2, uint8_t b3, uint8_t b4);
 void switch2_state_update_from_fd2_buttons(switch2_state_t *state, uint32_t buttons);

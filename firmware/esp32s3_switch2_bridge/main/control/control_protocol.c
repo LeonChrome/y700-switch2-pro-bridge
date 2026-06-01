@@ -8,7 +8,9 @@
 #include "ble_central.h"
 #include "device_config.h"
 #include "hid_report.h"
+#include "report_mapper.h"
 #include "report_rate_stats.h"
+#include "switch2_gatt.h"
 #include "switch2_state.h"
 #include "usb_hid_device.h"
 #include "usb_switch2_vendor.h"
@@ -96,6 +98,11 @@ esp_err_t control_protocol_handle_line(const char *line, char *reply, int reply_
         report_rate_stats_snapshot_t report_stats;
         switch2_live_stats_t live_stats;
         ble_central_conn_metrics_t ble_conn;
+        int32_t gyro_bias[3] = {0, 0, 0};
+        bool gyro_bias_valid = report_mapper_get_gyro_bias(gyro_bias);
+        uint16_t gyro_cal_remaining = report_mapper_get_gyro_calibration_remaining();
+        const char *gyro_bias_state = gyro_bias_valid ? "valid" :
+                                      gyro_cal_remaining > 0 ? "calibrating" : "off";
         bool live_valid = switch2_state_get_live(NULL, &live_updates, &live_age_us);
         report_rate_stats_get(&report_stats);
         switch2_state_get_live_stats(&live_stats);
@@ -104,9 +111,9 @@ esp_err_t control_protocol_handle_line(const char *line, char *reply, int reply_
                                                 &rumble_hold_ms,
                                                 &rumble_tick_ms,
                                                 &rumble_stop_packets);
-        static char extra[3000];
+        static char extra[3600];
         snprintf(extra, sizeof(extra),
-                 "\"mode\":\"%s\",\"usb\":\"%s\",\"hid_out\":%lu,\"hid_out_last\":\"%02x/%02x/%02x/%02x/%u\",\"hid_get\":%lu,\"hid_get_last\":\"%02x/%02x/%u/%u\",\"bulk\":\"%s\",\"bulk_rx\":%lu,\"bulk_tx\":%lu,\"bulk_tx_done\":%lu,\"bulk_tx_sent\":%lu,\"bulk_last\":\"%02x/%02x\",\"bulk_addr\":\"%08lx\",\"bulk_rx_len\":%u,\"bulk_tx_len\":%u,\"bulk_pending\":\"%u/%u\",\"hid_guard\":\"%s\",\"ble\":\"%s\",\"ble_auto\":\"%s\",\"ble_target\":\"%s\",\"ble_conn_interval_units\":%u,\"ble_conn_interval_us\":%lu,\"ble_conn_latency\":%u,\"ble_conn_supervision\":%u,\"ble_conn_update_start_rc\":%d,\"ble_conn_update_status\":%d,\"ble_conn_update_requests\":%lu,\"ble_input_actual_hz\":%lu,\"ble_input_actual_mhz\":%lu,\"ble_input_last_gap_us\":%lu,\"ble_input_max_gap_us\":%lu,\"hid\":\"%s\",\"test_mode\":\"%s\",\"rate_hz\":%u,\"report_actual_hz\":%lu,\"report_actual_mhz\":%lu,\"report_sent\":%lu,\"report_failed\":%lu,\"report_last_gap_us\":%lu,\"report_max_gap_us\":%lu,\"live\":\"%s\",\"live_updates\":%lu,\"live_age_ms\":%lld,\"rumble\":\"%s\",\"rumble_updates\":%lu,\"rumble_writes\":%lu,\"rumble_stops\":%lu,\"rumble_errors\":%lu,\"rumble_scale_percent\":%u,\"rumble_hold_ms\":%u,\"rumble_tick_ms\":%u,\"rumble_stop_packets\":%u,\"version\":\"%s\"",
+                 "\"mode\":\"%s\",\"usb\":\"%s\",\"hid_out\":%lu,\"hid_out_last\":\"%02x/%02x/%02x/%02x/%u\",\"hid_get\":%lu,\"hid_get_last\":\"%02x/%02x/%u/%u\",\"bulk\":\"%s\",\"bulk_rx\":%lu,\"bulk_tx\":%lu,\"bulk_tx_done\":%lu,\"bulk_tx_sent\":%lu,\"bulk_last\":\"%02x/%02x\",\"bulk_addr\":\"%08lx\",\"bulk_rx_len\":%u,\"bulk_tx_len\":%u,\"bulk_pending\":\"%u/%u\",\"hid_guard\":\"%s\",\"ble\":\"%s\",\"ble_auto\":\"%s\",\"ble_target\":\"%s\",\"ble_conn_interval_units\":%u,\"ble_conn_interval_us\":%lu,\"ble_conn_latency\":%u,\"ble_conn_supervision\":%u,\"ble_conn_update_start_rc\":%d,\"ble_conn_update_status\":%d,\"ble_conn_update_requests\":%lu,\"ble_input_actual_hz\":%lu,\"ble_input_actual_mhz\":%lu,\"ble_input_last_gap_us\":%lu,\"ble_input_max_gap_us\":%lu,\"hid\":\"%s\",\"test_mode\":\"%s\",\"imu_passthrough\":\"%s\",\"imu_usb_offset\":%u,\"imu_ble_offset\":%u,\"imu_ble_full\":\"%s\",\"imu_transform\":\"%s\",\"imu_usbtest\":\"%s\",\"gyro_bias\":\"%s\",\"gyro_bias_xyz\":\"%ld/%ld/%ld\",\"gyro_cal_remaining\":%u,\"gyro_scale\":%u,\"gyro_deadband\":%d,\"rate_hz\":%u,\"report_actual_hz\":%lu,\"report_actual_mhz\":%lu,\"report_sent\":%lu,\"report_failed\":%lu,\"report_last_gap_us\":%lu,\"report_max_gap_us\":%lu,\"live\":\"%s\",\"live_updates\":%lu,\"live_age_ms\":%lld,\"rumble\":\"%s\",\"rumble_updates\":%lu,\"rumble_writes\":%lu,\"rumble_stops\":%lu,\"rumble_errors\":%lu,\"rumble_scale_percent\":%u,\"rumble_hold_ms\":%u,\"rumble_tick_ms\":%u,\"rumble_stop_packets\":%u,\"version\":\"%s\"",
                  device_mode_to_string(device_config_get_mode()),
                  usb_hid_device_state_string(),
                  (unsigned long)usb_hid_device_out_count(),
@@ -149,6 +156,19 @@ esp_err_t control_protocol_handle_line(const char *line, char *reply, int reply_
                  (unsigned long)live_stats.max_gap_us,
                  device_config_bridge_running() ? "running" : "stopped",
                  hid_test_mode_to_string(device_config_get_hid_test_mode()),
+                 report_mapper_get_nintendo_motion_passthrough() ? "on" : "off",
+                 (unsigned)report_mapper_get_nintendo_motion_offset(),
+                 (unsigned)switch2_gatt_get_motion_source_offset(),
+                 switch2_gatt_get_motion_full_only() ? "on" : "off",
+                 report_mapper_motion_transform_string(report_mapper_get_motion_transform()),
+                 report_mapper_motion_usb_test_string(report_mapper_get_motion_usb_test()),
+                 gyro_bias_state,
+                 (long)gyro_bias[0],
+                 (long)gyro_bias[1],
+                 (long)gyro_bias[2],
+                 (unsigned)gyro_cal_remaining,
+                 (unsigned)report_mapper_get_gyro_scale(),
+                 (int)report_mapper_get_gyro_deadband(),
                  (unsigned)device_config_get_report_rate_hz(),
                  (unsigned long)((report_stats.actual_millihz + 500u) / 1000u),
                  (unsigned long)report_stats.actual_millihz,
@@ -295,6 +315,190 @@ esp_err_t control_protocol_handle_line(const char *line, char *reply, int reply_
     if (strcmp(cmd, "ble disconnect") == 0) {
         ble_central_disconnect();
         return json_ok(reply, reply_len, "ble disconnect", "\"ble\":\"idle\"");
+    }
+    if (strncmp(cmd, "imu debug on", 12) == 0 || strncmp(cmd, "ble raw on", 10) == 0) {
+        const char *p = cmd[0] == 'i' ? cmd + 12 : cmd + 10;
+        long every = 32;
+        while (*p && isspace((unsigned char)*p)) {
+            p++;
+        }
+        if (*p && (!parse_long_token(&p, &every) || *p || every < 1 || every > 512)) {
+            return json_error(reply, reply_len, "imu debug", "usage: imu debug on [every 1..512]");
+        }
+        ble_central_set_imu_debug(true, (uint32_t)every);
+        char extra[80];
+        snprintf(extra, sizeof(extra), "\"imu_debug\":\"on\",\"every\":%lu", (unsigned long)every);
+        return json_ok(reply, reply_len, "imu debug", extra);
+    }
+    if (strcmp(cmd, "imu debug off") == 0 || strcmp(cmd, "ble raw off") == 0) {
+        ble_central_set_imu_debug(false, 32);
+        return json_ok(reply, reply_len, "imu debug", "\"imu_debug\":\"off\"");
+    }
+    if (strcmp(cmd, "imu passthrough on") == 0 || strcmp(cmd, "motion passthrough on") == 0) {
+        report_mapper_set_nintendo_motion_passthrough(true);
+        char extra[96];
+        snprintf(extra, sizeof(extra),
+                 "\"imu_passthrough\":\"on\",\"usb_offset\":%u,\"size\":%u",
+                 (unsigned)report_mapper_get_nintendo_motion_offset(),
+                 (unsigned)REPORT_MAPPER_NINTENDO_MOTION_SAMPLE_SIZE);
+        return json_ok(reply, reply_len, "imu passthrough", extra);
+    }
+    if (strcmp(cmd, "imu passthrough off") == 0 || strcmp(cmd, "motion passthrough off") == 0) {
+        report_mapper_set_nintendo_motion_passthrough(false);
+        return json_ok(reply, reply_len, "imu passthrough", "\"imu_passthrough\":\"off\"");
+    }
+    if (strcmp(cmd, "imu passthrough") == 0 || strcmp(cmd, "motion passthrough") == 0) {
+        char extra[96];
+        snprintf(extra, sizeof(extra), "\"imu_passthrough\":\"%s\",\"usb_offset\":%u,\"size\":%u",
+                 report_mapper_get_nintendo_motion_passthrough() ? "on" : "off",
+                 (unsigned)report_mapper_get_nintendo_motion_offset(),
+                 (unsigned)REPORT_MAPPER_NINTENDO_MOTION_SAMPLE_SIZE);
+        return json_ok(reply, reply_len, "imu passthrough", extra);
+    }
+    if (strncmp(cmd, "imu passthrough offset ", 23) == 0 || strncmp(cmd, "motion passthrough offset ", 27) == 0) {
+        const char *p = cmd[0] == 'i' ? cmd + 23 : cmd + 27;
+        long offset = 0;
+        if (!parse_long_token(&p, &offset) || *p || offset < 0 ||
+            offset > (NINTENDO_REPORT_SIZE - REPORT_MAPPER_NINTENDO_MOTION_SAMPLE_SIZE)) {
+            return json_error(reply, reply_len, "imu passthrough offset", "usage: imu passthrough offset <0..52>");
+        }
+        if (!report_mapper_set_nintendo_motion_offset((uint8_t)offset)) {
+            return json_error(reply, reply_len, "imu passthrough offset", "offset does not fit 12-byte motion sample");
+        }
+        char extra[96];
+        snprintf(extra, sizeof(extra), "\"imu_passthrough\":\"%s\",\"usb_offset\":%ld,\"size\":%u",
+                 report_mapper_get_nintendo_motion_passthrough() ? "on" : "off",
+                 offset,
+                 (unsigned)REPORT_MAPPER_NINTENDO_MOTION_SAMPLE_SIZE);
+        return json_ok(reply, reply_len, "imu passthrough offset", extra);
+    }
+    if (strcmp(cmd, "imu source") == 0 || strcmp(cmd, "motion source") == 0) {
+        char extra[128];
+        snprintf(extra, sizeof(extra),
+                 "\"ble_offset\":%u,\"full_only\":\"%s\",\"usb_offset\":%u,\"transform\":\"%s\"",
+                 (unsigned)switch2_gatt_get_motion_source_offset(),
+                 switch2_gatt_get_motion_full_only() ? "on" : "off",
+                 (unsigned)report_mapper_get_nintendo_motion_offset(),
+                 report_mapper_motion_transform_string(report_mapper_get_motion_transform()));
+        return json_ok(reply, reply_len, "imu source", extra);
+    }
+    if (strncmp(cmd, "imu source offset ", 18) == 0 || strncmp(cmd, "motion source offset ", 21) == 0) {
+        const char *p = cmd[0] == 'i' ? cmd + 18 : cmd + 21;
+        long offset = 0;
+        if (!parse_long_token(&p, &offset) || *p || offset < 0 || offset > 51) {
+            return json_error(reply, reply_len, "imu source offset", "usage: imu source offset <0..51>");
+        }
+        if (!switch2_gatt_set_motion_source_offset((uint8_t)offset)) {
+            return json_error(reply, reply_len, "imu source offset", "offset does not fit BLE notify motion block");
+        }
+        char extra[96];
+        snprintf(extra, sizeof(extra), "\"ble_offset\":%ld,\"full_only\":\"%s\"",
+                 offset,
+                 switch2_gatt_get_motion_full_only() ? "on" : "off");
+        return json_ok(reply, reply_len, "imu source offset", extra);
+    }
+    if (strcmp(cmd, "imu source full") == 0 || strcmp(cmd, "motion source full") == 0) {
+        switch2_gatt_set_motion_full_only(true);
+        return json_ok(reply, reply_len, "imu source", "\"full_only\":\"on\"");
+    }
+    if (strcmp(cmd, "imu source any") == 0 || strcmp(cmd, "motion source any") == 0) {
+        switch2_gatt_set_motion_full_only(false);
+        return json_ok(reply, reply_len, "imu source", "\"full_only\":\"off\"");
+    }
+    if (strncmp(cmd, "imu transform ", 14) == 0 || strncmp(cmd, "motion transform ", 17) == 0) {
+        const char *mode = cmd[0] == 'i' ? cmd + 14 : cmd + 17;
+        report_mapper_motion_transform_t transform;
+        if (strcmp(mode, "raw") == 0) {
+            transform = REPORT_MAPPER_MOTION_RAW;
+        } else if (strcmp(mode, "swap") == 0) {
+            transform = REPORT_MAPPER_MOTION_SWAP_HALVES;
+        } else if (strcmp(mode, "rev") == 0) {
+            transform = REPORT_MAPPER_MOTION_REVERSE_SAMPLES;
+        } else if (strcmp(mode, "swaprev") == 0) {
+            transform = REPORT_MAPPER_MOTION_SWAP_REVERSE;
+        } else {
+            return json_error(reply, reply_len, "imu transform", "usage: imu transform raw|swap|rev|swaprev");
+        }
+        if (!report_mapper_set_motion_transform(transform)) {
+            return json_error(reply, reply_len, "imu transform", "invalid transform");
+        }
+        char extra[64];
+        snprintf(extra, sizeof(extra), "\"transform\":\"%s\"",
+                 report_mapper_motion_transform_string(report_mapper_get_motion_transform()));
+        return json_ok(reply, reply_len, "imu transform", extra);
+    }
+    if (strcmp(cmd, "imu calibrate") == 0 || strcmp(cmd, "gyro calibrate") == 0 ||
+        strncmp(cmd, "imu calibrate ", 14) == 0 || strncmp(cmd, "gyro calibrate ", 15) == 0) {
+        const char *p = cmd[0] == 'i' ? cmd + 13 : cmd + 14;
+        long samples = 512;
+        while (*p && isspace((unsigned char)*p)) {
+            p++;
+        }
+        if (*p && (!parse_long_token(&p, &samples) || *p || samples < 16 || samples > 4000)) {
+            return json_error(reply, reply_len, "imu calibrate", "usage: imu calibrate [16..4000]");
+        }
+        report_mapper_start_gyro_calibration((uint16_t)samples);
+        char extra[96];
+        snprintf(extra, sizeof(extra), "\"gyro_cal_remaining\":%ld,\"gyro_scale\":%u,\"gyro_deadband\":%d",
+                 samples,
+                 (unsigned)report_mapper_get_gyro_scale(),
+                 (int)report_mapper_get_gyro_deadband());
+        return json_ok(reply, reply_len, "imu calibrate", extra);
+    }
+    if (strncmp(cmd, "imu scale ", 10) == 0 || strncmp(cmd, "gyro scale ", 11) == 0) {
+        const char *p = cmd[0] == 'i' ? cmd + 10 : cmd + 11;
+        long scale = 0;
+        if (!parse_long_token(&p, &scale) || *p || scale < 1 || scale > 512) {
+            return json_error(reply, reply_len, "imu scale", "usage: imu scale <1..512>");
+        }
+        if (!report_mapper_set_gyro_scale((uint16_t)scale)) {
+            return json_error(reply, reply_len, "imu scale", "invalid scale");
+        }
+        char extra[64];
+        snprintf(extra, sizeof(extra), "\"gyro_scale\":%ld", scale);
+        return json_ok(reply, reply_len, "imu scale", extra);
+    }
+    if (strncmp(cmd, "imu deadband ", 13) == 0 || strncmp(cmd, "gyro deadband ", 14) == 0) {
+        const char *p = cmd[0] == 'i' ? cmd + 13 : cmd + 14;
+        long deadband = 0;
+        if (!parse_long_token(&p, &deadband) || *p || deadband < 0 || deadband > 32767) {
+            return json_error(reply, reply_len, "imu deadband", "usage: imu deadband <0..32767>");
+        }
+        if (!report_mapper_set_gyro_deadband((int16_t)deadband)) {
+            return json_error(reply, reply_len, "imu deadband", "invalid deadband");
+        }
+        char extra[64];
+        snprintf(extra, sizeof(extra), "\"gyro_deadband\":%ld", deadband);
+        return json_ok(reply, reply_len, "imu deadband", extra);
+    }
+    if (strcmp(cmd, "imu usbtest") == 0 || strcmp(cmd, "motion usbtest") == 0) {
+        char extra[64];
+        snprintf(extra, sizeof(extra), "\"usbtest\":\"%s\"",
+                 report_mapper_motion_usb_test_string(report_mapper_get_motion_usb_test()));
+        return json_ok(reply, reply_len, "imu usbtest", extra);
+    }
+    if (strncmp(cmd, "imu usbtest ", 12) == 0 || strncmp(cmd, "motion usbtest ", 15) == 0) {
+        const char *mode = cmd[0] == 'i' ? cmd + 12 : cmd + 15;
+        report_mapper_motion_usb_test_t test_mode;
+        if (strcmp(mode, "off") == 0) {
+            test_mode = REPORT_MAPPER_MOTION_USB_TEST_OFF;
+        } else if (strcmp(mode, "gyro2") == 0) {
+            test_mode = REPORT_MAPPER_MOTION_USB_TEST_GYRO_SECOND;
+        } else if (strcmp(mode, "gyro1") == 0) {
+            test_mode = REPORT_MAPPER_MOTION_USB_TEST_GYRO_FIRST;
+        } else if (strcmp(mode, "all") == 0) {
+            test_mode = REPORT_MAPPER_MOTION_USB_TEST_ALL_AXES;
+        } else {
+            return json_error(reply, reply_len, "imu usbtest", "usage: imu usbtest off|gyro2|gyro1|all");
+        }
+        if (!report_mapper_set_motion_usb_test(test_mode)) {
+            return json_error(reply, reply_len, "imu usbtest", "invalid test mode");
+        }
+        char extra[80];
+        snprintf(extra, sizeof(extra), "\"usbtest\":\"%s\",\"usb_offset\":%u",
+                 report_mapper_motion_usb_test_string(report_mapper_get_motion_usb_test()),
+                 (unsigned)report_mapper_get_nintendo_motion_offset());
+        return json_ok(reply, reply_len, "imu usbtest", extra);
     }
     if (strcmp(cmd, "rumble config") == 0 || strcmp(cmd, "rumble tune") == 0 ||
         strncmp(cmd, "rumble tune ", 12) == 0) {

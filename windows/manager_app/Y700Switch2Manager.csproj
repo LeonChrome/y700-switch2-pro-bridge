@@ -13,6 +13,8 @@
   </ItemGroup>
   <ItemGroup>
     <Content Include="assets\icon.ico" CopyToOutputDirectory="PreserveNewest" />
-    <EmbeddedResource Include="embedded\**\*.*" LogicalName="embedded/%(RecursiveDir)%(Filename)%(Extension)" />
+    <EmbeddedResource Include="embedded\firmware\v5.0.0\**\*.*" LogicalName="embedded/firmware/v5.0.0/%(RecursiveDir)%(Filename)%(Extension)" />
+    <EmbeddedResource Include="embedded\tools\**\*.*" LogicalName="embedded/tools/%(RecursiveDir)%(Filename)%(Extension)" />
+    <EmbeddedResource Include="embedded\drivers\**\*.*" LogicalName="embedded/drivers/%(RecursiveDir)%(Filename)%(Extension)" />
   </ItemGroup>
 </Project>

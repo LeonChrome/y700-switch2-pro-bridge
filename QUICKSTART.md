@@ -1,111 +1,37 @@
-# Quickstart / 快速开始
+# Quickstart
 
-## 中文
-
-这是 V4 ESP32-S3 版本的最短使用流程。
-
-## 需要准备
-
-- ESP32-S3-N16R8 开发板，带 CH343P Type-C 和 native USB & OTG Type-C。
-- Windows PC。
-- 真实 Switch 2 Pro Controller。
-- V4 release 包：`esp32s3-pro2-bridge-v4.0.0-20260529.zip`。
-
-## 1. 解压 release
-
-解压后应能看到：
-
-```text
-manager\Y700Switch2Manager.exe
-tools\esp32s3\Flash-Pro2Bridge.bat
-tools\esp32s3\flash_release.ps1
-firmware\esp32s3_switch2_bridge\build\esp32s3_switch2_bridge.bin
-```
-
-## 2. 烧录
-
-连接开发板的 `CH343P Type-C` 口，然后在 release 目录运行：
-
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\esp32s3\flash_release.ps1 -Port COM12
-```
-
-如果端口不是 COM12：
-
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\esp32s3\detect_ports.ps1
-```
-
-把命令里的 `COM12` 替换成检测到的 CH343P 端口。
-
-## 3. 连接 native USB
-
-刷完后，连接或重插 native USB & OTG Type-C。Windows 应枚举：
-
-```text
-VID_057E PID_2069
-Nintendo Switch Pro Controller
-Nintendo Switch 2 bulk
-```
-
-## 4. 连接 Pro2
-
-固件默认开启 BLE 自动重连。如果之前已保存 Pro2 地址，开机后会自动连接。也可以用 manager 点击“重连”，或运行：
-
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\esp32s3\send_command.ps1 -Port COM12 -Command "ble reconnect" -ReadSeconds 30
-```
-
-## 5. 打开 Manager
-
-运行：
-
-```text
-manager\Y700Switch2Manager.exe
-```
-
-面板应能看到：
-
-```text
-usb=mounted
-bulk=mounted
-ble=connected
-live=active
-BLE input Hz ~= 133.3 Hz
-BLE interval ~= 7.50 ms
-Actual rate ~= 1000 Hz, if rate is set to 1000
-```
-
-## 6. 测速
-
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\Measure-SwitchHidRate.ps1 -Seconds 5
-```
-## English
-
-This is the shortest path for the V4 ESP32-S3 build.
+This is the shortest path for the V5 ESP32-S3 Switch 2 Pro bridge.
 
 ## Requirements
 
 - ESP32-S3-N16R8 board with CH343P Type-C and native USB & OTG Type-C.
 - Windows PC.
 - Real Switch 2 Pro Controller.
-- V4 release package: `esp32s3-pro2-bridge-v4.0.0-20260529.zip`.
+- V5 release asset: `Y700Switch2Manager-aio-v5.0.0.exe` or `esp32s3-pro2-bridge-v5.0.0-20260601.zip`.
 
-## 1. Extract The Release
+## Option A: All-in-one Manager
 
-After extraction, you should see:
+1. Download `Y700Switch2Manager-aio-v5.0.0.exe`.
+2. Connect the board's `CH343P Type-C` port.
+3. Open the EXE, select the CH343P COM port, then flash the bundled V5 firmware.
+4. Connect or replug the native USB & OTG Type-C port.
+5. In the Manager, confirm:
 
 ```text
-manager\Y700Switch2Manager.exe
-tools\esp32s3\Flash-Pro2Bridge.bat
-tools\esp32s3\flash_release.ps1
-firmware\esp32s3_switch2_bridge\build\esp32s3_switch2_bridge.bin
+usb=mounted
+bulk=mounted
+version=5.0.0
+rate_hz=250
+ble=connected
+live=active
+BLE input Hz ~= 133 Hz
 ```
 
-## 2. Flash
+The Manager keeps `250 Hz` as the gyro-friendly default and still exposes `1000 Hz` as an optional experimental USB report rate.
 
-Connect the board's `CH343P Type-C` port, then run this from the release folder:
+## Option B: Zip Package
+
+Extract `esp32s3-pro2-bridge-v5.0.0-20260601.zip`. From the extracted folder, flash over the CH343P port:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\esp32s3\flash_release.ps1 -Port COM12
@@ -119,9 +45,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\esp32s3\detect_ports
 
 Replace `COM12` with the detected CH343P port.
 
-## 3. Connect Native USB
+## Connect Native USB
 
-After flashing, connect or replug the native USB & OTG Type-C port. Windows should enumerate:
+After flashing, connect or replug the native USB & OTG Type-C port. Windows should enumerate the Nintendo-style HID path:
 
 ```text
 VID_057E PID_2069
@@ -129,36 +55,33 @@ Nintendo Switch Pro Controller
 Nintendo Switch 2 bulk
 ```
 
-## 4. Connect The Pro2 Controller
+## Connect The Pro2 Controller
 
-BLE auto-reconnect is enabled by default. If a Pro2 address was saved before, the firmware connects automatically after boot. You can also click "Reconnect" in the manager or run:
+BLE auto-reconnect is enabled by default. If a Pro2 address was saved before, the firmware connects automatically after boot. You can also click reconnect in the Manager or run:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\esp32s3\send_command.ps1 -Port COM12 -Command "ble reconnect" -ReadSeconds 30
 ```
 
-## 5. Open The Manager
+## Recommended Steam/Gyro Baseline
 
-Run:
+- Keep USB report rate at `250 Hz` for the current best gyro stability.
+- Use `1000 Hz` only when intentionally testing high USB output cadence.
+- Gyro is mapped close to raw from BLE FD2 motion bytes `48..59` into USB report `0x05`.
+- Voice, headphone audio, microphone audio, and full HD Rumble 2 audio are not implemented.
 
-```text
-manager\Y700Switch2Manager.exe
-```
-
-The panel should show:
-
-```text
-usb=mounted
-bulk=mounted
-ble=connected
-live=active
-BLE input Hz ~= 133.3 Hz
-BLE interval ~= 7.50 ms
-Actual rate ~= 1000 Hz, if rate is set to 1000
-```
-
-## 6. Measure Report Rate
+## Useful Tests
 
 ```powershell
+# Query firmware status
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\esp32s3\send_command.ps1 -Port COM12 -Command "status" -ReadSeconds 5
+
+# Set recommended USB report rate
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\esp32s3\send_command.ps1 -Port COM12 -Command "rate 250" -ReadSeconds 3
+
+# Optional 1000 Hz test
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\esp32s3\send_command.ps1 -Port COM12 -Command "rate 1000" -ReadSeconds 3
+
+# Measure host-observed HID report rate
 powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\Measure-SwitchHidRate.ps1 -Seconds 5
 ```

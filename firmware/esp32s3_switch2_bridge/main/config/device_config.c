@@ -10,7 +10,7 @@ static const char *NVS_KEY_REPORT_RATE = "rate_hz";
 static const char *NVS_KEY_BLE_AUTO = "ble_auto";
 static const char *NVS_KEY_BLE_TARGET = "ble_target";
 
-#define DEFAULT_REPORT_RATE_HZ 125
+#define DEFAULT_REPORT_RATE_HZ 250
 #define MIN_REPORT_RATE_HZ 20
 #define MAX_REPORT_RATE_HZ 1000
 #define BLE_TARGET_MAX_LEN 40
@@ -295,5 +295,5 @@ esp_err_t device_config_save_ble_target(const char *target)
 
 const char *device_config_get_version(void)
 {
-    return "4.0.0";
+    return "5.0.0";
 }

@@ -6,6 +6,8 @@
 #include <string.h>
 #include "app_log.h"
 #include "esp_err.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include "host/ble_gap.h"
 #include "host/ble_gatt.h"
 #include "host/ble_hs.h"
@@ -119,6 +121,9 @@ static char s_auto_scan_label[96];
 static bool s_pending_connect_valid;
 static ble_addr_t s_pending_connect_addr;
 static ble_central_conn_metrics_t s_conn_metrics;
+static bool s_imu_debug_enabled;
+static uint32_t s_imu_debug_every = 32;
+static uint32_t s_imu_debug_seen;
 
 static const struct ble_gap_conn_params s_fast_connect_params = {
     .scan_itvl = BLE_FAST_SCAN_ITVL,
@@ -144,10 +149,10 @@ static const uint8_t s_init_cmd_0[] = {0x03, 0x91, 0x01, 0x0d, 0x00, 0x08, 0x00,
 static const uint8_t s_init_cmd_1[] = {0x07, 0x91, 0x01, 0x01, 0x00, 0x00, 0x00, 0x00};
 static const uint8_t s_init_cmd_2[] = {0x16, 0x91, 0x01, 0x01, 0x00, 0x00, 0x00, 0x00};
 static const uint8_t s_init_cmd_3[] = {0x15, 0x91, 0x01, 0x03, 0x00, 0x01, 0x00, 0x00, 0x00};
-static const uint8_t s_init_cmd_4[] = {0x0c, 0x91, 0x01, 0x02, 0x00, 0x04, 0x00, 0x00, 0x2f, 0x00, 0x00, 0x00};
+static const uint8_t s_init_cmd_4[] = {0x0c, 0x91, 0x01, 0x02, 0x00, 0x04, 0x00, 0x00, 0xff, 0x00, 0x00, 0x00};
 static const uint8_t s_init_cmd_5[] = {0x11, 0x91, 0x01, 0x03, 0x00, 0x00, 0x00, 0x00};
 static const uint8_t s_init_cmd_6[] = {0x0a, 0x91, 0x01, 0x08, 0x00, 0x14, 0x00, 0x00, 0x01, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x35, 0x00, 0x46, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
-static const uint8_t s_init_cmd_7[] = {0x0c, 0x91, 0x01, 0x04, 0x00, 0x04, 0x00, 0x00, 0x2f, 0x00, 0x00, 0x00};
+static const uint8_t s_init_cmd_7[] = {0x0c, 0x91, 0x01, 0x04, 0x00, 0x04, 0x00, 0x00, 0xff, 0x00, 0x00, 0x00};
 static const uint8_t s_init_cmd_8[] = {0x03, 0x91, 0x01, 0x0a, 0x00, 0x04, 0x00, 0x00, 0x09, 0x00, 0x00, 0x00};
 static const uint8_t s_init_cmd_9[] = {0x10, 0x91, 0x01, 0x01, 0x00, 0x00, 0x00, 0x00};
 static const uint8_t s_init_cmd_10[] = {0x01, 0x91, 0x01, 0x0c, 0x00, 0x00, 0x00, 0x00};
@@ -318,6 +323,83 @@ static void format_hex_preview(const uint8_t *data, uint8_t len, char *out, size
     }
 }
 
+static void format_hex_full(const uint8_t *data, uint16_t len, char *out, size_t out_len)
+{
+    if (!data || len == 0 || out_len == 0) {
+        if (out_len > 0) {
+            out[0] = 0;
+        }
+        return;
+    }
+
+    size_t used = 0;
+    for (uint16_t i = 0; i < len && used + 3 < out_len; i++) {
+        int written = snprintf(out + used, out_len - used, "%02x%s", data[i], i + 1 < len ? " " : "");
+        if (written <= 0) {
+            break;
+        }
+        used += (size_t)written;
+    }
+    out[used < out_len ? used : out_len - 1] = 0;
+}
+
+static int16_t read_i16_le(const uint8_t *data)
+{
+    return (int16_t)((uint16_t)data[0] | ((uint16_t)data[1] << 8));
+}
+
+static void format_imu_i16_candidate(const uint8_t *data, char *out, size_t out_len)
+{
+    if (!data || !out || out_len == 0) {
+        return;
+    }
+
+    size_t used = 0;
+    for (uint8_t sample = 0; sample < 3 && used + 1 < out_len; sample++) {
+        int16_t values[6];
+        for (uint8_t axis = 0; axis < 6; axis++) {
+            values[axis] = read_i16_le(data + sample * 12 + axis * 2);
+        }
+        int written = snprintf(out + used,
+                               out_len - used,
+                               "%ss%u=[%d,%d,%d,%d,%d,%d]",
+                               sample > 0 ? " " : "",
+                               (unsigned)sample,
+                               values[0],
+                               values[1],
+                               values[2],
+                               values[3],
+                               values[4],
+                               values[5]);
+        if (written <= 0) {
+            break;
+        }
+        used += (size_t)written;
+    }
+    out[used < out_len ? used : out_len - 1] = 0;
+}
+
+static void format_imu_i16_sample(const uint8_t *data, char *out, size_t out_len)
+{
+    if (!data || !out || out_len == 0) {
+        return;
+    }
+
+    int16_t values[6];
+    for (uint8_t axis = 0; axis < 6; axis++) {
+        values[axis] = read_i16_le(data + axis * 2);
+    }
+    snprintf(out,
+             out_len,
+             "accel=[%d,%d,%d] gyro=[%d,%d,%d]",
+             values[0],
+             values[1],
+             values[2],
+             values[3],
+             values[4],
+             values[5]);
+}
+
 static bool name_looks_like_switch_controller(const char *name)
 {
     return contains_ci(name, "switch") ||
@@ -341,12 +423,13 @@ static bool adv_has_company_id(const struct ble_hs_adv_fields *fields, uint16_t 
 
 static bool is_notify_uuid(const char *uuid)
 {
+    /*
+     * The Pro2 appears to expose one active input stream at a time: subscribing
+     * the compact C0F8 stream after FD2 switches live input away from the full
+     * 63-byte FD2 reports, which removes the stable motion sample at 48..59.
+     */
     return uuid &&
-           (strcmp(uuid, SWITCH2_NOTIFY_FD2_UUID) == 0 ||
-            strcmp(uuid, SWITCH2_NOTIFY_LEGACY_UUID) == 0 ||
-            strcmp(uuid, SWITCH2_NOTIFY_506D_UUID) == 0 ||
-            strcmp(uuid, SWITCH2_NOTIFY_D3BD_UUID) == 0 ||
-            strcmp(uuid, SWITCH2_NOTIFY_FDE_UUID) == 0);
+           strcmp(uuid, SWITCH2_NOTIFY_FD2_UUID) == 0;
 }
 
 static bool is_input_uuid(const char *uuid)
@@ -756,6 +839,37 @@ static int gatt_subscribe_write_cb(uint16_t conn_handle,
 
 static void start_post_init_subscriptions(void);
 static void send_current_init_command(void);
+static void subscribe_next_target(void);
+
+static volatile bool s_subscribe_task_pending;
+
+static void subscribe_next_task(void *arg)
+{
+    (void)arg;
+    vTaskDelay(pdMS_TO_TICKS(1));
+    s_subscribe_task_pending = false;
+    subscribe_next_target();
+    vTaskDelete(NULL);
+}
+
+static void schedule_subscribe_next(void)
+{
+    if (s_subscribe_task_pending) {
+        return;
+    }
+
+    s_subscribe_task_pending = true;
+    BaseType_t ok = xTaskCreate(subscribe_next_task,
+                                "ble_sub_next",
+                                4096,
+                                NULL,
+                                5,
+                                NULL);
+    if (ok != pdPASS) {
+        s_subscribe_task_pending = false;
+        APP_LOGE(TAG, "BLE subscribe scheduler failed");
+    }
+}
 
 static bool subscribe_target_for_phase(const discovered_char_t *chr)
 {
@@ -829,7 +943,7 @@ static void start_post_init_subscriptions(void)
     s_subscribe_phase = BLE_SUBSCRIBE_PHASE_POST_INIT;
     s_subscribe_index = -1;
     APP_LOGI(TAG, "BLE post-init notification setup start");
-    subscribe_next_target();
+    schedule_subscribe_next();
 }
 
 static void send_current_init_command(void)
@@ -908,7 +1022,7 @@ static int gatt_subscribe_write_cb(uint16_t conn_handle,
         }
     }
 
-    subscribe_next_target();
+    schedule_subscribe_next();
     return 0;
 }
 
@@ -980,7 +1094,7 @@ static void start_next_descriptor_discovery(void)
     }
 
     s_subscribe_index = -1;
-    subscribe_next_target();
+    schedule_subscribe_next();
 }
 
 static void start_next_characteristic_discovery(void);
@@ -1171,6 +1285,50 @@ static void handle_notify_rx(const struct ble_gap_event *event)
     discovered_char_t *chr = find_chr_by_value_handle(event->notify_rx.attr_handle);
     const char *uuid = chr ? chr->uuid : "<unknown>";
 
+    if (s_imu_debug_enabled && chr && is_input_uuid(uuid) && copy_len >= 51) {
+        s_imu_debug_seen++;
+        uint32_t every = s_imu_debug_every == 0 ? 32 : s_imu_debug_every;
+        if (every <= 1 || (s_imu_debug_seen % every) == 0) {
+            static char imu_hex[128];
+            static char motion_hex[128];
+            static char imu_i16[192];
+            static char motion_i16[192];
+            static char fd2_motion_hex[48];
+            static char fd2_motion_i16[96];
+            static char raw_hex[384];
+            format_hex_full(data + 15, 36, imu_hex, sizeof(imu_hex));
+            format_imu_i16_candidate(data + 15, imu_i16, sizeof(imu_i16));
+            if (copy_len >= 55 && data[14] == 0x28) {
+                format_hex_full(data + 19, 36, motion_hex, sizeof(motion_hex));
+                format_imu_i16_candidate(data + 19, motion_i16, sizeof(motion_i16));
+            } else {
+                snprintf(motion_hex, sizeof(motion_hex), "n/a");
+                snprintf(motion_i16, sizeof(motion_i16), "n/a");
+            }
+            if (strcmp(uuid, SWITCH2_NOTIFY_FD2_UUID) == 0 && copy_len >= 60) {
+                format_hex_full(data + 48, 12, fd2_motion_hex, sizeof(fd2_motion_hex));
+                format_imu_i16_sample(data + 48, fd2_motion_i16, sizeof(fd2_motion_i16));
+            } else {
+                snprintf(fd2_motion_hex, sizeof(fd2_motion_hex), "n/a");
+                snprintf(fd2_motion_i16, sizeof(fd2_motion_i16), "n/a");
+            }
+            format_hex_full(data, copy_len, raw_hex, sizeof(raw_hex));
+            APP_LOGI(TAG,
+                     "IMU_DEBUG notify=%lu uuid=%s len=%u sub_len=0x%02x imu15_50=\"%s\" imu_i16=\"%s\" motion19_54=\"%s\" motion_i16=\"%s\" fd2_motion48_59=\"%s\" fd2_i16=\"%s\" raw=\"%s\"",
+                     (unsigned long)s_imu_debug_seen,
+                     uuid,
+                     (unsigned)copy_len,
+                     copy_len > 14 ? data[14] : 0,
+                     imu_hex,
+                     imu_i16,
+                     motion_hex,
+                     motion_i16,
+                     fd2_motion_hex,
+                     fd2_motion_i16,
+                     raw_hex);
+        }
+    }
+
     if (chr && chr->ack_target) {
         advance_ble_init_from_ack(data, copy_len);
         return;
@@ -1187,6 +1345,9 @@ static void handle_notify_rx(const struct ble_gap_event *event)
     }
 
     switch2_state_t state;
+    if (!switch2_state_get_live(&state, NULL, NULL)) {
+        switch2_state_reset(&state);
+    }
     esp_err_t err = switch2_gatt_handle_notify(uuid, data, copy_len, &state);
     if (err == ESP_OK) {
         switch2_state_store_live(&state);
@@ -1536,6 +1697,24 @@ void ble_central_get_conn_metrics(ble_central_conn_metrics_t *out_metrics)
         return;
     }
     *out_metrics = s_conn_metrics;
+}
+
+void ble_central_set_imu_debug(bool enabled, uint32_t every)
+{
+    s_imu_debug_enabled = enabled;
+    s_imu_debug_every = every == 0 ? 32 : every;
+    s_imu_debug_seen = 0;
+    APP_LOGI(TAG, "IMU debug %s every=%lu",
+             enabled ? "enabled" : "disabled",
+             (unsigned long)s_imu_debug_every);
+}
+
+bool ble_central_get_imu_debug(uint32_t *out_every)
+{
+    if (out_every) {
+        *out_every = s_imu_debug_every;
+    }
+    return s_imu_debug_enabled;
 }
 
 esp_err_t ble_central_send_command(const uint8_t *data, uint16_t len)

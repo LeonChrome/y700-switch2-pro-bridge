@@ -33,6 +33,23 @@ void switch2_state_reset(switch2_state_t *state)
     state->ry = CENTER_12BIT;
 }
 
+static void reset_controls_preserving_motion(switch2_state_t *state)
+{
+    bool motion_valid = state->motion_valid;
+    uint8_t motion[SWITCH2_MOTION_BLOCK_SIZE];
+
+    if (motion_valid) {
+        memcpy(motion, state->motion, sizeof(motion));
+    }
+
+    switch2_state_reset(state);
+
+    if (motion_valid) {
+        memcpy(state->motion, motion, sizeof(motion));
+        state->motion_valid = true;
+    }
+}
+
 void switch2_state_set_button(switch2_state_t *state, switch2_button_t button, bool pressed)
 {
     if (button >= SWITCH2_BUTTON_COUNT) {
@@ -44,6 +61,27 @@ void switch2_state_set_button(switch2_state_t *state, switch2_button_t button, b
     } else {
         state->buttons &= ~mask;
     }
+}
+
+void switch2_state_set_motion_raw(switch2_state_t *state, const uint8_t *data, uint8_t len)
+{
+    if (!state || !data || len < SWITCH2_MOTION_BLOCK_SIZE) {
+        return;
+    }
+    memcpy(state->motion, data, SWITCH2_MOTION_BLOCK_SIZE);
+    state->motion_valid = true;
+}
+
+void switch2_state_set_motion_sample(switch2_state_t *state, const uint8_t *data, uint8_t len)
+{
+    if (!state || !data || len < SWITCH2_MOTION_SAMPLE_SIZE) {
+        return;
+    }
+
+    for (uint8_t offset = 0; offset < SWITCH2_MOTION_BLOCK_SIZE; offset += SWITCH2_MOTION_SAMPLE_SIZE) {
+        memcpy(state->motion + offset, data, SWITCH2_MOTION_SAMPLE_SIZE);
+    }
+    state->motion_valid = true;
 }
 
 bool switch2_state_get_button(const switch2_state_t *state, switch2_button_t button)
@@ -165,7 +203,7 @@ void switch2_state_clear_live(void)
 
 void switch2_state_update_from_legacy_bytes(switch2_state_t *state, uint8_t b2, uint8_t b3, uint8_t b4)
 {
-    switch2_state_reset(state);
+    reset_controls_preserving_motion(state);
     switch2_state_set_button(state, SWITCH2_BUTTON_B, (b2 & 0x01) != 0);
     switch2_state_set_button(state, SWITCH2_BUTTON_A, (b2 & 0x02) != 0);
     switch2_state_set_button(state, SWITCH2_BUTTON_Y, (b2 & 0x04) != 0);
@@ -191,7 +229,7 @@ void switch2_state_update_from_legacy_bytes(switch2_state_t *state, uint8_t b2, 
 
 void switch2_state_update_from_fd2_buttons(switch2_state_t *state, uint32_t buttons)
 {
-    switch2_state_reset(state);
+    reset_controls_preserving_motion(state);
     switch2_state_set_button(state, SWITCH2_BUTTON_Y, (buttons & 0x00000001) != 0);
     switch2_state_set_button(state, SWITCH2_BUTTON_X, (buttons & 0x00000002) != 0);
     switch2_state_set_button(state, SWITCH2_BUTTON_B, (buttons & 0x00000004) != 0);

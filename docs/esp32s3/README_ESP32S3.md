@@ -1,40 +1,28 @@
 # ESP32-S3 Bridge Track
 
-## 中文
+This directory documents the current ESP32-S3 mainline. As of V5.0.0, the ESP32-S3 can connect directly to a real Switch 2 Pro Controller over BLE and expose a Nintendo Switch Pro / Pro2-style USB HID device to Windows / Steam.
 
-这个目录记录 V4 ESP32-S3 版本。V4 已经不再只是计划或 skeleton：ESP32-S3 现在可以直接连接真实 Switch 2 Pro Controller，并通过 USB 暴露 Nintendo Switch Pro Controller 兼容设备给 Windows / Steam。
-
-## English
-
-This directory documents the V4 ESP32-S3 build. V4 is no longer just a plan or scaffold: the ESP32-S3 can now connect directly to a real Switch 2 Pro Controller and expose a Nintendo Switch Pro Controller-compatible USB device to Windows / Steam.
-
-## Current Status / 当前状态
-
-## 中文
-
-已验证：
-
-- CH343P 串口烧录、日志和控制。
-- Native USB 枚举为 `VID_057E PID_2069` Nintendo Switch Pro Controller。
-- Steam Nintendo Switch Pro / Pro2 输入路径可用。
-- BLE GATT discovery、notify subscribe、输入解析和自动重连。
-- BLE interval 请求 `6`，即 `7.5 ms`，输入约 `133.3 Hz`。
-- USB report loop 可接近 `1000 Hz`。
-- Rumble / HD rumble 有物理反馈。
-- Windows Manager 可查看关键状态并发送控制命令。
-
-## English
-
-Verified:
+## Verified Status
 
 - CH343P serial flashing, logging, and control.
-- Native USB enumerates as `VID_057E PID_2069` Nintendo Switch Pro Controller.
+- Native USB enumerates as `VID_057E PID_2069` Nintendo Switch Pro Controller plus the project bulk/control interface.
 - Steam Nintendo Switch Pro / Pro2 input path works.
-- BLE GATT discovery, notify subscription, input parsing, and auto-reconnect.
-- BLE interval request `6`, meaning `7.5 ms`, with about `133.3 Hz` input.
-- USB report loop can approach `1000 Hz`.
-- Rumble / HD rumble produces physical feedback.
-- Windows Manager shows key status fields and sends control commands.
+- BLE GATT discovery, FD2 notify subscription, input parsing, and auto-reconnect.
+- BLE interval request `6`, meaning `7.5 ms`, with about `133 Hz` input in the tested environment.
+- USB input report ID `0x05` full extended report.
+- Gyro uses FD2 motion bytes `48..59` and USB report `0x05` bytes `49..60` with raw-like defaults.
+- USB report loop defaults to `250 Hz`; `1000 Hz` remains available as an experimental option.
+- Rumble produces physical feedback from Steam/SDL HID OUT updates.
+- Windows Manager can flash bundled firmware, show status, reconnect BLE, and send control commands.
+
+## Not Implemented
+
+- Voice.
+- Headphone audio.
+- Microphone audio.
+- Full HD Rumble 2 audio reproduction.
+- Dual-controller mode.
+- Stable macOS/Android generic profiles.
 
 ## Goal
 
@@ -56,16 +44,16 @@ real Switch 2 Pro Controller BLE notify
 - CH343P Type-C for flashing, logs, and serial control
 - ESP32-S3 native USB & OTG Type-C for TinyUSB HID Device
 
-## Current Deliverables / 当前产物
+## Current Deliverables
 
 - ESP-IDF firmware.
 - TinyUSB Nintendo HID + vendor bulk descriptors.
-- BLE Central scan/connect/GATT discovery/notify-subscribe pipeline.
-- Pro2 input and rumble bridge.
+- BLE Central scan/connect/GATT discovery/FD2 notify pipeline.
+- Pro2 input, raw-like gyro passthrough, and rumble bridge.
 - Runtime HID report-rate control persisted in NVS.
 - Windows .NET 8 WPF Manager with serial, HID feature, and bulk control transports.
 - Flash/build/monitor scripts.
-- Release flasher package.
+- V5 release package and all-in-one Manager EXE.
 
 ## Build
 
@@ -73,7 +61,7 @@ real Switch 2 Pro Controller BLE notify
 .\tools\esp32s3\build.ps1 -IdfPath C:\Espressif\v5.3.3\esp-idf
 ```
 
-Build and flashing were observed with ESP-IDF v5.3.3 on 2026-05-29.
+Build and publishing were observed with ESP-IDF v5.3.3 and .NET 8 on 2026-06-01.
 
 ## Manager EXE
 

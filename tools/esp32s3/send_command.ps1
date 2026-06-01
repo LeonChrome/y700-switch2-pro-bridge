@@ -22,6 +22,9 @@ if (-not $Port) { throw "No COM port supplied." }
 $serial = [System.IO.Ports.SerialPort]::new($Port, 115200, [System.IO.Ports.Parity]::None, 8, [System.IO.Ports.StopBits]::One)
 $serial.ReadTimeout = 200
 $serial.WriteTimeout = 1000
+$serial.DtrEnable = $false
+$serial.RtsEnable = $false
+$serial.Handshake = [System.IO.Ports.Handshake]::None
 
 try {
     $serial.Open()

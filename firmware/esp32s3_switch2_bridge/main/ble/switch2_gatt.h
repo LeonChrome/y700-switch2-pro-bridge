@@ -15,3 +15,7 @@
 
 esp_err_t switch2_gatt_handle_notify(const char *uuid, const uint8_t *data, uint16_t len, switch2_state_t *out_state);
 esp_err_t switch2_gatt_send_rumble_stub(const uint8_t *data, uint16_t len);
+bool switch2_gatt_set_motion_source_offset(uint8_t offset);
+uint8_t switch2_gatt_get_motion_source_offset(void);
+void switch2_gatt_set_motion_full_only(bool enabled);
+bool switch2_gatt_get_motion_full_only(void);

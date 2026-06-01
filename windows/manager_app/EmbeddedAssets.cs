@@ -10,8 +10,8 @@ namespace Y700Switch2Manager;
 
 public static class EmbeddedAssets
 {
-    public const string BundledFirmwareVersion = "4.0.0";
-    public const string BundledPackageVersion = "v4.0.0-aio";
+    public const string BundledFirmwareVersion = "5.0.0";
+    public const string BundledPackageVersion = "v5.0.0-aio";
 
     public static string RootDirectory =>
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
@@ -20,7 +20,7 @@ public static class EmbeddedAssets
     public static FirmwarePackage EnsureFirmwarePackage()
     {
         string packageRoot = Path.Combine(RootDirectory, "firmware", BundledFirmwareVersion);
-        ExtractPrefix("embedded/firmware/v4.0.0/", packageRoot);
+        ExtractPrefix("embedded/firmware/v5.0.0/", packageRoot);
         ExtractPrefix("embedded/tools/", Path.Combine(RootDirectory, "tools"));
         ExtractPrefix("embedded/drivers/", Path.Combine(RootDirectory, "drivers"));
 

@@ -9,6 +9,9 @@ static const char *TAG = "switch2_gatt";
 #define CENTER_12BIT 2048
 #define AXIS_DEADZONE 48
 #define AXIS_CALIBRATION_SAMPLES 20
+#define FD2_FULL_REPORT_MIN_LEN 60
+#define FD2_FULL_MOTION_OFFSET 48
+#define MOTION_NOTIFY_MAX_OFFSET 51
 
 typedef struct {
     bool calibrated;
@@ -35,6 +38,32 @@ static axis_calibration_t s_legacy_axis = {
     .center_rx = CENTER_12BIT,
     .center_ry = CENTER_12BIT,
 };
+static uint8_t s_motion_source_offset = FD2_FULL_MOTION_OFFSET;
+static bool s_motion_full_only = true;
+
+bool switch2_gatt_set_motion_source_offset(uint8_t offset)
+{
+    if (offset > MOTION_NOTIFY_MAX_OFFSET) {
+        return false;
+    }
+    s_motion_source_offset = offset;
+    return true;
+}
+
+uint8_t switch2_gatt_get_motion_source_offset(void)
+{
+    return s_motion_source_offset;
+}
+
+void switch2_gatt_set_motion_full_only(bool enabled)
+{
+    s_motion_full_only = enabled;
+}
+
+bool switch2_gatt_get_motion_full_only(void)
+{
+    return s_motion_full_only;
+}
 
 static uint32_t read_le32(const uint8_t *p)
 {
@@ -116,6 +145,24 @@ static void apply_axes(axis_calibration_t *cal,
     state->ry = recenter_axis(ry, cal->center_ry);
 }
 
+static void apply_motion_if_available(switch2_state_t *state, const uint8_t *data, uint16_t len)
+{
+    if ((uint16_t)s_motion_source_offset + SWITCH2_MOTION_SAMPLE_SIZE > len) {
+        return;
+    }
+
+    /*
+     * Pro2 7FD2 full BLE reports carry one raw IMU sample at bytes 48..59:
+     * accel XYZ followed by gyro XYZ. The USB 0x05 report uses the same
+     * 12-byte layout shifted by one byte because report[0] is the report ID.
+     */
+    if (s_motion_full_only && len < FD2_FULL_REPORT_MIN_LEN) {
+        return;
+    }
+
+    switch2_state_set_motion_sample(state, data + s_motion_source_offset, SWITCH2_MOTION_SAMPLE_SIZE);
+}
+
 esp_err_t switch2_gatt_handle_notify(const char *uuid, const uint8_t *data, uint16_t len, switch2_state_t *out_state)
 {
     if (!uuid || !data || !out_state) {
@@ -135,6 +182,7 @@ esp_err_t switch2_gatt_handle_notify(const char *uuid, const uint8_t *data, uint
                        unpack12_x(data, 13),
                        unpack12_y(data, 13));
         }
+        apply_motion_if_available(out_state, data, len);
         return ESP_OK;
     }
 

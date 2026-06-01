@@ -42,7 +42,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private string liveStatus = "none";
     private int liveUpdates;
     private int liveAgeMs = -1;
-    private int reportRateHz = 125;
+    private int reportRateHz = 250;
     private int hidOutCount;
     private string hidOutLast = "none";
     private int hidGetCount;
@@ -74,7 +74,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private string portHint = "Refresh ports to find the CH343P control port.";
     private string selectedPortDetails = "No serial port selected.";
     private string driverStatusText = "Driver status has not been checked yet.";
-    private string embeddedFirmwareText = $"Bundled firmware {EmbeddedAssets.BundledFirmwareVersion}, BLE 7.5 ms / 133.3 Hz, USB up to 1000 Hz.";
+    private string embeddedFirmwareText = $"Bundled firmware {EmbeddedAssets.BundledFirmwareVersion}, BLE 7.5 ms / 133.3 Hz, gyro-friendly USB 250 Hz default, 1000 Hz optional.";
     private string flashStatus = "Ready.";
     private bool isFlashing;
     private int reportActualMilliHz;

@@ -1,6 +1,6 @@
 # ESP32-S3 Serial Control Protocol
 
-Status: Steam Nintendo Switch Pro/Pro2 layout, BLE input forwarding, and Pro2 rumble are verified on 2026-05-28.
+Status: Steam Nintendo Switch Pro/Pro2 layout, BLE input forwarding, raw-like gyro passthrough, and Pro2 rumble are verified for V5.0.0 on 2026-06-01.
 
 Transports:
 
@@ -55,7 +55,7 @@ version
 ## Example Replies
 
 ```json
-{"ok":true,"cmd":"status","mode":"nintendo","usb":"mounted","ble":"idle","hid":"running","test_mode":"auto_a","rate_hz":125,"report_actual_hz":123,"report_actual_mhz":122500,"report_sent":372,"report_failed":0,"report_last_gap_us":8000,"report_max_gap_us":9000,"live":"none","live_updates":0,"live_age_ms":-1,"version":"0.1.0"}
+{"ok":true,"cmd":"status","mode":"nintendo","usb":"mounted","ble":"connected","hid":"running","test_mode":"neutral","rate_hz":250,"report_actual_hz":249,"report_actual_mhz":249000,"report_sent":372,"report_failed":0,"report_last_gap_us":4000,"report_max_gap_us":5000,"live":"active","live_updates":512,"live_age_ms":2,"version":"5.0.0"}
 {"ok":true,"cmd":"mode","mode":"nintendo","experimental":true,"note":"replug native USB may be required"}
 {"ok":true,"cmd":"rate","rate_hz":250,"saved":true}
 {"ok":true,"cmd":"ble connect","ble":"connecting"}
@@ -68,7 +68,7 @@ version
 
 `mode nintendo` changes firmware state, but USB descriptors are normally read during enumeration. A native USB replug may be required after switching identity mode.
 
-`rate <20..1000>` persists the USB HID report loop rate in NVS. The default is 125 Hz; the manager exposes 60, 125, 250, 500, and 1000 Hz presets. Treat 1000 Hz as experimental on ESP32-S3.
+`rate <20..1000>` persists the USB HID report loop rate in NVS. The V5 default is 250 Hz because it is the current gyro-stability recommendation; the manager exposes 60, 125, 250, 500, and 1000 Hz presets. Treat 1000 Hz as an optional experimental USB output cadence on ESP32-S3.
 
 `status` reports both configured and measured report-rate fields:
 
@@ -77,6 +77,8 @@ version
 - `report_actual_mhz`: same value in millihertz for UI display, for example `122500` means `122.5 Hz`.
 - `report_sent` / `report_failed`: successful and failed HID input report sends since boot.
 - `report_last_gap_us` / `report_max_gap_us`: last and recent max gap between actual HID input sends.
+
+V5 gyro data uses the Switch 2 Pro FD2 BLE full-report motion block at bytes `48..59` and maps it into USB report `0x05` bytes `49..60`. The default path is raw-like: no smoothing, no scaling, no deadband, and no auto calibration.
 
 Host-side verification can be done without the CH343P control port:
 
@@ -90,7 +92,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File C:\Users\leon\Documents\Code
 
 `ble reconnect` uses the saved BLE target when available, otherwise it scans and connects the first candidate that looks like a Nintendo/Pro2 controller. Successful connects persist `ble_target` in NVS. `ble auto on/off` controls boot-time reconnect behavior; the default is on.
 
-`rumble config` returns the current runtime haptic tuning. `rumble tune <scale_percent> <hold_ms> <tick_ms> <stop_packets>` changes tuning without reflashing. The stable default is `rumble tune 100 180 20 3`.
+`rumble config` returns the current runtime haptic tuning. `rumble tune <scale_percent> <hold_ms> <tick_ms> <stop_packets>` changes tuning without reflashing. The stable default is `rumble tune 100 180 20 3`. V5 rumble tracks Steam/SDL HID OUT rumble updates and keeps a Pro2 BLE rumble stream alive; it is not just one fixed preset, but it is also not a full HD Rumble 2 audio/voice implementation.
 
 - `scale_percent`: `10..250`, applies to decoded Switch HID OUT amplitude before clamping to the Pro2 BLE 10-bit amplitude range.
 - `hold_ms`: `50..1000`, keeps the 33-byte HD stream alive after the latest Steam/SDL HID OUT rumble update.
