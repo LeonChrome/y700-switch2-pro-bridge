@@ -269,8 +269,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
         BleConnectCommand = new RelayCommand(_ => Send("ble connect " + (string.IsNullOrWhiteSpace(BleConnectTarget) ? "last" : BleConnectTarget.Trim())));
         BleDisconnectCommand = new RelayCommand(_ => Send("ble disconnect"));
         BleFastCommand = new RelayCommand(_ => Send("ble fast"));
-        BleAutoOnCommand = new RelayCommand(_ => Send("ble auto on"));
-        BleAutoOffCommand = new RelayCommand(_ => Send("ble auto off"));
+        BleAutoOnCommand = new RelayCommand(_ => EnableBleAutoReconnect());
+        BleAutoOffCommand = new RelayCommand(_ => DisableBleAutoReconnect());
         BleScanCommand = new RelayCommand(async _ => await StartBleSearchAsync());
         BleListCommand = new RelayCommand(_ => Send("ble list"));
         BleConnectSelectedCommand = new RelayCommand(_ => ConnectSelectedBleCandidate());
@@ -503,12 +503,24 @@ public sealed class MainViewModel : INotifyPropertyChanged
             return;
         }
 
+        if (string.Equals(BleAutoStatus, "off", StringComparison.OrdinalIgnoreCase))
+        {
+            startupBleAssistSent = true;
+            BleSearchStatus = "上次地址自动重连已关闭。";
+            AppendLog("manager auto BLE assist skipped: BLE auto reconnect is off");
+            return;
+        }
+
+        if (!string.Equals(BleAutoStatus, "on", StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
         startupBleAssistSent = true;
         BleSearchStatus = string.IsNullOrWhiteSpace(BleTarget)
             ? "No saved BLE target. Auto-scanning for a Pro2-looking controller."
             : "Trying saved BLE target: " + BleTarget;
         AppendLog("manager auto BLE assist: " + BleSearchStatus);
-        Send("ble auto on");
         Send("ble reconnect");
         _ = Task.Delay(TimeSpan.FromSeconds(16)).ContinueWith(_ =>
             Application.Current.Dispatcher.Invoke(() =>
@@ -646,6 +658,17 @@ public sealed class MainViewModel : INotifyPropertyChanged
     {
         ReportRateHz = Math.Clamp(rateHz, 20, 1000);
         Send("rate " + ReportRateHz);
+    }
+
+    private void EnableBleAutoReconnect()
+    {
+        Send("ble auto on");
+        Send("ble reconnect");
+    }
+
+    private void DisableBleAutoReconnect()
+    {
+        Send("ble auto off");
     }
 
     private void OnSerialLine(string line)

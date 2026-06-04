@@ -1,6 +1,7 @@
 # V5.0.0 Release Notes
 
 Date: 2026-06-01
+Manager asset refreshed: 2026-06-04
 
 V5.0.0 is the first formal all-in-one ESP32-S3 Switch 2 Pro bridge release. It promotes the previous Manager preview into the main recommended path and bundles V5 firmware instead of the older V4 payload.
 
@@ -22,6 +23,7 @@ SHA256SUMS-v5.0.0.txt
 - Default USB report loop changed from `125 Hz` to `250 Hz` for better gyro stability.
 - `1000 Hz` USB output remains available as an optional experimental setting in both Manager and serial commands.
 - Manager V5 bundles firmware `5.0.0` and exposes the `250` gyro recommendation while keeping the `1000` experimental button.
+- Manager BLE panel now exposes explicit last-address auto-reconnect on/off buttons; startup auto-assist respects the saved off state.
 
 ## Current Verified Behavior
 
@@ -61,7 +63,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\esp32s3\flash_releas
 ## Checksums
 
 ```text
-55705404087A019E88F532C3CA49E0B45BFE70C02B3AC08EEBBE19A3FE163939  Y700Switch2Manager-aio-v5.0.0.exe
-1F030894CEF82D3F241C26DC9AC8A4B9A57C6F8D5E0C6AF96F8757CCD0264647  esp32s3-pro2-bridge-v5.0.0-20260601.zip
+0B19786FF4342B6093F8EF13C4836B4976BED43FA628933AC48BFF969D53022C  Y700Switch2Manager-aio-v5.0.0.exe
+E6571DBBDFDD988A0FD02EBF53A8EB9FB53674F7AB335B6C534A95A8A1D8A824  esp32s3-pro2-bridge-v5.0.0-20260601.zip
 7652EAB05BADCF627F6CB5B2FD7A635BF9FF15F780C025960D3A22B5965BA125  firmware/esp32s3_switch2_bridge/build/esp32s3_switch2_bridge.bin
 ```

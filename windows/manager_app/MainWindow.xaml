@@ -139,8 +139,8 @@
                                 <Button Style="{StaticResource SmallButton}" Content="断开" Command="{Binding BleDisconnectCommand}"/>
                             </WrapPanel>
                             <WrapPanel>
-                                <Button Style="{StaticResource SmallButton}" Content="自动开" Command="{Binding BleAutoOnCommand}"/>
-                                <Button Style="{StaticResource SmallButton}" Content="自动关" Command="{Binding BleAutoOffCommand}"/>
+                                <Button Style="{StaticResource SmallButton}" Content="上次地址自动开" Command="{Binding BleAutoOnCommand}" ToolTip="保存开启，并立即尝试重连上一次识别到的 BLE 地址"/>
+                                <Button Style="{StaticResource SmallButton}" Content="上次地址自动关" Command="{Binding BleAutoOffCommand}" ToolTip="保存关闭；不会断开当前 BLE 连接"/>
                             </WrapPanel>
                         </StackPanel>
                     </Border>
