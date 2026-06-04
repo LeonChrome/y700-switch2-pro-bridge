@@ -12,6 +12,18 @@ The older Lenovo Y700 Android USB Gadget route remains in the repository as hist
 
 ## 当前正式版 / Current Release
 
+当前推荐直接使用 GitHub Release 里的新版 All-in-one Manager EXE：
+
+[下载 `Y700Switch2Manager-aio-v5.0.0.exe`](https://github.com/LeonChrome/y700-switch2-pro-bridge/releases/download/v5.0.0/Y700Switch2Manager-aio-v5.0.0.exe)
+
+该 EXE 已在 2026-06-04 刷新，内置 V5 固件和 Manager 最新 BLE 上次地址自动重连开关。新用户搭建时不需要再使用旧 Y700 转发方案，也不需要从仓库目录里手动挑固件或工具文件。
+
+The recommended setup path is the latest all-in-one Manager EXE from GitHub Releases:
+
+[Download `Y700Switch2Manager-aio-v5.0.0.exe`](https://github.com/LeonChrome/y700-switch2-pro-bridge/releases/download/v5.0.0/Y700Switch2Manager-aio-v5.0.0.exe)
+
+This EXE was refreshed on 2026-06-04. It bundles the V5 firmware and the latest Manager controls, including the saved BLE target auto-reconnect on/off buttons. New users should not start from the old Y700 forwarding route or manually pick firmware/tool binaries from the repository tree.
+
 | 路线 | 状态 | 推荐用户 | 说明 |
 | --- | --- | --- | --- |
 | V5.0.0 ESP32-S3 Pro2 Bridge | 正式版 / Stable | Windows / Steam 普通用户 | All-in-one Manager EXE、内置 V5 固件、BLE 输入、接近 raw 的陀螺仪、震动桥接、USB `0x05` full report |
@@ -26,6 +38,8 @@ The older Lenovo Y700 Android USB Gadget route remains in the repository as hist
 
 中文：
 
+- 一体化搭建：下载新版 Release EXE 后，可以直接完成驱动提示、端口选择、固件烧录、状态查看和常用控制。
+- BLE 连接：支持扫描真实 Switch 2 Pro Controller，连接选中目标，保存目标，并通过按钮开启或关闭“上次地址自动重连”。
 - Windows / Steam 走 Nintendo Switch Pro / Pro2 风格识别路径，USB input report ID 使用 `0x05`。
 - Switch 2 Pro BLE 输入使用 FD2 full report；在已测试硬件和环境中，BLE input 约为 `133 Hz` 级别。
 - 陀螺仪使用 Pro2 BLE FD2 motion 区 `bytes 48..59`，以接近 raw 的方式映射到 USB `0x05` motion 区。默认关闭平滑、缩放、死区和自动校准。
@@ -36,6 +50,8 @@ The older Lenovo Y700 Android USB Gadget route remains in the repository as hist
 
 English:
 
+- All-in-one setup: the latest Release EXE handles driver hints, port selection, firmware flashing, status viewing, and common controls.
+- BLE connection: the Manager can scan for a real Switch 2 Pro Controller, connect a selected target, save the target, and enable or disable saved-target auto reconnect.
 - Windows / Steam use the Nintendo Switch Pro / Pro2-style path with USB input report ID `0x05`.
 - Switch 2 Pro BLE input uses the FD2 full report; measured BLE input is around the `133 Hz` class on tested hardware.
 - Gyro uses the Pro2 BLE FD2 motion block at `bytes 48..59` and maps it into the USB `0x05` motion block with a raw-like path. Smoothing, scaling, deadband, and auto calibration are off by default.
@@ -46,9 +62,9 @@ English:
 
 ## 发布下载 / Release Downloads
 
-普通用户建议从 GitHub Releases 下载正式资产，不建议从仓库目录里手动挑二进制文件。
+普通用户建议从 GitHub Releases 下载正式资产，首选新版 All-in-one Manager EXE，不建议从仓库目录里手动挑二进制文件。
 
-Normal users should download release assets from GitHub Releases rather than picking binaries manually from the repository tree.
+Normal users should download release assets from GitHub Releases, preferably the latest all-in-one Manager EXE, rather than picking binaries manually from the repository tree.
 
 ```text
 Y700Switch2Manager-aio-v5.0.0.exe
