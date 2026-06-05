@@ -41,7 +41,7 @@ Expected board:
 Host-side report-rate measurement:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File C:\Users\leon\Documents\Codex\y700-hid-gamepad\tools\Measure-SwitchHidRate.ps1 -Seconds 5
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\Measure-SwitchHidRate.ps1 -Seconds 5
 ```
 
 The host-side measurement reads the native Nintendo HID input interface and counts reports delivered to Windows. It is independent from the CH343P control port and is useful for confirming that `rate_hz` changes are visible to the PC.

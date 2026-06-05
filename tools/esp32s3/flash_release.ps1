@@ -33,7 +33,7 @@ function Get-IdfPython {
         if (Test-Path -LiteralPath $candidate) { return $candidate }
     }
 
-    $candidate = "C:\Espressif\tools\python\v5.3.3\venv\Scripts\python.exe"
+    $candidate = Join-Path $env:SystemDrive "Espressif\tools\python\v5.3.3\venv\Scripts\python.exe"
     if (Test-Path -LiteralPath $candidate) { return $candidate }
 
     $python = Get-Command python -ErrorAction SilentlyContinue

@@ -79,7 +79,7 @@ shared state file, so button and stick forwarding does not stall after init.
 For v3 guided button capture, use:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\capture_switch2_button_map.ps1 -V3 -AdbPath "C:\path\to\adb.exe" -DeviceSerial "<serial>"
+powershell -NoProfile -ExecutionPolicy Bypass -File .\capture_switch2_button_map.ps1 -V3 -AdbPath "<path-to-adb.exe>" -DeviceSerial "<serial>"
 ```
 
 ### Preset
@@ -127,9 +127,9 @@ hd
 Safety modes:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\set_switch2_haptic_mode_v3.ps1 -Mode log-only -AdbPath "C:\path\to\adb.exe" -DeviceSerial "<serial>"
-powershell -NoProfile -ExecutionPolicy Bypass -File .\set_switch2_haptic_mode_v3.ps1 -Mode preset-fallback -AdbPath "C:\path\to\adb.exe" -DeviceSerial "<serial>"
-powershell -NoProfile -ExecutionPolicy Bypass -File .\set_switch2_haptic_mode_v3.ps1 -Mode hd -AdbPath "C:\path\to\adb.exe" -DeviceSerial "<serial>"
+powershell -NoProfile -ExecutionPolicy Bypass -File .\set_switch2_haptic_mode_v3.ps1 -Mode log-only -AdbPath "<path-to-adb.exe>" -DeviceSerial "<serial>"
+powershell -NoProfile -ExecutionPolicy Bypass -File .\set_switch2_haptic_mode_v3.ps1 -Mode preset-fallback -AdbPath "<path-to-adb.exe>" -DeviceSerial "<serial>"
+powershell -NoProfile -ExecutionPolicy Bypass -File .\set_switch2_haptic_mode_v3.ps1 -Mode hd -AdbPath "<path-to-adb.exe>" -DeviceSerial "<serial>"
 ```
 
 `log-only` suppresses active HD writes and only logs what would have been sent.
@@ -141,13 +141,13 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\set_switch2_haptic_mode_v3
 1. Start the USB gadget/responder v3:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\restart_switch2_responder_v3.ps1 -AdbPath "C:\path\to\adb.exe" -DeviceSerial "<serial>"
+powershell -NoProfile -ExecutionPolicy Bypass -File .\restart_switch2_responder_v3.ps1 -AdbPath "<path-to-adb.exe>" -DeviceSerial "<serial>"
 ```
 
 2. Start BLE bridge v3:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\run_switch2_ble_bridge_v3.ps1 -AdbPath "C:\path\to\adb.exe" -DeviceSerial "<serial>" -Background
+powershell -NoProfile -ExecutionPolicy Bypass -File .\run_switch2_ble_bridge_v3.ps1 -AdbPath "<path-to-adb.exe>" -DeviceSerial "<serial>" -Background
 ```
 
 3. After the Pro Controller 2 connects, run a direct BLE HD self-test:
@@ -161,7 +161,7 @@ adb -s <serial> shell su -c "echo play-hd > /data/local/tmp/switch2_ble_write_v3
 5. Pull logs if needed:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\run_switch2_ble_bridge_v3.ps1 -AdbPath "C:\path\to\adb.exe" -DeviceSerial "<serial>" -PullLogs
+powershell -NoProfile -ExecutionPolicy Bypass -File .\run_switch2_ble_bridge_v3.ps1 -AdbPath "<path-to-adb.exe>" -DeviceSerial "<serial>" -PullLogs
 adb -s <serial> shell su -c "tail -n 160 /data/local/tmp/switch2_ffs_responder_v3.log"
 ```
 

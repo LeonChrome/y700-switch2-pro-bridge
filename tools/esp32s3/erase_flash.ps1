@@ -25,7 +25,7 @@ if ($IdfPath) {
 }
 
 if (!(Get-Command idf.py -ErrorAction SilentlyContinue)) {
-    throw "idf.py not found. Open an ESP-IDF PowerShell or pass -IdfPath C:\path\to\esp-idf."
+    throw "idf.py not found. Open an ESP-IDF PowerShell or pass -IdfPath <path-to-esp-idf>."
 }
 
 Push-Location $Firmware

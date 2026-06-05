@@ -1,5 +1,5 @@
 param(
-    [string]$AdbPath = "C:\Users\leon\Desktop\工具\platform-tools\adb.exe",
+    [string]$AdbPath = "",
     [string]$DeviceSerial = "adb-HA2F83JF-d8q2TM._adb-tls-connect._tcp",
     [int]$Seconds = 12,
     [switch]$RichCycle,
@@ -8,6 +8,21 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+
+function Resolve-AdbPath {
+    param([string]$Path)
+    if ($Path -and (Test-Path -LiteralPath $Path)) { return (Resolve-Path $Path).Path }
+    $cmd = Get-Command adb -ErrorAction SilentlyContinue
+    if ($cmd) { return $cmd.Source }
+    foreach ($sdk in @($env:ANDROID_HOME, $env:ANDROID_SDK_ROOT, (Join-Path $env:LOCALAPPDATA "Android\Sdk"))) {
+        if (!$sdk) { continue }
+        $candidate = Join-Path $sdk "platform-tools\adb.exe"
+        if (Test-Path -LiteralPath $candidate) { return (Resolve-Path $candidate).Path }
+    }
+    throw "Missing adb. Add adb to PATH, set ANDROID_HOME/ANDROID_SDK_ROOT, or pass -AdbPath."
+}
+
+$AdbPath = Resolve-AdbPath $AdbPath
 
 function Invoke-AdbShell {
     param([string]$Command, [switch]$Root)

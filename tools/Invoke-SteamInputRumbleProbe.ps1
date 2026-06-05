@@ -1,6 +1,6 @@
 param(
-    [string]$SteamApiDll = "C:\Program Files (x86)\Steam\steamapps\common\Stardew Valley\steam_api64.dll",
-    [string]$SteamRoot = "C:\Program Files (x86)\Steam",
+    [string]$SteamApiDll = "",
+    [string]$SteamRoot = "",
     [string]$AppId = "413150",
     [int]$PulseMs = 650,
     [int]$GapMs = 160,
@@ -9,6 +9,13 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+
+if (!$SteamRoot) {
+    $SteamRoot = Join-Path ${env:ProgramFiles(x86)} "Steam"
+}
+if (!$SteamApiDll) {
+    $SteamApiDll = Join-Path $SteamRoot "steamapps\common\Stardew Valley\steam_api64.dll"
+}
 
 if (!(Test-Path -LiteralPath $SteamApiDll)) {
     throw "steam_api64.dll not found: $SteamApiDll"

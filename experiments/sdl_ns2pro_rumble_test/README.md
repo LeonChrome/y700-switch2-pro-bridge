@@ -23,7 +23,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\experiments\sdl_ns2pro_rum
 If `SDL3.dll` is not on the machine, pass it explicitly:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\experiments\sdl_ns2pro_rumble_test\run_sdl_ns2pro_rumble_test.ps1 -Sdl3Path C:\path\to\SDL3.dll
+powershell -NoProfile -ExecutionPolicy Bypass -File .\experiments\sdl_ns2pro_rumble_test\run_sdl_ns2pro_rumble_test.ps1 -Sdl3Path <path-to-SDL3.dll>
 ```
 
 ## Expected Logs

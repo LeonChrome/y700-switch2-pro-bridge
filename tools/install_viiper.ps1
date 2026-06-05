@@ -15,7 +15,7 @@ function Find-Go {
     if ($cmd) { return $cmd.Source }
     $local = Join-Path $ProjectRoot "work\deps\go\bin\go.exe"
     if (Test-Path $local) { return (Resolve-Path $local).Path }
-    $programFiles = "C:\Program Files\Go\bin\go.exe"
+    $programFiles = Join-Path $env:ProgramFiles "Go\bin\go.exe"
     if (Test-Path $programFiles) { return $programFiles }
     return $null
 }

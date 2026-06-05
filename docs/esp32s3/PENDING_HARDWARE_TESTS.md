@@ -28,7 +28,7 @@ Observed with real hardware:
 16. Serial command `stop` changed HID status to stopped and repeatedly sent neutral reports; Windows joystick state stayed `0x00000000`.
 17. Serial command `start` restored HID output.
 18. Direct no-stub flashing with ESP-IDF Python/esptool succeeded after stub-based flash showed serial noise.
-19. On 2026-05-28, `tools/esp32s3/build.ps1 -IdfPath C:\Espressif\v5.3.3\esp-idf` completed after adding Nintendo-default mode, report-rate control, BLE connect/GATT/notify code, and the live HID report loop.
+19. On 2026-05-28, `tools/esp32s3/build.ps1 -IdfPath <path-to-esp-idf>` completed after adding Nintendo-default mode, report-rate control, BLE connect/GATT/notify code, and the live HID report loop.
 20. On 2026-05-28, the Windows manager built and self-contained `Y700Switch2Manager.exe` was published.
 
 Still PENDING_HARDWARE_TEST:

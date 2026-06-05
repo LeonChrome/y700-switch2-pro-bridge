@@ -5,7 +5,7 @@ $Src = Join-Path $Root "tools\Y700Switch2Launcher.cs"
 $Out = Join-Path $Root "Y700Switch2Launcher.exe"
 $ReleaseDir = Join-Path $Root "release\v3-stable-20260525-input-rumble"
 $ReleaseOut = Join-Path $ReleaseDir "Y700Switch2Launcher.exe"
-$Csc = "C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe"
+$Csc = Join-Path $env:WINDIR "Microsoft.NET\Framework64\v4.0.30319\csc.exe"
 
 if (!(Test-Path -LiteralPath $Csc)) { throw "Missing csc: $Csc" }
 if (!(Test-Path -LiteralPath $Src)) { throw "Missing source: $Src" }

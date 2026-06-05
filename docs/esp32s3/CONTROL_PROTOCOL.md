@@ -83,7 +83,7 @@ V5 gyro data uses the Switch 2 Pro FD2 BLE full-report motion block at bytes `48
 Host-side verification can be done without the CH343P control port:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File C:\Users\leon\Documents\Codex\y700-hid-gamepad\tools\Measure-SwitchHidRate.ps1 -Seconds 5
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\Measure-SwitchHidRate.ps1 -Seconds 5
 ```
 
 `loglevel info` keeps NimBLE packet-level logs at WARN so rumble streaming does not flood serial output. `loglevel debug` re-enables verbose packet tracing.

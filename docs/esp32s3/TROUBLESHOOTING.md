@@ -4,7 +4,7 @@ Status: PENDING_HARDWARE_TEST.
 
 ## idf.py Not Found
 
-Open an ESP-IDF PowerShell or pass `-IdfPath C:\path\to\esp-idf` to the scripts.
+Open an ESP-IDF PowerShell or pass `-IdfPath <path-to-esp-idf>` to the scripts.
 
 ## ESP-IDF Environment Variables Not Loaded
 

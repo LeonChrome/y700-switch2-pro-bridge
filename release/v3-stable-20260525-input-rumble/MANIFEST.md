@@ -39,17 +39,17 @@ d5146215966668dcb74c0ece5111a78a  /data/local/tmp/switch2_ble_bridge_v3.jar
 BLE bridge:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\run_switch2_ble_bridge_v3.ps1 -AdbPath "C:\path\to\platform-tools\adb.exe" -DeviceSerial "<serial>" -Background
+powershell -NoProfile -ExecutionPolicy Bypass -File .\run_switch2_ble_bridge_v3.ps1 -AdbPath "<path-to-adb.exe>" -DeviceSerial "<serial>" -Background
 ```
 
 Responder/gadget:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\restart_switch2_responder_v3.ps1 -AdbPath "C:\path\to\platform-tools\adb.exe" -DeviceSerial "<serial>"
+powershell -NoProfile -ExecutionPolicy Bypass -File .\restart_switch2_responder_v3.ps1 -AdbPath "<path-to-adb.exe>" -DeviceSerial "<serial>"
 ```
 
 Guided v3 button capture:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\capture_switch2_button_map.ps1 -V3 -AdbPath "C:\path\to\platform-tools\adb.exe" -DeviceSerial "<serial>"
+powershell -NoProfile -ExecutionPolicy Bypass -File .\capture_switch2_button_map.ps1 -V3 -AdbPath "<path-to-adb.exe>" -DeviceSerial "<serial>"
 ```

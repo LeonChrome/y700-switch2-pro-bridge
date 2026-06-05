@@ -18,7 +18,10 @@ function Test-Admin {
 function Find-Usbip {
     $cmd = Get-Command usbip -ErrorAction SilentlyContinue
     if ($cmd) { return $cmd.Source }
-    foreach ($p in @("C:\Program Files\usbip-win2\usbip.exe", "C:\Program Files\USBIP\usbip.exe")) {
+    foreach ($p in @(
+        (Join-Path $env:ProgramFiles "usbip-win2\usbip.exe"),
+        (Join-Path $env:ProgramFiles "USBIP\usbip.exe")
+    )) {
         if (Test-Path $p) { return $p }
     }
     return $null

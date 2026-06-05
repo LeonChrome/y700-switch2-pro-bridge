@@ -49,7 +49,8 @@ public static class SdlSwitch2Probe
 
     public static int Main(string[] args)
     {
-        string steamRoot = args.Length > 0 ? args[0] : @"C:\Program Files (x86)\Steam";
+        string programFilesX86 = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86);
+        string steamRoot = args.Length > 0 ? args[0] : PathCombine(programFilesX86, "Steam");
         if (!SetDllDirectory(steamRoot)) {
             Console.WriteLine("SetDllDirectory failed: " + Marshal.GetLastWin32Error());
             return 2;
@@ -77,6 +78,11 @@ public static class SdlSwitch2Probe
     {
         bool ok = SDL_SetHint(name, value);
         Console.WriteLine("hint " + name + "=" + value + " ok=" + ok);
+    }
+
+    private static string PathCombine(string left, string right)
+    {
+        return System.IO.Path.Combine(left, right);
     }
 
     private static void DumpJoysticks()

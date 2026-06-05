@@ -60,7 +60,12 @@ public static class SteamInputVibrationProbe
 
     public static int Main(string[] args)
     {
-        string defaultDllDir = @"C:\Program Files (x86)\Steam\steamapps\common\Stardew Valley";
+        string defaultDllDir = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86),
+            "Steam",
+            "steamapps",
+            "common",
+            "Stardew Valley");
         string dllDir = GetStringArg(args, "--steam-dll-dir", defaultDllDir);
         string logPath = GetStringArg(args, "--log", Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "SteamInputVibrationProbe.log"));
         int seconds = GetArg(args, "--seconds", 20);

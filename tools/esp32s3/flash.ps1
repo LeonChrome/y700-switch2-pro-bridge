@@ -28,7 +28,7 @@ function Import-IdfEnvironment {
 
     $idfRoot = Split-Path -Parent $Path
     $versionName = Split-Path -Leaf $idfRoot
-    $toolsPath = if ($env:IDF_TOOLS_PATH) { $env:IDF_TOOLS_PATH } else { "C:\Espressif\tools" }
+    $toolsPath = if ($env:IDF_TOOLS_PATH) { $env:IDF_TOOLS_PATH } else { Join-Path $env:SystemDrive "Espressif\tools" }
     $eimProfile = Join-Path $toolsPath ("Microsoft.{0}.PowerShell_profile.ps1" -f $versionName)
     if (Test-Path -LiteralPath $eimProfile) {
         Write-Host "Loading ESP-IDF EIM profile: $eimProfile"
@@ -57,7 +57,7 @@ if (!(Get-Command idf.py -ErrorAction SilentlyContinue)) {
     }
 
     if (-not $script:EimExe) {
-        throw "idf.py not found. Open an ESP-IDF PowerShell, install Espressif EIM, or pass -IdfPath C:\path\to\esp-idf."
+        throw "idf.py not found. Open an ESP-IDF PowerShell, install Espressif EIM, or pass -IdfPath <path-to-esp-idf>."
     }
     Write-Host "idf.py not found on PATH; using EIM: $script:EimExe"
 }
@@ -82,7 +82,7 @@ function Get-IdfPython {
         if (Test-Path -LiteralPath $candidate) { return $candidate }
     }
 
-    $candidate = "C:\Espressif\tools\python\v5.3.3\venv\Scripts\python.exe"
+    $candidate = Join-Path $env:SystemDrive "Espressif\tools\python\v5.3.3\venv\Scripts\python.exe"
     if (Test-Path -LiteralPath $candidate) { return $candidate }
 
     $python = Get-Command python -ErrorAction SilentlyContinue

@@ -21,21 +21,19 @@ function Resolve-Adb {
         return $cmd.Source
     }
 
-    $candidates = @(
-        "$env:USERPROFILE\Desktop\tools\platform-tools\adb.exe",
-        "$env:USERPROFILE\Desktop\platform-tools\adb.exe",
-        "$env:USERPROFILE\Downloads\platform-tools\adb.exe",
-        "$env:USERPROFILE\Desktop\工具\platform-tools\adb.exe",
-        "$env:USERPROFILE\Downloads\scrcpy-win64-v3.3.4\adb.exe"
-    )
-
+    $candidates = @()
+    foreach ($sdk in @($env:ANDROID_HOME, $env:ANDROID_SDK_ROOT, (Join-Path $env:LOCALAPPDATA "Android\Sdk"))) {
+        if ($sdk) {
+            $candidates += (Join-Path $sdk "platform-tools\adb.exe")
+        }
+    }
     foreach ($candidate in $candidates) {
         if (Test-Path -LiteralPath $candidate) {
             return (Resolve-Path -LiteralPath $candidate).Path
         }
     }
 
-    throw "adb.exe was not found. Pass -AdbPath C:\path\to\adb.exe"
+    throw "adb.exe was not found. Add adb to PATH, set ANDROID_HOME/ANDROID_SDK_ROOT, or pass -AdbPath <path-to-adb.exe>."
 }
 
 function Invoke-Adb {

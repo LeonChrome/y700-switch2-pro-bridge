@@ -11,7 +11,7 @@ if (!$AdbPath) {
     if ($cmd) {
         $AdbPath = $cmd.Source
     } else {
-        throw "adb.exe was not found in PATH. Pass -AdbPath C:\path\to\adb.exe"
+        throw "adb.exe was not found in PATH. Pass -AdbPath <path-to-adb.exe>"
     }
 }
 

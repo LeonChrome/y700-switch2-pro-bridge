@@ -42,18 +42,18 @@ function Write-EnvLine {
 $dotnet = Find-Executable "dotnet" @(
     (Join-Path $env:USERPROFILE ".dotnet-codex\dotnet.exe"),
     (Join-Path $env:LOCALAPPDATA "Microsoft\dotnet\dotnet.exe"),
-    "C:\Program Files\dotnet\dotnet.exe",
-    "C:\Program Files (x86)\dotnet\dotnet.exe"
+    (Join-Path $env:ProgramFiles "dotnet\dotnet.exe"),
+    (Join-Path ${env:ProgramFiles(x86)} "dotnet\dotnet.exe")
 )
-$git = Find-Executable "git" @("C:\Program Files\Git\bin\git.exe")
+$git = Find-Executable "git" @((Join-Path $env:ProgramFiles "Git\bin\git.exe"))
 $go = Find-Executable "go" @(
     (Join-Path $ProjectRoot "work\deps\go\bin\go.exe"),
-    "C:\Program Files\Go\bin\go.exe"
+    (Join-Path $env:ProgramFiles "Go\bin\go.exe")
 )
-$cmake = Find-Executable "cmake" @("C:\Program Files\CMake\bin\cmake.exe")
+$cmake = Find-Executable "cmake" @((Join-Path $env:ProgramFiles "CMake\bin\cmake.exe"))
 $usbip = Find-Executable "usbip" @(
-    "C:\Program Files\usbip-win2\usbip.exe",
-    "C:\Program Files\USBIP\usbip.exe"
+    (Join-Path $env:ProgramFiles "usbip-win2\usbip.exe"),
+    (Join-Path $env:ProgramFiles "USBIP\usbip.exe")
 )
 $viiper = Find-Executable "viiper" @(
     (Join-Path $ProjectRoot "work\tools\viiper\viiper.exe"),

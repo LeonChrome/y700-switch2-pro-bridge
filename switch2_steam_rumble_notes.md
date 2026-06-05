@@ -158,7 +158,7 @@ Look for GATT connection, notify enable, input updates, and later BLE write ACKs
 5. Run the known-good local Windows HID probe:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File 'C:\Users\leon\Documents\Codex\y700-hid-gamepad\tools\Send-HidHapticProbe.ps1' -Vid 057e -Pids 2069 -PulseMs 650
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\Send-HidHapticProbe.ps1 -Vid 057e -Pids 2069 -PulseMs 650
 ```
 
 Expected responder evidence:
@@ -381,7 +381,7 @@ BzzzController was launched from Steam:
 
 ```text
 AppID 1642040
-Process: C:\Program Files (x86)\Steam\steamapps\common\BzzzController\Bzzz.exe
+Process: <Steam library>\steamapps\common\BzzzController\Bzzz.exe
 ```
 
 Steam logs confirmed the app focus and config activation:

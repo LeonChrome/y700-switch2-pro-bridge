@@ -1,11 +1,53 @@
+param(
+    [string]$JavaHome = "",
+    [string]$AndroidSdk = ""
+)
+
 $ErrorActionPreference = "Stop"
 
+function Resolve-JavaHome {
+    param([string]$Path)
+    if ($Path -and (Test-Path -LiteralPath $Path)) { return (Resolve-Path $Path).Path }
+    if ($env:JAVA_HOME -and (Test-Path -LiteralPath $env:JAVA_HOME)) { return (Resolve-Path $env:JAVA_HOME).Path }
+    $androidStudioJbr = Join-Path $env:ProgramFiles "Android\Android Studio\jbr"
+    if (Test-Path -LiteralPath $androidStudioJbr) { return $androidStudioJbr }
+    $javac = Get-Command javac -ErrorAction SilentlyContinue
+    if ($javac) { return (Split-Path -Parent (Split-Path -Parent $javac.Source)) }
+    throw "Missing Java. Set JAVA_HOME or pass -JavaHome."
+}
+
+function Resolve-AndroidSdk {
+    param([string]$Path)
+    $candidates = @(
+        $Path,
+        $env:ANDROID_HOME,
+        $env:ANDROID_SDK_ROOT,
+        (Join-Path $env:LOCALAPPDATA "Android\Sdk")
+    )
+    foreach ($candidate in $candidates) {
+        if ($candidate -and (Test-Path -LiteralPath $candidate)) {
+            return (Resolve-Path $candidate).Path
+        }
+    }
+    throw "Missing Android SDK. Set ANDROID_HOME/ANDROID_SDK_ROOT or pass -AndroidSdk."
+}
+
+function Resolve-LatestSdkFile {
+    param([string]$Root, [string]$Filter, [string]$Description)
+    $file = Get-ChildItem -LiteralPath $Root -Recurse -Filter $Filter -ErrorAction SilentlyContinue |
+        Sort-Object FullName -Descending |
+        Select-Object -First 1
+    if (!$file) { throw "Missing $Description under $Root" }
+    return $file.FullName
+}
+
 $Root = Split-Path -Parent $MyInvocation.MyCommand.Path
-$JavaHome = "C:\Program Files\Android\Android Studio\jbr"
+$JavaHome = Resolve-JavaHome $JavaHome
+$AndroidSdk = Resolve-AndroidSdk $AndroidSdk
 $Javac = Join-Path $JavaHome "bin\javac.exe"
 $JarTool = Join-Path $JavaHome "bin\jar.exe"
-$D8 = "C:\Users\leon\AppData\Local\Android\Sdk\build-tools\36.1.0\d8.bat"
-$AndroidJar = "C:\Users\leon\AppData\Local\Android\Sdk\platforms\android-36.1\android.jar"
+$D8 = Resolve-LatestSdkFile (Join-Path $AndroidSdk "build-tools") "d8.bat" "d8.bat"
+$AndroidJar = Resolve-LatestSdkFile (Join-Path $AndroidSdk "platforms") "android.jar" "android.jar"
 $Src = Join-Path $Root "src\Switch2BleBridgeV3.java"
 $Build = Join-Path $Root "build\switch2_ble_bridge_v3"
 $Classes = Join-Path $Build "classes"

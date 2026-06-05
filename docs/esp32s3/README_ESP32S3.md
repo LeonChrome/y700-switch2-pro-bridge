@@ -58,7 +58,7 @@ real Switch 2 Pro Controller BLE notify
 ## Build
 
 ```powershell
-.\tools\esp32s3\build.ps1 -IdfPath C:\Espressif\v5.3.3\esp-idf
+.\tools\esp32s3\build.ps1 -IdfPath <path-to-esp-idf>
 ```
 
 Build and publishing were observed with ESP-IDF v5.3.3 and .NET 8 on 2026-06-01.

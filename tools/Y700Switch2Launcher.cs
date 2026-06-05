@@ -444,7 +444,7 @@ public sealed class Y700Switch2Launcher
         {
             if (File.Exists(c)) return c;
         }
-        throw new FileNotFoundException("adb.exe not found. Pass --adb C:\\path\\to\\adb.exe");
+        throw new FileNotFoundException("adb.exe not found. Pass --adb <path-to-adb.exe>");
     }
 
     private static string FindRootDir(string start)
