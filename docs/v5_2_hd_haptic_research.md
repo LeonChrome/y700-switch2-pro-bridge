@@ -112,7 +112,9 @@ streaming.
 
 ### Input Path
 
-The raw stream input packet is documented as 27 bytes, little-endian:
+The upstream docs currently describe the raw stream input packet as 27 bytes,
+but the checked VIIPER source at `device/ns2pro/const.go` defines
+`InputWireSize = 24`, and `inputstate.go` marshals only the fields below:
 
 | Field | Type | Notes |
 | --- | --- | --- |
@@ -120,7 +122,9 @@ The raw stream input packet is documented as 27 bytes, little-endian:
 | `LX`, `LY`, `RX`, `RY` | `uint16` | Raw stick values clamped to `0..4095` |
 | `AccelX`, `AccelY`, `AccelZ` | `int16` | Raw report values |
 | `GyroX`, `GyroY`, `GyroZ` | `int16` | Raw report values |
-| battery metadata | internal/meta | Battery level, charging, external power, voltage |
+
+Battery metadata is passed separately through device-specific meta state, not
+through the current TCP stream input packet.
 
 For `libVIIPER`, the C API exposes:
 
