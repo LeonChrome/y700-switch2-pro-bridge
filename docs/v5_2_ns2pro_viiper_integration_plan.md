@@ -104,10 +104,45 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\esp32s3\send_command
 
 ## Current Decision
 
-The raw02 chain is implemented and ready for real hardware validation.
+The raw02 chain is implemented and has now passed host/firmware real-send
+validation on a BLE-connected Pro2. The person holding the controller still
+needs to confirm physical vibration before this becomes a V5.2 integration
+candidate.
 
 ```text
-blocked_by_real_pro2=true
-real_pro2_verified=false
-next=flash firmware, connect Pro2, run low preset real send
+blocked_by_real_pro2=false
+real_send_low=true
+real_send_medium=true
+real_send_captured_viiper=true
+physical_vibration=user_confirmation_pending
+next=confirm physical vibration, then design opt-in experimental output mode
 ```
+
+## Experimental Output Mode Boundary
+
+If physical vibration is confirmed, the next design target is an opt-in mode:
+
+```text
+output_mode=ns2pro_viiper
+```
+
+Rules before implementation:
+
+- Do not enable it by default.
+- Label it `Experimental` anywhere it is exposed.
+- Keep V5.1 Pro2/PS4 behavior unchanged.
+- Start only when usbip-win2 and VIIPER are available.
+- Start only when the real Pro2 BLE state is connected.
+- Refuse to forward if the target serial port is missing or busy.
+- Keep `-MaxPackets 1` style safety for probes; runtime forwarding needs a
+  separate rate limiter and stop path.
+- Keep the stable raw Pro2 bridge usable without VIIPER.
+
+Open interface questions:
+
+- Whether the runtime forwarder should live in the Manager or remain a separate
+  experimental script first.
+- Whether VIIPER attach should be started by the app or require an already
+  running monitor.
+- How to surface `rumble_errors`, BLE disconnects, and usbip-win2 driver state
+  without confusing V5.1 users.

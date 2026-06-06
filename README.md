@@ -188,6 +188,121 @@ English:
 - Host applications may show lower rates because OS/game APIs can coalesce or throttle events.
 - Gyro feel depends on Steam Input settings, game mouse handling, USB cable quality, BLE environment, and controller firmware.
 
+## V5.2 VIIPER ns2pro 探针 / V5.2 VIIPER ns2pro Probe
+
+中文：
+
+V5.2 Phase 2 是研究路线，不影响 V5.1/V5.0 ESP32-S3 正式桥接功能。目标是用 VIIPER 创建虚拟 Switch 2 Pro / `ns2pro` USB 设备，让 Windows / Steam / SDL 识别它，并捕获非零 `LeftRumble[16]` / `RightRumble[16]`，用于后续 HD Rumble 复刻。
+
+从仓库根目录先检查环境：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\check_viiper_env.ps1
+```
+
+自动安装 usbip-win2：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\install_usbip_win2.ps1 -Install -Elevate
+```
+
+如果 GitHub API 返回 `403`，手动下载最新 Windows x64/amd64 installer asset。当前已验证的资产名形如 `USBip-0.9.7.7-x64.exe`。下载后放到：
+
+```text
+.\work\deps\usbip-win2\<asset-file>
+```
+
+然后从管理员 PowerShell 执行：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\install_usbip_win2.ps1 -Install -Elevate -InstallerPath .\work\deps\usbip-win2\<asset-file>
+```
+
+安装成功后运行：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\experiments\viiper_ns2pro_probe\run_viiper_ns2pro_probe.ps1
+```
+
+English:
+
+V5.2 Phase 2 is a research path and does not modify the V5.1/V5.0 ESP32-S3 stable bridge. It uses VIIPER to create a virtual Switch 2 Pro / `ns2pro` USB device, then checks Windows / Steam / SDL recognition and attempts to capture non-zero `LeftRumble[16]` / `RightRumble[16]` for future HD Rumble reproduction.
+
+Check the environment from the repository root:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\check_viiper_env.ps1
+```
+
+Automatic usbip-win2 install:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\install_usbip_win2.ps1 -Install -Elevate
+```
+
+Manual install after downloading a release installer:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\install_usbip_win2.ps1 -Install -Elevate -InstallerPath .\work\deps\usbip-win2\<asset-file>
+```
+
+Detailed results are tracked in [docs/v5_2_viiper_probe_results.md](docs/v5_2_viiper_probe_results.md).
+
+Current Phase 2 finding: usbip-win2 attach works and VIIPER receives output
+feedback. SDL 3.4.10 currently sees the virtual `VID_057E&PID_2069&MI_00`
+interface as a low-level joystick, not an SDL gamepad, and SDL rumble/effect
+APIs return unsupported. Direct Windows HID output writes through
+`.\tools\Send-HidHapticProbe.ps1` do trigger non-zero
+`LeftRumble[16] / RightRumble[16]`.
+
+Repeatable Phase 2 validation:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\experiments\viiper_ns2pro_hid_rumble_probe\run_viiper_ns2pro_hid_rumble_probe.ps1
+```
+
+Expected result:
+
+```text
+[NS2PRO_HID_RUMBLE_PROBE] output_feedback=true
+[NS2PRO_HID_RUMBLE_PROBE] nonzero=true
+[NS2PRO_HID_RUMBLE_PROBE] result=passed
+```
+
+## V5.2 真实 Pro2 raw02 验证 / V5.2 Real Pro2 raw02 Validation
+
+中文：
+
+V5.2 raw02 路线已经刷入 ESP32-S3 并完成 host/firmware 侧验证：BLE connected、low/medium/captured VIIPER payload 均返回 `sent=true`，最终状态里 `rumble_writes=49`、`rumble_errors=0`。物理震感仍需要手持真实 Pro2 的用户确认，不能把 dry-run 或日志成功写成体感成功。
+
+从仓库根目录执行 build/flash：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\esp32s3\build.ps1 -IdfPath C:\Espressif\v5.3.3\esp-idf
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\esp32s3\flash.ps1 -Port COM12 -IdfPath C:\Espressif\v5.3.3\esp-idf
+```
+
+如果 CH343P 不是 COM12，先检测端口并替换：
+
+```powershell
+[System.IO.Ports.SerialPort]::GetPortNames()
+Get-PnpDevice -Class Ports
+```
+
+真实发送按低强度到中强度再到 captured 的顺序：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\send_pro2_raw02.ps1 -Preset low -Send -Port COM12
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\send_pro2_raw02.ps1 -Preset medium -Send -Port COM12
+powershell -NoProfile -ExecutionPolicy Bypass -File .\experiments\viiper_ns2pro_to_real_pro2_rumble_probe\run_ns2pro_to_real_pro2_rumble_probe.ps1 -CaptureViiper -SendToRealPro2 -Port COM12 -MaxPackets 1 -MinIntervalMs 100 -TimeoutSeconds 35
+```
+
+English:
+
+The V5.2 raw02 path has been flashed to ESP32-S3 and validated on the host/firmware side: BLE connected, low/medium/captured VIIPER payloads returned `sent=true`, and final status showed `rumble_writes=49` with `rumble_errors=0`. Physical vibration still needs confirmation from the person holding the real Pro2 controller.
+
+Detailed notes are tracked in [docs/v5_2_real_pro2_hd_rumble_probe_results.md](docs/v5_2_real_pro2_hd_rumble_probe_results.md) and [docs/v5_2_ns2pro_viiper_integration_plan.md](docs/v5_2_ns2pro_viiper_integration_plan.md).
+
 ## 文档 / Documentation
 
 - [快速开始 / Quickstart](QUICKSTART.md)

@@ -72,3 +72,34 @@ capture route for this bridge.
    addition.
 6. A direct Pro2 translation remains theoretical until we capture either
    DualSense haptic audio or VIIPER ns2pro non-zero 16+16 HD rumble output.
+
+## Local Executable Probes
+
+Added runnable V5.2 research harnesses:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\experiments\dualsense_hid_output_probe\run_dualsense_hid_output_probe.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File .\experiments\dualsense_haptic_audio_probe\run_dualsense_haptic_audio_probe.ps1
+```
+
+Current local result:
+
+```text
+[DUALSENSE_ENV] hid_usb=false
+[DUALSENSE_ENV] hid_bluetooth=false
+[DUALSENSE_ENV] real_dualsense=false
+[DUALSENSE_AUDIO] device=not_found
+[DUALSENSE_BLOCKED] reason=no_real_dualsense
+[DUALSENSE_BLOCKED] reason=no_dualsense_audio_endpoint
+```
+
+This means the DualSense route is executable as a probe framework, but blocked
+on this machine by missing real DualSense HID/audio endpoints. Keep it as V5.3
+research and do not merge it into the V5.2 Pro2 HD path.
+
+V5.3 follow-up docs:
+
+```text
+docs/v5_3_dualsense_haptic_roadmap.md
+docs/v5_3_dualsense_test_checklist.md
+```

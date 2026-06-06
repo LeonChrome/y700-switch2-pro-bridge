@@ -39,6 +39,60 @@ function Write-EnvLine {
     Write-Output "[VIIPER_ENV] $Key=$Value"
 }
 
+function Format-Names {
+    param(
+        [object[]]$Items,
+        [scriptblock]$Selector
+    )
+
+    $names = @($Items | ForEach-Object { & $Selector $_ } | Where-Object { $_ } | Sort-Object -Unique)
+    if ($names.Count -eq 0) {
+        return "not_found"
+    }
+    return ($names -join "; ")
+}
+
+function Get-UsbipWin2Status {
+    param([string]$UsbipExe)
+
+    $services = @(Get-Service -ErrorAction SilentlyContinue | Where-Object {
+        $_.Name -match "(?i)usbip|vhci" -or $_.DisplayName -match "(?i)usbip|USB/IP|VHCI"
+    })
+
+    $pnpDevices = @()
+    try {
+        $pnpDevices = @(Get-PnpDevice -ErrorAction SilentlyContinue | Where-Object {
+            $_.FriendlyName -match "(?i)usbip|USB/IP|VHCI" -or
+            $_.InstanceId -match "(?i)USBIP|VHCI|VID_.*PID_.*USBIP"
+        })
+    } catch {
+        $pnpDevices = @()
+    }
+
+    $rootHubDevices = @($pnpDevices | Where-Object {
+        $_.FriendlyName -match "(?i)root hub|USB/IP|VHCI" -or
+        $_.InstanceId -match "(?i)ROOT|USBIP|VHCI"
+    })
+
+    $driverDevices = @($pnpDevices | Where-Object {
+        $_.FriendlyName -match "(?i)usbip|USB/IP|VHCI" -or
+        $_.Service -match "(?i)usbip|vhci" -or
+        $_.InstanceId -match "(?i)USBIP|VHCI"
+    })
+
+    [pscustomobject]@{
+        Exe = $UsbipExe
+        Services = $services
+        PnpDevices = $pnpDevices
+        RootHubDevices = $rootHubDevices
+        DriverDevices = $driverDevices
+        ServicePresent = $services.Count -gt 0
+        RootHubPresent = $rootHubDevices.Count -gt 0
+        DriverPresent = $driverDevices.Count -gt 0 -or $services.Count -gt 0
+        Installed = [bool]$UsbipExe -or $services.Count -gt 0 -or $driverDevices.Count -gt 0 -or $rootHubDevices.Count -gt 0
+    }
+}
+
 $dotnet = Find-Executable "dotnet" @(
     (Join-Path $env:USERPROFILE ".dotnet-codex\dotnet.exe"),
     (Join-Path $env:LOCALAPPDATA "Microsoft\dotnet\dotnet.exe"),
@@ -62,9 +116,8 @@ $viiper = Find-Executable "viiper" @(
 )
 
 $os = Get-CimInstance Win32_OperatingSystem
-$usbipServices = @(Get-Service -ErrorAction SilentlyContinue | Where-Object { $_.Name -match "usbip|vhci" -or $_.DisplayName -match "usbip|USB/IP|VHCI" })
-$usbipPnp = @(Get-PnpDevice -ErrorAction SilentlyContinue | Where-Object { $_.FriendlyName -match "usbip|USB/IP|VHCI" -or $_.InstanceId -match "USBIP|VHCI" })
-$usbipInstalled = [bool]$usbip -or $usbipServices.Count -gt 0 -or $usbipPnp.Count -gt 0
+$admin = Test-Admin
+$usbipStatus = Get-UsbipWin2Status $usbip
 $steam = Get-Process -Name steam -ErrorAction SilentlyContinue | Select-Object -First 1
 $githubOk = $false
 try {
@@ -74,17 +127,33 @@ try {
     $githubOk = $false
 }
 
+$nextCommand = if (!$usbipStatus.Installed) {
+    if ($admin) {
+        "powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\install_usbip_win2.ps1 -Install"
+    } else {
+        "powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\install_usbip_win2.ps1 -Install -Elevate"
+    }
+} elseif ($viiper -or ($go -and (Test-Path (Join-Path $ProjectRoot "work\upstream-research\VIIPER\go.mod")))) {
+    "powershell -NoProfile -ExecutionPolicy Bypass -File .\experiments\viiper_ns2pro_probe\run_viiper_ns2pro_probe.ps1"
+} else {
+    "powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\install_viiper.ps1"
+}
+
 Write-EnvLine "windows" ("{0} {1} build={2} arch={3}" -f $os.Caption, $os.Version, $os.BuildNumber, $os.OSArchitecture)
 Write-EnvLine "dotnet" ($(if ($dotnet) { & $dotnet --version } else { "not_found" }))
 Write-EnvLine "git" ($(if ($git) { & $git --version } else { "not_found" }))
 Write-EnvLine "go" ($(if ($go) { & $go version } else { "not_found" }))
 Write-EnvLine "cmake" ($(if ($cmake) { (& $cmake --version | Select-Object -First 1) } else { "not_found" }))
-Write-EnvLine "usbip_win2" ($(if ($usbipInstalled) { "installed" } else { "not_found" }))
-Write-EnvLine "usbip_exe" $usbip
+Write-EnvLine "usbip_win2" ($(if ($usbipStatus.Installed) { "installed" } else { "not_found" }))
+Write-EnvLine "usbip_exe" $usbipStatus.Exe
+Write-EnvLine "usbip_service" (Format-Names $usbipStatus.Services { param($s) "$($s.Name):$($s.Status)" })
+Write-EnvLine "usbip_driver" (Format-Names $usbipStatus.DriverDevices { param($d) "$($d.FriendlyName):$($d.Status)" })
+Write-EnvLine "usbip_root_hub" (Format-Names $usbipStatus.RootHubDevices { param($d) "$($d.FriendlyName):$($d.Status)" })
 Write-EnvLine "viiper" ($(if ($viiper) { $viiper } else { "not_found" }))
-Write-EnvLine "admin" (Test-Admin)
+Write-EnvLine "admin" $admin
 Write-EnvLine "steam" ($(if ($steam) { "running pid=$($steam.Id)" } else { "not_running" }))
 Write-EnvLine "project" $ProjectRoot
 Write-EnvLine "github_access" $githubOk
 Write-EnvLine "viiper_source" ($(if (Test-Path (Join-Path $ProjectRoot "work\upstream-research\VIIPER\go.mod")) { "present" } else { "not_found" }))
 Write-EnvLine "viiper_build_possible" ($(if ($go -and (Test-Path (Join-Path $ProjectRoot "work\upstream-research\VIIPER\go.mod"))) { "true" } else { "false" }))
+Write-EnvLine "next" $nextCommand

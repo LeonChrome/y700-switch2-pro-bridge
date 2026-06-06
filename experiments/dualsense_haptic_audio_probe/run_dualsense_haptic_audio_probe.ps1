@@ -12,14 +12,18 @@ Write-Output "[DUALSENSE_AUDIO] starting duration_seconds=$DurationSeconds"
 $sound = @(Get-CimInstance Win32_SoundDevice -ErrorAction SilentlyContinue)
 $pnp = @(Get-PnpDevice -ErrorAction SilentlyContinue)
 $audio = @($sound + $pnp | Where-Object {
-    $_.Name -match "DualSense|Wireless Controller" -or
-    $_.FriendlyName -match "DualSense|Wireless Controller"
+    $_.Name -match "DualSense|Wireless Controller|Sony Interactive" -or
+    $_.FriendlyName -match "DualSense|Wireless Controller|Sony Interactive"
 })
 
 if ($audio.Count -eq 0) {
-    Write-Output "[HAPTIC_AUDIO] blocked: no DualSense audio device found"
+    Write-Output "[DUALSENSE_AUDIO] device=not_found"
+    Write-Output "[HAPTIC_AUDIO] channels=0 sample_rate=0"
+    Write-Output "[HAPTIC_AUDIO] rms_ch0=0 rms_ch1=0 rms_ch2=0 rms_ch3=0"
+    Write-Output "[HAPTIC_AUDIO] peak_ch0=0 peak_ch1=0 peak_ch2=0 peak_ch3=0"
     Write-Output "[HAPTIC_AUDIO] activity=false"
-    exit 2
+    Write-Output "[DUALSENSE_BLOCKED] reason=no_dualsense_audio_endpoint"
+    exit 0
 }
 
 foreach ($dev in $audio | Select-Object -First 8) {
@@ -27,6 +31,9 @@ foreach ($dev in $audio | Select-Object -First 8) {
     Write-Output "[DUALSENSE_AUDIO] device=$name"
 }
 
-Write-Output "[HAPTIC_AUDIO] blocked: real WASAPI loopback capture not implemented until a target DualSense audio endpoint is present"
-Write-Output "[HAPTIC_AUDIO] captured=false"
-exit 3
+Write-Output "[HAPTIC_AUDIO] channels=unknown sample_rate=unknown"
+Write-Output "[HAPTIC_AUDIO] rms_ch0=unknown rms_ch1=unknown rms_ch2=unknown rms_ch3=unknown"
+Write-Output "[HAPTIC_AUDIO] peak_ch0=unknown peak_ch1=unknown peak_ch2=unknown peak_ch3=unknown"
+Write-Output "[HAPTIC_AUDIO] activity=unknown"
+Write-Output "[DUALSENSE_BLOCKED] reason=wasapi_loopback_capture_not_implemented_for_detected_endpoint"
+exit 0

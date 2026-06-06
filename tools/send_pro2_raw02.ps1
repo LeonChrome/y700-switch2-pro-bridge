@@ -57,18 +57,32 @@ function Normalize-Raw02Payload {
     $bytes = Convert-HexToBytes $InputHex
     $payload = New-Object byte[] 64
     $mode = ""
+    $commandHex = ""
 
     if ($bytes.Length -eq 32) {
         $mode = "left_right_16"
         $payload[0] = 0x02
         [Array]::Copy($bytes, 0, $payload, 1, 16)
         [Array]::Copy($bytes, 16, $payload, 17, 16)
+        $commandHex = Convert-BytesToHex $bytes
     } elseif ($bytes.Length -eq 64) {
         $mode = "full_payload"
         if ($bytes[0] -ne 0x02) {
             throw "Full raw02 payload must start with report_id 0x02."
         }
         [Array]::Copy($bytes, 0, $payload, 0, 64)
+        $paddingNonZero = $false
+        for ($i = 33; $i -lt $payload.Length; $i++) {
+            if ($payload[$i] -ne 0) {
+                $paddingNonZero = $true
+                break
+            }
+        }
+        if ($paddingNonZero) {
+            $commandHex = Convert-BytesToHex $payload
+        } else {
+            $commandHex = Convert-BytesToHex $payload[1..32]
+        }
     } else {
         throw "Hex must be either 64 chars left+right or 128 chars full payload."
     }
@@ -79,6 +93,8 @@ function Normalize-Raw02Payload {
         PayloadHex = Convert-BytesToHex $payload
         LeftHex = Convert-BytesToHex $payload[1..16]
         RightHex = Convert-BytesToHex $payload[17..32]
+        CommandHex = $commandHex
+        CommandUsesCompact64 = ($commandHex.Length -eq 64)
     }
 }
 
@@ -131,12 +147,14 @@ if (!$Hex) {
 }
 
 $raw = Normalize-Raw02Payload $Hex
-$command = "rumble raw02 $($raw.PayloadHex)"
+$command = "rumble raw02 $($raw.CommandHex)"
 
 Write-Output "[PRO2_RAW02] mode=$($raw.Mode)"
 Write-Output "[PRO2_RAW02] left=$($raw.LeftHex)"
 Write-Output "[PRO2_RAW02] right=$($raw.RightHex)"
 Write-Output "[PRO2_RAW02] payload=$($raw.PayloadHex)"
+Write-Output "[PRO2_RAW02] command_hex=$($raw.CommandHex)"
+Write-Output "[PRO2_RAW02] command_uses_compact64=$($raw.CommandUsesCompact64.ToString().ToLowerInvariant())"
 Write-Output "[PRO2_RAW02] command=$command"
 
 if ($DryRun) {

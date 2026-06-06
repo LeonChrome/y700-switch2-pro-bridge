@@ -1,6 +1,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <unistd.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_err.h"
@@ -21,6 +22,7 @@ static const char *TAG = "app";
 
 #define BLE_LIVE_STALE_US 1000000LL
 #define AUTO_A_TOGGLE_US 500000LL
+#define CONTROL_LINE_MAX 192
 
 static esp_err_t send_hid_state_report(const switch2_state_t *state)
 {
@@ -38,14 +40,47 @@ static esp_err_t send_hid_state_report(const switch2_state_t *state)
 static void control_task(void *arg)
 {
     (void)arg;
-    char line[192];
+    char line[CONTROL_LINE_MAX];
+    uint8_t rx[64];
+    size_t line_len = 0;
+    bool overflow = false;
     static char reply[3072];
 
     while (true) {
-        if (fgets(line, sizeof(line), stdin) != NULL) {
-            control_protocol_handle_line(line, reply, sizeof(reply));
-        } else {
-            vTaskDelay(pdMS_TO_TICKS(50));
+        int rx_len = read(STDIN_FILENO, rx, sizeof(rx));
+        if (rx_len <= 0) {
+            vTaskDelay(pdMS_TO_TICKS(20));
+            continue;
+        }
+
+        for (int i = 0; i < rx_len; i++) {
+            uint8_t ch = rx[i];
+            if (ch == '\r' || ch == '\n') {
+                if (overflow) {
+                    APP_LOGW(TAG, "serial control line too long; discarded");
+                    printf("{\"ok\":false,\"cmd\":\"serial\",\"error\":\"command line too long\"}\n");
+                    overflow = false;
+                    line_len = 0;
+                    continue;
+                }
+                if (line_len > 0) {
+                    line[line_len] = 0;
+                    control_protocol_handle_line(line, reply, sizeof(reply));
+                    line_len = 0;
+                }
+                continue;
+            }
+
+            if (overflow) {
+                continue;
+            }
+            if (line_len + 1 >= sizeof(line)) {
+                overflow = true;
+                line_len = 0;
+                continue;
+            }
+
+            line[line_len++] = (char)ch;
         }
     }
 }

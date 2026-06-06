@@ -40,10 +40,10 @@ Replace `COM12` in the examples below with the actual CH343P port.
 
 ## 4. Build Firmware
 
-Existing project script:
+Verified project script:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\esp32s3\build.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\esp32s3\build.ps1 -IdfPath C:\Espressif\v5.3.3\esp-idf
 ```
 
 If you are already inside an ESP-IDF PowerShell, the equivalent direct command
@@ -54,7 +54,9 @@ cd .\firmware\esp32s3_switch2_bridge
 idf.py build
 ```
 
-If ESP-IDF is not on `PATH`, pass an ESP-IDF export path to the script:
+If this machine uses a different ESP-IDF install, replace the `-IdfPath`
+argument. The script still accepts any valid ESP-IDF root and does not hardcode
+the local path internally.
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\esp32s3\build.ps1 -IdfPath <path-to-esp-idf>
@@ -62,10 +64,10 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\esp32s3\build.ps1 -I
 
 ## 5. Flash Firmware
 
-Existing project script:
+Verified project script:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\esp32s3\flash.ps1 -Port COM12
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\esp32s3\flash.ps1 -Port COM12 -IdfPath C:\Espressif\v5.3.3\esp-idf
 ```
 
 Direct ESP-IDF equivalent:
@@ -84,7 +86,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\esp32s3\flash_releas
 Open monitor:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\esp32s3\monitor.ps1 -Port COM12
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\esp32s3\monitor.ps1 -Port COM12 -IdfPath C:\Espressif\v5.3.3\esp-idf
 ```
 
 ## 6. Confirm raw02 Exists

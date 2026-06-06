@@ -9,9 +9,16 @@ VIIPER 16+16 source: available
 raw02 firmware/control command: implemented
 host helper: implemented
 default mode: dry_run
-real Pro2 send attempted: false
-real Pro2 verified: false
-blocked_by_real_pro2: true
+firmware build with -IdfPath: passed
+firmware flash on COM12: passed
+real Pro2 BLE connected: true
+real Pro2 send attempted: true
+low preset sent: true
+medium preset sent: true
+captured VIIPER payload sent: true
+physical vibration: user_confirmation_pending
+real Pro2 verified: pending physical confirmation
+blocked_by_real_pro2: false
 V5.1 GUI changed: false
 ```
 
@@ -25,8 +32,36 @@ VIIPER LeftRumble[16] + RightRumble[16]
 -> Pro2 BLE rumble characteristic
 ```
 
-The code path is implemented, but physical Pro2 vibration has not been verified
-in this run because no real Pro2 send was attempted.
+The code path is implemented and was exercised against the flashed ESP32-S3
+bridge on COM12 with a BLE-connected real Switch 2 Pro. Firmware logs confirmed
+`sent=true` for low, medium, and captured VIIPER payloads. Physical vibration
+still needs the user to confirm by touch.
+
+## Build And Flash Readiness
+
+Build command used:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\esp32s3\build.ps1 -IdfPath C:\Espressif\v5.3.3\esp-idf
+```
+
+Flash command used:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\esp32s3\flash.ps1 -Port COM12 -IdfPath C:\Espressif\v5.3.3\esp-idf
+```
+
+Result:
+
+```text
+build=passed
+flash=passed
+chip=ESP32-S3
+flash_hash_verified=true
+```
+
+`flash.ps1` and `monitor.ps1` both accept `-IdfPath`. The path above is an
+example for this machine; scripts keep the ESP-IDF path configurable.
 
 ## raw02 Command
 
@@ -94,6 +129,15 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\send_pro2_raw02.ps1 
 The helper defaults to dry-run unless `-Send` is passed. In send mode it prints
 the target port and sends `rumble stop` after a short delay.
 
+For serial sends, the helper uses the compact 64-hex `LeftRumble[16] +
+RightRumble[16]` command whenever the 128-hex full payload only contains zero
+padding after byte 32. This avoids console line-length issues while preserving
+the same firmware payload:
+
+```text
+[PRO2_RAW02] command_uses_compact64=true
+```
+
 Stop command:
 
 ```powershell
@@ -158,15 +202,65 @@ Completed:
 - Phase 3 default dry-run
 - VIIPER capture to raw02 dry-run
 - host helper dry-run
+- firmware build with `-IdfPath C:\Espressif\v5.3.3\esp-idf`
+- firmware flash to COM12
+- real Pro2 BLE connection after flash
+- low preset real send on COM12
+- medium preset real send on COM12
+- VIIPER captured payload real send on COM12
 
-Not completed:
+Observed final status after the real sends:
 
-- real Pro2 physical vibration
-- flashed-firmware serial command on hardware
+```text
+ble=connected
+ble_input_actual_hz=133
+live=active
+rumble_updates=12
+rumble_writes=49
+rumble_stops=9
+rumble_errors=0
+```
+
+Host/firmware results:
+
+```text
+low_sent=true
+medium_sent=true
+captured_sent=true
+controller_disconnect=false
+physical_vibration=user_confirmation_pending
+```
+
+## Real Send Log Summary
+
+Low preset:
+
+```text
+[PRO2_RAW02] command_uses_compact64=true
+[RUMBLE_RAW02] mode=left_right_16
+[RUMBLE_RAW02] sent=true error=none
+```
+
+Medium preset:
+
+```text
+[PRO2_RAW02] command_uses_compact64=true
+[RUMBLE_RAW02] mode=left_right_16
+[RUMBLE_RAW02] sent=true error=none
+HD rumble stream update reason=raw02
+```
+
+Captured VIIPER sample:
+
+```text
+[NS2PRO_HID_RUMBLE_PROBE] nonzero=true
+[NS2PRO_OUTPUT] left_nonzero=true right_nonzero=true
+[PRO2_HD_RUMBLE] sent=true
+```
 
 Current blocker:
 
 ```text
-blocked_by_real_pro2=true
-reason=needs firmware flash plus real Pro2 connected before -Send
+blocked_by_real_pro2=false
+reason=physical vibration must be confirmed by the person holding the controller
 ```
