@@ -24,7 +24,7 @@ Relevant upstream files:
 
 No DS5Dongle source checkout is committed to this repository.
 
-## Phase 1 Mapping
+## Phase 1/2 HID Contract
 
 ESP32-S3 experiment:
 
@@ -32,7 +32,7 @@ ESP32-S3 experiment:
 firmware/esp32s3_dualsense_identity_experiment/main/
 ```
 
-| DS5Dongle contract | Phase 1 implementation |
+| DS5Dongle contract | Phase 1/2 implementation |
 | --- | --- |
 | VID `0x054c` | Implemented |
 | PID `0x0ce6` | Implemented |
@@ -41,7 +41,7 @@ firmware/esp32s3_dualsense_identity_experiment/main/
 | HID output report `0x02`, 47 data bytes | Implemented and logged |
 | 6 initial 8-bit axes | Implemented |
 | Hat, 15 buttons, packed vendor bits | Implemented |
-| Remaining 52-byte vendor input area | Implemented, neutral zeros |
+| Remaining 52-byte vendor input area | Implemented |
 | Feature `0x05` | Declared, zero placeholder |
 | Feature `0x08` | Declared, zero placeholder |
 | Feature `0x09` | Declared, zero placeholder |
@@ -49,8 +49,8 @@ firmware/esp32s3_dualsense_identity_experiment/main/
 | Other feature reports | Not implemented |
 
 The experiment report descriptor is intentionally smaller than the
-DS5Dongle/real DualSense 321-byte descriptor. It preserves the primary input
-and output report shapes and only a small feature subset for enumeration.
+DS5Dongle/real DualSense descriptor. It preserves the primary input and output
+report shapes and only a small feature subset for enumeration.
 
 ## Endpoint Mapping
 
@@ -63,58 +63,58 @@ DS5Dongle full composite device:
 | `0x84` IN interrupt | HID input |
 | `0x03` OUT interrupt | HID output |
 
-Phase 1/2 HID-only experiment:
+V5.5 experiment fixed HID endpoints:
 
 | Endpoint | Role |
 | --- | --- |
 | `0x81` IN interrupt | HID input |
 | `0x01` OUT interrupt | HID output |
+| `0x02` OUT isochronous | Audio render stream in audio profiles only |
 
-Phase 3 audio stub experiment:
+HID report ID `0x02` and USB endpoint address `0x02` are different namespaces.
+The HID report ID is carried on HID OUT endpoint `0x01`; the audio endpoint is
+an isochronous OUT endpoint.
 
-| Endpoint | Role |
-| --- | --- |
-| `0x02` OUT isochronous | Four-channel audio/haptics render stream |
-| `0x81` IN interrupt | HID input |
-| `0x01` OUT interrupt | HID output |
+## Current V5.5 Profiles
 
-Phase 3 adds Audio Control interface `0`, Audio Streaming OUT interface `1`,
-and moves the HID interface to `2`. HID report IDs and HID endpoint addresses
-remain unchanged to preserve the Phase 2 input and ordinary-rumble paths.
+| Profile | Descriptor shape | Serial string | Audio class | Audio channels |
+| --- | --- | --- | --- | --- |
+| `hid_only` | HID-only Phase 2.1 shape | `V55HIDONLY` | Disabled | 0 |
+| `hid_audio_uac1_2ch` | UAC1 Audio + HID composite | `V55UAC1_2CH` | UAC1 custom driver | 2 |
+| `hid_audio_uac2_2ch` | UAC2 Audio + HID composite | `V55UAC2_2CH` | TinyUSB UAC2 | 2 |
+| `hid_audio_uac2_4ch` | UAC2 Audio + HID composite | `V55UAC2_4CH` | TinyUSB UAC2 | 4 |
+| `hid_audio_uac2` | Legacy alias for `hid_audio_uac2_4ch` | `V55UAC2_4CH` | TinyUSB UAC2 | 4 |
 
-Current V5.5 profiles:
+`hid_audio_uac1_fallback` remains accepted as a warning alias for
+`hid_audio_uac1_2ch`.
 
-| Profile | Descriptor shape | Serial string | Audio class |
-| --- | --- | --- | --- |
-| `hid_only` | HID-only Phase 2.1 shape | `V55HIDONLY` | Disabled |
-| `hid_audio_uac2` | UAC2 Audio + HID composite | `V55PHASE3` | Enabled |
-| `hid_audio_uac1_fallback` | HID-only safe fallback stub | `V55UAC1FB` | Disabled for now |
-
-Endpoint allocation in `hid_audio_uac2`:
+## Profile Interface Layout
 
 ```text
-hid_in=0x81 interrupt
-hid_out=0x01 interrupt
-audio_out=0x02 isochronous adaptive
-conflicts=false
+hid_only:
+  bNumInterfaces=1
+  interface 0 = HID gamepad
+
+hid_audio_uac1_2ch:
+  bNumInterfaces=3
+  interface 0 = Audio Control, UAC1
+  interface 1 = Audio Streaming OUT, 2ch, 48 kHz, signed 16-bit PCM
+  interface 2 = HID gamepad
+
+hid_audio_uac2_2ch:
+  bNumInterfaces=3
+  interface 0 = Audio Control, UAC2
+  interface 1 = Audio Streaming OUT, 2ch, 48 kHz, signed 16-bit PCM
+  interface 2 = HID gamepad
+
+hid_audio_uac2_4ch:
+  bNumInterfaces=3
+  interface 0 = Audio Control, UAC2
+  interface 1 = Audio Streaming OUT, 4ch, 48 kHz, signed 16-bit PCM
+  interface 2 = HID gamepad
 ```
 
-## Neutral Input
-
-Phase 1 sends report ID `0x01` every 4 ms:
-
-```text
-left/right sticks=center 0x80
-L2/R2=0x00
-hat=null 0x08
-buttons=released
-motion/touch/vendor data=0x00
-```
-
-This validates enumeration and periodic input only. It is not calibrated
-DualSense motion data.
-
-## Hardware Verification
+## Hardware Verification History
 
 Phase 1 hardware verification passed on 2026-06-06:
 
@@ -126,91 +126,40 @@ observed rate=250 Hz
 USB disconnect=false
 ```
 
-Windows displayed the generic `HID-compliant game controller` label, while
-the underlying VID/PID and report contract matched the experiment.
-
-## Phase 2 Input Mapping
-
-Phase 2 keeps the same descriptor and endpoints. It reuses the existing Pro2
-BLE FD2 parser, maps buttons and 12-bit sticks into report `0x01`, and copies
-the newest parsed accelerometer/gyroscope sample into the DualSense motion
-fields. Neutral reports continue to carry increasing sequence and timestamp
-values when the Pro2 is disconnected or its input is stale.
-
-Phase 2.1 keeps the descriptor unchanged and consumes the existing output
-report `0x02`. Ordinary light/heavy motor intensity is converted into bounded
-Pro2 BLE vibration. DualSense haptic audio and raw02 pass-through remain
-deferred.
-
-## Phase 3 Audio Stub
-
-Phase 3 changes the configuration descriptor from HID-only to a minimal
-composite Audio + HID shape:
+The first old `V55PHASE3` UAC2 4ch hardware check failed:
 
 ```text
-interface 0 = Audio Control, UAC2
-interface 1 = Audio Streaming OUT, 4ch, 48 kHz, signed 16-bit PCM
-interface 2 = HID gamepad
-```
-
-The first real hardware check after flashing `V55PHASE3` showed:
-
-```text
-V55PHASE3 USB device appears=true
+phase3_usb_found=true
 phase3_status=Error
+phase3_problem_code=10
 hid_child_active=false
 audio_endpoint_active=false
-stale_phase1_phase2_devices=present
 conclusion=composite enumeration failure
 ```
 
-The `hid_only` profile exists to recover the Phase 2.1 HID baseline before
-continuing UAC2 descriptor experiments.
+That failure is why Phase 3 now tests `hid_only`, then UAC1 2ch, then UAC2 2ch,
+then UAC2 4ch.
 
-The firmware reads host OUT audio data with TinyUSB and extracts channels 2/3
-as haptic left/right statistics:
+## Audio Processing
+
+UAC1 2ch currently verifies composite enumeration and logs OUT packet activity.
+
+UAC2 2ch and UAC2 4ch initialize the dry-run haptic audio pipeline:
 
 ```text
-rms_l/rms_r
-peak_l/peak_r
-activity
-transient
-frame_count
-overrun_count
+uac2_2ch: channels 0/1 -> haptic left/right statistics
+uac2_4ch: channels 2/3 -> haptic left/right statistics
 ```
 
-`haptic_audio_to_raw02` currently emits dry-run `Left[16] + Right[16]`
-payloads only. Live raw02 forwarding remains disabled.
+`haptic_audio_to_raw02` emits dry-run `Left[16] + Right[16]` payloads only.
+Live raw02 forwarding remains disabled in Phase 3.
 
 ## Deferred
 
 Not implemented in Phase 3:
 
-- speaker/headset processing,
+- speaker/headset playback,
+- microphone/audio IN endpoint,
 - complete feature report table,
 - calibration and pairing data,
-- microphone/touchpad behavior,
 - live Pro2 raw02 output from haptic audio.
-
-## Future Mapping
-
-Future phases may add:
-
-```text
-Audio Streaming IN compatibility shape, if required
-HID IN endpoint 0x84
-HID OUT endpoint 0x03
-Audio OUT endpoint 0x01
-Audio IN endpoint 0x82
-safe haptic_raw02_forwarding=on switch
-```
-
-Channels:
-
-```text
-0/1=speaker/headset compatibility channels
-2/3=left/right haptic source
-```
-
-Speaker audio may be discarded in the first audio experiment. Channels 2/3
-will feed the Phase 5 feature extractor and raw02 dry-run translator.

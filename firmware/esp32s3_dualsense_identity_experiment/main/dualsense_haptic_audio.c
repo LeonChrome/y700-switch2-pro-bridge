@@ -76,8 +76,14 @@ static void process_audio_packet(const uint8_t *data, uint16_t len)
 
     for (uint16_t frame = 0; frame < frames; frame++) {
         const uint8_t *base = data + (frame * DS5_AUDIO_FRAME_BYTES);
-        uint16_t abs_l = abs_i16(read_i16_le(base + 4));
-        uint16_t abs_r = abs_i16(read_i16_le(base + 6));
+        const uint8_t *left = base;
+        const uint8_t *right = base + 2;
+        if (DUALSENSE_HAPTIC_AUDIO_CHANNELS >= 4) {
+            left = base + 4;
+            right = base + 6;
+        }
+        uint16_t abs_l = abs_i16(read_i16_le(left));
+        uint16_t abs_r = abs_i16(read_i16_le(right));
         sum_l += (uint64_t)abs_l * abs_l;
         sum_r += (uint64_t)abs_r * abs_r;
         if (abs_l > peak_l) {
@@ -145,7 +151,7 @@ static void haptic_audio_task(void *arg)
             now_us >= next_log_us) {
             next_log_us = now_us + 500000LL;
             ESP_LOGI(TAG,
-                     "[DS5_AUDIO] sample_rate=%lu channels=%u out_packet len=%u ch2_peak=%u ch3_peak=%u activity=%s",
+                     "[DS5_AUDIO] sample_rate=%lu channels=%u out_packet len=%u haptic_l_peak=%u haptic_r_peak=%u activity=%s",
                      (unsigned long)s_sample_rate,
                      DUALSENSE_HAPTIC_AUDIO_CHANNELS,
                      snapshot.last_packet_len,

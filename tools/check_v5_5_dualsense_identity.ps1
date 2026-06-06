@@ -14,6 +14,26 @@ function Write-IdentityLine {
     Write-Output "[V5_5_DS5_IDENTITY] $Key=$text"
 }
 
+function Get-ProfileNameFromSerial {
+    param([string]$Serial)
+    switch ($Serial) {
+        "V55HIDONLY" { return "hid_only" }
+        "V55UAC1_2CH" { return "hid_audio_uac1_2ch" }
+        "V55UAC2_2CH" { return "hid_audio_uac2_2ch" }
+        "V55UAC2_4CH" { return "hid_audio_uac2_4ch" }
+        "V55PHASE3" { return "hid_audio_uac2_4ch_legacy_alias" }
+        default { return "unknown" }
+    }
+}
+
+function Get-SerialFromInstanceId {
+    param([string]$InstanceId)
+    if ($InstanceId -match "^USB\\VID_054C&PID_0CE6\\([^\\]+)$") {
+        return $Matches[1]
+    }
+    return "not_found"
+}
+
 $allDevices = @(Get-PnpDevice -PresentOnly -ErrorAction SilentlyContinue)
 $candidates = @()
 
@@ -66,8 +86,7 @@ $hidBest = $hidCandidates |
     Select-Object -First 1
 
 $usbBest = $usbCandidates |
-    Sort-Object @{ Expression = { if ($_.InstanceId -match "V55PHASE3") { 0 } else { 1 } } },
-                @{ Expression = { if ($_.Status -eq "OK") { 0 } else { 1 } } },
+    Sort-Object @{ Expression = { if ($_.Status -eq "OK") { 0 } else { 1 } } },
                 @{ Expression = { $_.InstanceId } } |
     Select-Object -First 1
 
@@ -79,6 +98,8 @@ $likelyDualSense = $hidInterfaceFound -and
      $hidBest.Product -match "DualSense|Wireless Controller|HID-compliant game controller")
 $steam = Get-Process -Name steam -ErrorAction SilentlyContinue | Select-Object -First 1
 $compositeStatus = if ($usbBest) { $usbBest.Status } else { "not_found" }
+$currentSerial = if ($usbBest) { Get-SerialFromInstanceId -InstanceId $usbBest.InstanceId } else { "not_found" }
+$currentProfile = Get-ProfileNameFromSerial -Serial $currentSerial
 $audioEndpointFound = $false
 
 try {
@@ -99,6 +120,17 @@ try {
     $audioEndpointFound = $false
 }
 
+$suggestedNextAction = "connect_or_flash_hid_only"
+if ($currentProfile -eq "hid_only") {
+    $suggestedNextAction = if ($hidInterfaceFound) { "flash_hid_audio_uac1_2ch" } else { "fix_hid_regression" }
+} elseif ($currentProfile -eq "hid_audio_uac1_2ch") {
+    $suggestedNextAction = if ($hidInterfaceFound -and $audioEndpointFound) { "flash_hid_audio_uac2_2ch" } else { "descriptor_or_composite_basic_issue" }
+} elseif ($currentProfile -eq "hid_audio_uac2_2ch") {
+    $suggestedNextAction = if ($hidInterfaceFound -and $audioEndpointFound) { "flash_hid_audio_uac2_4ch" } else { "uac2_descriptor_issue" }
+} elseif ($currentProfile -eq "hid_audio_uac2_4ch" -or $currentProfile -eq "hid_audio_uac2_4ch_legacy_alias") {
+    $suggestedNextAction = if ($hidInterfaceFound -and $audioEndpointFound) { "record_phase3_success" } else { "fall_back_to_hid_audio_uac2_2ch_or_uac1_2ch" }
+}
+
 Write-IdentityLine "usb_device_found" $usbDeviceFound
 Write-IdentityLine "hid_interface_found" $hidInterfaceFound
 Write-IdentityLine "hid_found" $hidInterfaceFound
@@ -108,12 +140,15 @@ Write-IdentityLine "pid" ($(if ($best) { $best.Pid } else { "not_found" }))
 Write-IdentityLine "product" ($(if ($best) { $best.Product } else { "not_found" }))
 Write-IdentityLine "instance_id" ($(if ($best) { $best.InstanceId } else { "not_found" }))
 Write-IdentityLine "composite_status" $compositeStatus
+Write-IdentityLine "current_serial" $currentSerial
+Write-IdentityLine "current_profile" $currentProfile
 Write-IdentityLine "steam_running" ($null -ne $steam)
 Write-IdentityLine "likely_dualsense" $likelyDualSense
 Write-IdentityLine "audio_endpoint_found" $audioEndpointFound
 Write-IdentityLine "output_0x02_seen" "use_tools/send_v5_5_dualsense_rumble_test.ps1"
 Write-IdentityLine "haptic_audio_activity" "firmware_log_required"
 Write-IdentityLine "ordinary_rumble_to_pro2_status" "phase2_1_supported"
+Write-IdentityLine "suggested_next_action" $suggestedNextAction
 Write-IdentityLine "candidate_count" $candidates.Count
 
 foreach ($candidate in $candidates | Select-Object -First 12) {

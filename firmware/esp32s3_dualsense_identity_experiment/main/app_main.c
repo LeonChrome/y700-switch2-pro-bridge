@@ -16,7 +16,7 @@
 #include "tusb.h"
 #include "usb_dualsense_descriptor.h"
 
-#if DS5_ENABLE_USB_AUDIO
+#if DS5_ENABLE_UAC2_AUDIO
 #include "dualsense_haptic_audio.h"
 #endif
 
@@ -26,6 +26,15 @@
 
 #ifndef DS5_ENABLE_USB_AUDIO
 #define DS5_ENABLE_USB_AUDIO 0
+#endif
+#ifndef DS5_ENABLE_UAC1_AUDIO
+#define DS5_ENABLE_UAC1_AUDIO 0
+#endif
+#ifndef DS5_ENABLE_UAC2_AUDIO
+#define DS5_ENABLE_UAC2_AUDIO 0
+#endif
+#ifndef DS5_AUDIO_CHANNELS
+#define DS5_AUDIO_CHANNELS 0
 #endif
 
 static const char *TAG = "v5.5_ds5";
@@ -224,7 +233,14 @@ void app_main(void)
              "[DS5_IDENTITY] vid=0x054c pid=0x0ce6 product=DualSense Wireless Controller");
     ESP_LOGI(TAG,
              "[DS5_IDENTITY] audio=%s ble_input=true rumble_compat=true raw02_forwarding=false",
-             DS5_ENABLE_USB_AUDIO ? "uac2_experimental" : "false");
+             DS5_ENABLE_UAC1_AUDIO ? "uac1_2ch_fallback" :
+             (DS5_ENABLE_UAC2_AUDIO ? "uac2_experimental" : "false"));
+    ESP_LOGI(TAG,
+             "[DS5_AUDIO_PROFILE] enabled=%s uac1=%s uac2=%s channels=%u sample_rate=48000 bits=16",
+             DS5_ENABLE_USB_AUDIO ? "true" : "false",
+             DS5_ENABLE_UAC1_AUDIO ? "true" : "false",
+             DS5_ENABLE_UAC2_AUDIO ? "true" : "false",
+             (unsigned)DS5_AUDIO_CHANNELS);
 
     esp_err_t nvs_err = nvs_flash_init();
     if (nvs_err == ESP_ERR_NVS_NO_FREE_PAGES ||
@@ -247,7 +263,7 @@ void app_main(void)
     ESP_ERROR_CHECK(tinyusb_driver_install(&tusb_config));
     pro2_input_backend_init();
     pro2_rumble_backend_init();
-#if DS5_ENABLE_USB_AUDIO
+#if DS5_ENABLE_UAC2_AUDIO
     dualsense_haptic_audio_init();
 #endif
     ESP_ERROR_CHECK(xTaskCreate(neutral_report_task,

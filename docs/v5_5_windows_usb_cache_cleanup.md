@@ -26,6 +26,13 @@ Get-PnpDevice | Where-Object {
 } | Format-Table Status,Class,FriendlyName,InstanceId -AutoSize
 ```
 
+The faster Phase 3 composite checker scans present devices by default. Use the
+slower stale-cache mode only when needed:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\check_v5_5_usb_composite.ps1 -IncludeStale
+```
+
 `pnputil` can remove devices, but use it carefully and only for the matching
 experimental VID/PID:
 
@@ -40,8 +47,11 @@ Do not remove unrelated Sony, Nintendo, Steam, Bluetooth, or USB devices.
 1. Flash `hid_only`.
 2. Confirm HID input and report rate.
 3. Clean stale cache entries if the device list is confusing.
-4. Flash `hid_audio_uac2`.
-5. Run `.\tools\check_v5_5_usb_composite.ps1`.
+4. Flash `hid_audio_uac1_2ch`.
+5. If UAC1 2ch is healthy, flash `hid_audio_uac2_2ch`.
+6. If UAC2 2ch is healthy, flash `hid_audio_uac2_4ch`.
+7. Run `.\tools\check_v5_5_usb_composite.ps1` and
+   `.\tools\check_v5_5_dualsense_audio.ps1`.
 
 Cache cleanup cannot fix a malformed descriptor; it only makes the Windows
 device list easier to read.

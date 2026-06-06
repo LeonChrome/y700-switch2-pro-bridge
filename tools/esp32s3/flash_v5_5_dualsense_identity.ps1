@@ -2,8 +2,8 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$Port,
     [string]$IdfPath,
-    [ValidateSet("hid_only", "hid_audio_uac2", "hid_audio_uac1_fallback")]
-    [string]$Profile = "hid_audio_uac2",
+    [ValidateSet("hid_only", "hid_audio_uac1_2ch", "hid_audio_uac2_2ch", "hid_audio_uac2_4ch", "hid_audio_uac2", "hid_audio_uac1_fallback")]
+    [string]$Profile = "hid_audio_uac2_4ch",
     [int]$Baud = 460800,
     [switch]$Monitor
 )
@@ -11,6 +11,15 @@ param(
 $ErrorActionPreference = "Stop"
 $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 $FirmwareRoot = Join-Path $RepoRoot "firmware\esp32s3_dualsense_identity_experiment"
+$RequestedProfile = $Profile
+if ($Profile -eq "hid_audio_uac2") {
+    Write-Warning "hid_audio_uac2 is an alias for hid_audio_uac2_4ch"
+    $Profile = "hid_audio_uac2_4ch"
+}
+if ($Profile -eq "hid_audio_uac1_fallback") {
+    Write-Warning "hid_audio_uac1_fallback is an alias for hid_audio_uac1_2ch"
+    $Profile = "hid_audio_uac1_2ch"
+}
 $BuildRoot = Join-Path $RepoRoot ("work\build\v5_5_dualsense_identity\{0}" -f $Profile)
 
 function Import-IdfEnvironment {
@@ -46,6 +55,7 @@ if (!(Get-Command idf.py -ErrorAction SilentlyContinue)) {
 
 Write-Output "[V5_5_DS5_FLASH] firmware=firmware/esp32s3_dualsense_identity_experiment"
 Write-Output "[V5_5_DS5_FLASH] build_dir=work/build/v5_5_dualsense_identity/$Profile"
+Write-Output "[V5_5_DS5_FLASH] requested_profile=$RequestedProfile"
 Write-Output "[V5_5_DS5_FLASH] profile=$Profile"
 Write-Output "[V5_5_DS5_FLASH] target=$Port"
 Write-Output "[V5_5_DS5_FLASH] native_usb_action=replug_after_flash"
