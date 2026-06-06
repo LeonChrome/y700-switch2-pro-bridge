@@ -10,6 +10,9 @@
 - 新增 Phase 2 Pro2 BLE FD2 到 DualSense `0x01` 输入映射，覆盖按键、摇杆、扳机和 raw-like motion。
 - Phase 2 复用 V5.2 的 BLE parser 源码但不修改其实现或默认行为；断连/输入过期时回退中性报告。
 - 新增 `tools/check_v5_5_dualsense_input.ps1` 和 Phase 2 构建、烧录、实机验证文档。
+- Phase 2 已实际刷入并验证 `V55PHASE2`、`0x01 + 63 bytes`、`250.0 Hz`、零 HID 读取超时。
+- 新增实验固件 BLE 常驻重连守护；异步连接失败回到 `idle` 后会自动重试。
+- 新增 `check_v5_5_dualsense_reports.ps1` 和专用 C# HID 读取器，用于自动验证报告形状、频率、计数和映射活动。
 - 新增独立 build/flash 工具和 Windows DualSense identity 检测工具。
 - ESP-IDF 5.3.3 实际 build 已通过；未刷实验固件时 host check 以 blocked/exit 0 结束。
 - 明确 V5.2 Pure Pro2 / VIIPER 路线封存保留，V5.5 不替换、不混入、不修改其默认行为。
@@ -27,6 +30,9 @@
 - Added Phase 2 Pro2 BLE FD2 to DualSense `0x01` mapping for buttons, sticks, triggers, and raw-like motion.
 - Phase 2 reuses the V5.2 BLE parser sources without changing their implementation or default behavior; stale or disconnected input falls back to neutral reports.
 - Added `tools/check_v5_5_dualsense_input.ps1` and Phase 2 build, flash, and hardware validation documentation.
+- Flashed and verified Phase 2 as `V55PHASE2` with `0x01 + 63-byte` input at 250.0 Hz and zero HID read timeouts.
+- Added a persistent experimental BLE reconnect watchdog that retries after asynchronous connection failure returns to `idle`.
+- Added `check_v5_5_dualsense_reports.ps1` and a dedicated C# HID reader for report shape, rate, counter, and mapped-activity validation.
 - Added standalone build/flash tools and a Windows DualSense identity checker.
 - Verified a real ESP-IDF 5.3.3 build; before flashing, the host checker exits zero with a blocked result.
 - Froze and preserved the V5.2 Pure Pro2 / VIIPER route; V5.5 does not replace, merge into, or change its default behavior.

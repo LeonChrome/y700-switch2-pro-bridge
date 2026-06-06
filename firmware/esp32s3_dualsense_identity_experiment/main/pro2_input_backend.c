@@ -1,5 +1,7 @@
 #include "pro2_input_backend.h"
 
+#include <string.h>
+
 #include "app_log.h"
 #include "ble_central.h"
 #include "device_config.h"
@@ -10,28 +12,26 @@
 
 static const char *TAG = "v5.5_pro2";
 
-static void autoconnect_task(void *arg)
+static void reconnect_watchdog_task(void *arg)
 {
     (void)arg;
     vTaskDelay(pdMS_TO_TICKS(2500));
 
-    for (int attempt = 1; attempt <= 10; attempt++) {
-        esp_err_t err = ble_central_reconnect_saved_or_scan();
-        if (err == ESP_OK) {
-            ESP_LOGI(TAG, "[PRO2_INPUT] autoconnect_started=true attempt=%d", attempt);
-            vTaskDelete(NULL);
-            return;
+    uint32_t attempt = 0;
+    while (true) {
+        const char *state = ble_central_state_string();
+        if (strcmp(state, "idle") == 0) {
+            attempt++;
+            esp_err_t err = ble_central_reconnect_saved_or_scan();
+            ESP_LOGI(TAG,
+                     "[PRO2_INPUT] reconnect_attempt=%lu started=%s err=%s",
+                     (unsigned long)attempt,
+                     err == ESP_OK ? "true" : "false",
+                     esp_err_to_name(err));
         }
 
-        ESP_LOGW(TAG,
-                 "[PRO2_INPUT] autoconnect_started=false attempt=%d err=%s",
-                 attempt,
-                 esp_err_to_name(err));
-        vTaskDelay(pdMS_TO_TICKS(1000));
+        vTaskDelay(pdMS_TO_TICKS(5000));
     }
-
-    ESP_LOGE(TAG, "[PRO2_INPUT] autoconnect_failed=true");
-    vTaskDelete(NULL);
 }
 
 void pro2_input_backend_init(void)
@@ -41,8 +41,8 @@ void pro2_input_backend_init(void)
     switch2_state_init();
     ble_central_init();
 
-    BaseType_t created = xTaskCreate(autoconnect_task,
-                                     "pro2_autoconnect",
+    BaseType_t created = xTaskCreate(reconnect_watchdog_task,
+                                     "pro2_reconnect",
                                      4096,
                                      NULL,
                                      4,

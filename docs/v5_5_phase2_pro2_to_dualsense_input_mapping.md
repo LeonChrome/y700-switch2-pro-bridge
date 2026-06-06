@@ -45,10 +45,11 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\esp32s3\flash_v5_5_d
 ```
 
 Phase 2 会优先重连 NVS 中已保存的 Pro2 地址；没有可用目标时，复用现有
-BLE central 的扫描连接流程。关键日志：
+BLE central 的扫描连接流程。常驻重连守护仅在 BLE 状态回到 `idle` 时
+重试，不会打断正在进行的扫描、连接或已建立的连接。关键日志：
 
 ```text
-[PRO2_INPUT] autoconnect_started=true
+[PRO2_INPUT] reconnect_attempt=1 started=true err=ESP_OK
 [PRO2_INPUT] connected=true state=connected
 [DS5_REPORT] source=pro2 sent=true
 [DS5_INPUT_MAP] buttons=... lx=... gyro=... motion_valid=true
@@ -58,6 +59,7 @@ BLE central 的扫描连接流程。关键日志：
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\check_v5_5_dualsense_input.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\check_v5_5_dualsense_reports.ps1 -Seconds 6
 ```
 
 然后打开 `joy.cpl`、Steam Controller Test 或浏览器 gamepad tester，
@@ -69,15 +71,27 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\check_v5_5_dualsense
 ```text
 phase1_hardware_identity=passed
 phase2_build=passed
-phase2_binary_size=0x96ac0
-phase2_binary_sha256=49212F33067AFD8270BE6D5D02762E731B2FE81D889F227BA5CFCDD467DAB9F5
+phase2_flash=passed
+phase2_binary_size=0x96a00
+phase2_binary_sha256=C1C3BC2659728A9A78F2EC61A5BBF46298029AA8B14C1FC9E8A810B9B92F1BD1
+windows_identity=054C:0CE6/V55PHASE2
 host_input_check=ready_for_manual_input_test
-phase2_real_pro2_input=pending_hardware_test
+host_report_id=0x01
+host_payload_length=63
+host_report_rate_hz=250.0
+host_report_timeouts=0
+sequence_counter_incrementing=true
+reconnect_after_timeout=true
+phase2_real_pro2_input=blocked_controller_offline
 audio=false
 haptic=false
 raw02=false
 v5_2_default_unchanged=true
 ```
+
+本轮测试时已保存的 Pro2 目标没有响应。第一次 30 秒连接超时后，固件
+成功发起第二次连接，证明断线重连守护工作正常。由于真实手柄没有上线，
+本轮不能把 `mapped_input_activity` 标为通过。
 
 恢复正常 V5.2/V5.0 桥接固件：
 
@@ -100,3 +114,9 @@ Motion remains a raw-like first pass; axis direction, orientation, and scale
 require hardware validation. USB Audio, DualSense haptic translation, and
 Pro2 raw02 forwarding remain disabled. The existing V5.2/V5.0 firmware and GUI
 are unchanged.
+
+The Phase 2 image was flashed and verified as `V55PHASE2`. Windows received
+`0x01 + 63-byte` input at 250.0 Hz with zero timeouts while Steam was running.
+The reconnect watchdog also started a second connection after the first
+30-second timeout. Real mapped input activity remains blocked only because the
+saved Pro2 controller was offline during this closeout run.
