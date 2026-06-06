@@ -167,6 +167,24 @@ haptic_audio_activity=true/false
 notes=<short result>
 ```
 
+One-command capture entry:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\run_v5_3_dualsense_capture.ps1 -DurationSeconds 90
+```
+
+This runner does not start a game automatically. It runs the environment check,
+then starts HID output and haptic audio probes when a real DualSense is present.
+Logs go to `logs\v5_3_dualsense\`.
+
+Night-run:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\run_v5_3_night_probe.ps1
+```
+
+Without a real DualSense, both commands must report blocked and exit 0.
+
 ## V5.3 Next-Phase Decision
 
 Case 1:

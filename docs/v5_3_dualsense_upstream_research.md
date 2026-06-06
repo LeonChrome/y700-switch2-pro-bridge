@@ -2,147 +2,218 @@
 
 Date: 2026-06-06
 
-## 1. DS5Dongle: Why PC Can See A Wireless DualSense As A Wired-Like Device
+## Engineering Goal
 
-DS5Dongle uses a Pico2W as a USB host-visible bridge while the real DualSense
-connects to the Pico over Bluetooth. The public README says the Pico device
-appears to the host only after the controller connects.
+V5.3 is not trying to claim PS5 haptics are supported today. The goal is to
+identify a real advanced haptic source and prepare probes that can later feed a
+Pro2 raw02 translator.
 
-Practical meaning for this project:
-
-```text
-real DualSense over Bluetooth
--> hardware bridge
--> PC-visible USB controller shape
--> keep richer DualSense behavior closer to the wired path
-```
-
-This matters because many PC games treat USB DualSense as the most reliable
-native path for advanced features. A hardware bridge can preserve the host
-contract better than a DS4/XInput compatibility layer.
-
-## 2. DS5Dongle Enhanced Haptics
-
-DS5Dongle advertises enhanced / HD haptics support. Treat this as a bridge
-reference, not as a copy-paste solution:
-
-- It targets a real DualSense.
-- It uses a dedicated hardware bridge.
-- It does not directly translate DualSense haptics to Switch 2 Pro raw02.
-- It suggests that advanced haptics need a faithful DualSense-facing host shape.
-
-V5.3 takeaway:
+Priority:
 
 ```text
-Study DS5Dongle for host-visible DualSense bridge design.
-Do not merge it into V5.2.
-Do not claim Pro2 PS5 haptic support from this alone.
+A. real DualSense USB capture
+B. DS5Dongle study / hardware bridge
+C. virtual DualSense HID + virtual audio
+D. haptic audio -> Pro2 raw02 translator
 ```
 
-## 3. dualsense-bt-haptics: Haptic Audio + Virtual Device
+## Project Matrix
 
-`dualsense-bt-haptics` combines:
+| Reference | Solves | Haptic audio | Real DualSense | Virtual USB/HID | Virtual audio | Direct value | Limit | Probe/translator use |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| DS5Dongle | Hardware bridge where Pico2W exposes a host-visible DualSense-like path while the real controller is wireless | Claims enhanced haptics support | Yes | Pico2W acts as USB bridge | Not the main public focus | Shows a hardware bridge can preserve richer DualSense behavior | Requires extra hardware and real DualSense | Study host-visible device shape and bridge timing |
+| dualsense-bt-haptics | Windows Bluetooth haptic forwarding via virtual controller plus real DualSense | Yes, via virtual audio device and SAxense-derived packet path | Yes | Uses virtual DualSense/ViGEm fork | Yes | Shows Windows route needs both HID and named audio endpoint | Not universal, driver work, reported latency | Strong reference for virtual audio + haptic packet translator |
+| SAxense | Linux POC converting audio/haptic stream to DualSense Bluetooth haptic packets | Yes | Yes | Uses Linux hidraw/uhid path | PipeWire sink/capture route | Shows haptic audio to controller-packet conversion and latency causes | Linux-specific, not direct Windows implementation | Reference for audio windows, low-rate conversion, latency budget |
+| Unreal-Dualsense | Unreal/engine-facing DualSense feature integration | Partial, mostly engine-side HID/features depending on implementation | Usually yes | No | No | Shows game-engine APIs can emit native DualSense features | Engine/game-specific, not a capture layer | Useful for controlled game-side trigger/output tests |
+| Gamepad-Core | Cross-platform DualSense/DualShock API | Not primarily haptic audio | Yes for real features | No | No | API reference for HID feature control and classification | Library focus, not source capture | Reference for output report categories and adaptive trigger handling |
+| Linux hid-playstation.c | Kernel DualSense HID driver behavior | Handles DualSense device behavior, not game haptic audio source | Yes | Kernel driver, not virtual host for Windows | No | Ground truth for report IDs, CRC, motion, battery, output behavior | Linux kernel context | Reference for HID report parsing and safe output boundaries |
+| SDL SDL_hidapi_ps5.c | SDL PlayStation HIDAPI backend | Handles rumble/trigger/lightbar paths in SDL context | Yes | No | No | Shows how SDL classifies PS5 reports and exposes rumble/trigger APIs | SDL API may wrap ordinary feedback, not native game haptic audio | Reference for output classification and Steam/SDL comparison |
+| Proton / Steam Input | PC game compatibility and controller translation stack | Depends on game and Steam Input state | Usually yes for native capture | Steam may wrap/translate | Depends on game/audio endpoint | Explains why Steam Input on/off must be recorded | Can hide native DualSense path | Test matrix variable, not direct implementation |
 
-- a virtual DualSense-like controller,
-- real Bluetooth DualSense input/output forwarding,
-- a virtual audio endpoint named like `DualSense Wireless Controller`,
-- haptic audio conversion based on SAxense research.
+## 1. DS5Dongle
 
-Its README also warns that the route is not universal and may show around
-hundreds of milliseconds of latency in some setups.
+It solves a wireless bridge problem: a real DualSense connects to Pico2W over
+Bluetooth, while the host sees a USB device after the controller is connected.
 
-V5.3 takeaway:
+Engineering judgment:
+
+- It likely preserves more of the wired DualSense host contract than a DS4 or
+  XInput wrapper.
+- It is valuable for understanding host-visible device shape and bridge timing.
+- It is not a direct Pro2 translator.
+- It still requires a real DualSense.
+
+Recommended use:
 
 ```text
-advanced haptics may require both HID and a game-visible audio endpoint
-ordinary rumble alone is insufficient
-latency must be measured, not guessed
+study only in V5.3
+do not merge into V5.2
+compare with real USB DualSense capture once hardware is available
 ```
 
-## 4. SAxense Latency Sources
+## 2. dualsense-bt-haptics
 
-SAxense converts haptic audio into DualSense Bluetooth haptic packets on Linux.
-Its README notes that delay can come from loopback audio capture latency rather
-than from SAxense or HID/Bluetooth itself.
+It solves Bluetooth haptics on Windows by combining a virtual DualSense-like
+controller, a virtual audio endpoint, and Bluetooth packet forwarding to the
+real controller.
 
-Latency sources to measure:
+Engineering judgment:
 
-- game audio/haptic scheduling,
-- virtual audio endpoint buffering,
-- WASAPI/PipeWire loopback buffering,
-- resampling to the controller haptic packet rate,
-- HID/Bluetooth write cadence,
-- controller-side buffering.
+- It directly supports the idea that haptic audio may require a named audio
+  endpoint such as `DualSense Wireless Controller`.
+- It is not universal and may carry noticeable latency.
+- It implies pure HID is probably not enough for native advanced haptics.
+- It requires driver-level components and real DualSense hardware.
 
-V5.3 should log timestamps at every boundary before deciding whether a
-DualSense-source-to-Pro2 translator feels usable.
-
-## 5. Pure Software Virtual DualSense Requires Virtual Audio
-
-A virtual DualSense HID device can be enough for enumeration, basic input,
-ordinary rumble, lightbar, or adaptive-trigger experiments. It is likely not
-enough for native advanced haptics if the game expects to send haptic audio to a
-DualSense audio endpoint.
-
-Minimum credible pure-software route:
+Recommended use:
 
 ```text
-virtual DualSense HID
-virtual DualSense-like audio endpoint
-WASAPI loopback or direct audio capture
-HID/adaptive trigger output capture
-haptic audio analyzer
-translator to Pro2 raw02 / HD rumble
+reference for virtual audio + haptic packet path
+do not install its driver stack automatically
+borrow only the measurement questions and architecture constraints
 ```
 
-## 6. Windows Virtual Audio Driver Risk
+## 3. SAxense
 
-On Windows, a reliable virtual audio device normally means driver work. Kernel
-driver loading and signing policy applies, and unknown virtual audio drivers
-should not be installed as part of this project without a separate safety
-review.
+It converts audio-like haptic data into DualSense Bluetooth haptic packets on
+Linux. Its README specifically calls out loopback capture latency as a possible
+source of large delays.
 
-For V5.3:
+Engineering judgment:
 
-- prefer real USB DualSense capture first,
-- then consider known, reversible audio loopback tools for research,
-- avoid shipping or requiring an unknown signed driver,
-- do not block V5.2 on this route.
+- It is the strongest public clue for audio-to-haptic packet translation.
+- It is Linux-specific and not directly portable to this Windows bridge.
+- It proves that latency must be measured at capture, conversion, transport, and
+  controller boundaries.
 
-## 7. Future Route Ranking
+Recommended use:
 
-Recommended order:
+```text
+copy the latency thinking, not the platform assumptions
+use RMS/peak/transient windowing as V5.3 Phase 2 inspiration
+```
 
-1. Real capture:
+## 4. Unreal-Dualsense
 
-   Attach a real DualSense over USB, enumerate HID/audio, run a native
-   DualSense-capable PC game, and capture output.
+It is useful as an engine-side feature reference: games or engines can actively
+emit DualSense-specific trigger/haptic output when they know a DualSense is
+present.
 
-2. DS5Dongle study:
+Engineering judgment:
 
-   Use it as a hardware bridge reference for preserving a host-visible
-   DualSense shape.
+- It may help create controlled native DualSense scenes.
+- It does not solve capture by itself.
+- It is not a Pro2 translator.
 
-3. Virtual HID + audio:
+Recommended use:
 
-   Only after real capture proves what the host emits. This is the hardest
-   route because both controller and audio device shape must match.
+```text
+possible controlled source for HID output and adaptive trigger tests
+not required for first V5.3 capture
+```
 
-4. Haptic audio -> Pro2 translator:
+## 5. Gamepad-Core
 
-   Translate measured DualSense haptic activity into Pro2 raw02 / HD rumble
-   payloads. Do this only after audio/HID capture is real.
+It is a cross-platform DualSense/DualShock API reference. Its value is report
+classification and feature-control thinking.
 
-## Source Notes
+Engineering judgment:
 
-Relevant upstream references:
+- Useful for understanding ordinary output and adaptive trigger categories.
+- Not primarily an advanced haptic audio capture route.
+- Requires real controller behavior to validate.
 
-- [awalol/DS5Dongle](https://github.com/awalol/DS5Dongle): Pico2W DualSense bridge and enhanced haptics reference.
-- [awalol/dualsense-bt-haptics](https://github.com/awalol/dualsense-bt-haptics): Windows-oriented virtual controller/audio + Bluetooth haptic forwarding experiment.
-- [egormanga/SAxense](https://github.com/egormanga/SAxense): Linux DualSense haptics over Bluetooth proof of concept.
-- [Paliverse/DualSenseX](https://github.com/Paliverse/DualSenseX): PC DualSense control app reference.
-- [rafaelvaloto/Gamepad-Core](https://github.com/rafaelvaloto/Gamepad-Core): cross-platform DualSense/DualShock API reference.
-- [Unreal-Dualsense](https://github.com/rafaelvaloto/Unreal-Dualsense): Unreal-oriented DualSense feature reference.
-- [Linux hid-playstation.c](https://github.com/torvalds/linux/blob/master/drivers/hid/hid-playstation.c): kernel DualSense HID behavior reference.
-- [SDL_hidapi_ps5.c](https://github.com/libsdl-org/SDL/blob/main/src/joystick/hidapi/SDL_hidapi_ps5.c): SDL PlayStation HIDAPI implementation reference.
-- [ValveSoftware/Proton](https://github.com/ValveSoftware/Proton): compatibility context for native PC game behavior under Proton.
+Recommended use:
+
+```text
+reference for output report categories
+compare against our [DUALSENSE_OUTPUT] classifier
+```
+
+## 6. Linux hid-playstation.c
+
+Linux `hid-playstation.c` is a ground-truth reference for Sony controller HID
+behavior in a production driver.
+
+Engineering judgment:
+
+- Useful for report IDs, CRC/transport differences, calibration, motion, battery
+  and output boundaries.
+- It does not provide a Windows haptic audio endpoint.
+- It should shape safe HID parsing decisions.
+
+Recommended use:
+
+```text
+reference for report parsing and safe output limits
+do not treat it as a Windows audio capture implementation
+```
+
+## 7. SDL SDL_hidapi_ps5.c
+
+SDL's PlayStation HIDAPI backend shows how SDL maps PS5 controller reports,
+rumble, triggers, lightbar, and related APIs.
+
+Engineering judgment:
+
+- Useful for classifying ordinary rumble versus trigger output.
+- SDL feedback may be API-level ordinary rumble, not native haptic audio.
+- Steam/SDL behavior must be recorded separately from native game output.
+
+Recommended use:
+
+```text
+reference for output category names
+compare Steam Input on/off against direct native game behavior
+```
+
+## 8. Proton / Steam Input
+
+Proton and Steam Input affect whether a game sees a native DualSense, a wrapped
+controller, or an ordinary rumble path.
+
+Engineering judgment:
+
+- Steam Input on/off must be logged for every game capture.
+- Native DualSense features may require Steam Input off in some games.
+- Steam Input can also make a controller usable while hiding native advanced
+  output from our capture goal.
+
+Recommended use:
+
+```text
+always log steam_input=on/off
+do not call ordinary Steam rumble advanced DualSense haptic
+```
+
+## Recommended Route Priority
+
+1. A. Real DualSense USB capture
+
+   Highest priority. It answers what this machine and games actually emit.
+
+2. B. DS5Dongle study / hardware bridge
+
+   Useful if wireless/passthrough becomes important or if USB native capture
+   reveals bridge-shape requirements.
+
+3. D. Haptic audio -> Pro2 raw02 translator
+
+   Start offline after real haptic audio exists. Do not start live forwarding
+   first.
+
+4. C. Virtual DualSense HID + virtual audio
+
+   Highest effort and highest driver risk. Keep as later research unless real
+   capture proves the exact host contract.
+
+## Sources
+
+- [awalol/DS5Dongle](https://github.com/awalol/DS5Dongle)
+- [awalol/dualsense-bt-haptics](https://github.com/awalol/dualsense-bt-haptics)
+- [egormanga/SAxense](https://github.com/egormanga/SAxense)
+- [rafaelvaloto/Unreal-Dualsense](https://github.com/rafaelvaloto/Unreal-Dualsense)
+- [rafaelvaloto/Gamepad-Core](https://github.com/rafaelvaloto/Gamepad-Core)
+- [Linux hid-playstation.c](https://github.com/torvalds/linux/blob/master/drivers/hid/hid-playstation.c)
+- [SDL_hidapi_ps5.c](https://github.com/libsdl-org/SDL/blob/main/src/joystick/hidapi/SDL_hidapi_ps5.c)
+- [ValveSoftware/Proton](https://github.com/ValveSoftware/Proton)

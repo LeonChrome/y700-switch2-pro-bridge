@@ -158,6 +158,8 @@ Run from the repository root:
 powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\check_dualsense_env.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File .\experiments\dualsense_hid_output_probe\run_dualsense_hid_output_probe.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File .\experiments\dualsense_haptic_audio_probe\run_dualsense_haptic_audio_probe.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\run_v5_3_dualsense_capture.ps1 -DurationSeconds 90
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\run_v5_3_night_probe.ps1
 ```
 
 Expected blocked state when no real DualSense is attached:
@@ -186,6 +188,12 @@ Until then:
 ps5_haptic_support=false
 dualsense_in_v5_2_gui=false
 safe_next=attach real DualSense over USB and rerun V5.3 probes
+```
+
+Translation design:
+
+```text
+docs/v5_3_dualsense_to_pro2_translation_plan.md
 ```
 
 ## Sources

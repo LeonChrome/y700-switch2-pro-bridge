@@ -1,5 +1,41 @@
 # Changelog
 
+## V5.3 In Progress - 2026-06-06
+
+### 中文
+
+V5.3 进入 DualSense haptic source research。当前不是已支持功能，必须接入真实 DualSense 后才能验证 advanced haptic source。
+
+新增：
+
+- 增强 `tools/check_dualsense_env.ps1`，输出 DualSense HID、USB/BT、VID/PID、product、instance_id、device_path、audio endpoint、Steam、ViGEmBus、usbip-win2、VIIPER、ESP32 raw02 tools 状态。
+- 增强 `experiments/dualsense_hid_output_probe`，支持计时、JSONL/raw hex 日志和 blocked-safe 输出。
+- 增强 `experiments/dualsense_haptic_audio_probe`，支持 endpoint 枚举、JSONL、per-channel RMS/peak 字段和 blocked-safe 输出。
+- 新增 `tools/run_v5_3_dualsense_capture.ps1`，为未来真实 DualSense + 游戏场景提供一条命令捕获入口。
+- 新增 `tools/run_v5_3_night_probe.ps1`，没有 DualSense 时也 exit 0。
+- 新增 `docs/v5_3_dualsense_to_pro2_translation_plan.md`，规划 haptic audio -> Pro2 raw02 近似转译。
+- 深化 `docs/v5_3_dualsense_upstream_research.md`，把 DS5Dongle、SAxense、dualsense-bt-haptics、SDL/Linux HIDAPI 等路线落到工程优先级。
+
+限制：
+
+- 当前没有真实 DualSense，实机 haptic/audio 成功不能伪造。
+- HID output passive capture 在普通 Windows 用户态有边界，可能需要 instrumented sender、过滤驱动或真实游戏可观测路径。
+- haptic audio capture 需要真实 DualSense audio endpoint。
+
+### English
+
+V5.3 is now in progress as DualSense haptic source research. This is not a supported feature yet; advanced haptic source validation requires a real DualSense.
+
+Added:
+
+- Expanded `tools/check_dualsense_env.ps1` with HID, USB/BT, VID/PID, product, instance ID, device path, audio endpoint, Steam, ViGEmBus, usbip-win2, VIIPER, and ESP32 raw02 tool status.
+- Expanded `experiments/dualsense_hid_output_probe` with duration, JSONL/raw hex logs, and blocked-safe output.
+- Expanded `experiments/dualsense_haptic_audio_probe` with endpoint enumeration, JSONL, per-channel RMS/peak fields, and blocked-safe output.
+- Added `tools/run_v5_3_dualsense_capture.ps1` as the future one-command real-device capture entry.
+- Added `tools/run_v5_3_night_probe.ps1`, which exits 0 when blocked by missing hardware.
+- Added `docs/v5_3_dualsense_to_pro2_translation_plan.md` for haptic audio -> Pro2 raw02 approximation design.
+- Deepened upstream research into engineering route priority.
+
 ## V5.2 Experimental - 2026-06-06
 
 ### 中文

@@ -307,6 +307,26 @@ The V5.2 raw02 path has been flashed to ESP32-S3 and validated on a real Pro2: B
 
 Detailed notes are tracked in [docs/v5_2_real_pro2_hd_rumble_probe_results.md](docs/v5_2_real_pro2_hd_rumble_probe_results.md) and [docs/v5_2_ns2pro_viiper_integration_plan.md](docs/v5_2_ns2pro_viiper_integration_plan.md).
 
+## V5.3 DualSense 触觉研究 / V5.3 DualSense Haptic Research
+
+中文：
+
+V5.3 正在推进 DualSense / PS5 haptic source research。它不是已支持功能，也不会进入 V5.2 GUI。当前目标是一插入真实 DualSense USB 后，可以自动检测 HID、audio endpoint、WASAPI loopback，并运行 HID output probe、haptic audio probe 和未来游戏捕获流程。
+
+当前没有真实 DualSense 时，所有 V5.3 probe 都应输出 blocked 并以 exit code 0 结束，方便 night-run：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\check_dualsense_env.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\run_v5_3_dualsense_capture.ps1 -DurationSeconds 5
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\run_v5_3_night_probe.ps1
+```
+
+English:
+
+V5.3 is in progress as DualSense / PS5 haptic source research. It is not a supported feature yet and is not part of the V5.2 GUI. The goal is to make a real USB DualSense immediately diagnosable: HID detection, audio endpoint detection, WASAPI loopback status, HID output probe, haptic audio probe, and future game capture flow.
+
+Without a real DualSense, V5.3 probes should report blocked and exit with code 0 so night-run can continue.
+
 ## 文档 / Documentation
 
 - [快速开始 / Quickstart](QUICKSTART.md)
@@ -316,7 +336,9 @@ Detailed notes are tracked in [docs/v5_2_real_pro2_hd_rumble_probe_results.md](d
 - [V5.2 实验说明 / Experimental Notes](RELEASE_NOTES_v5.2.0-experimental.md)
 - [V5.2 VIIPER / raw02 实测结果](docs/v5_2_real_pro2_hd_rumble_probe_results.md)
 - [V5.3 DualSense 触觉路线图](docs/v5_3_dualsense_haptic_roadmap.md)
+- [V5.3 DualSense 实机测试清单](docs/v5_3_dualsense_test_checklist.md)
 - [V5.3 DualSense 上游研究](docs/v5_3_dualsense_upstream_research.md)
+- [V5.3 DualSense 到 Pro2 转译计划](docs/v5_3_dualsense_to_pro2_translation_plan.md)
 - [V5.0.0 预览说明 / Preview Notes](RELEASE_NOTES_v5.0.0-preview.md)
 - [V4.0.0 发布说明 / Release Notes](RELEASE_NOTES_v4.0.0.md)
 - [ESP32-S3 文档 / ESP32-S3 documentation](docs/esp32s3/README_ESP32S3.md)

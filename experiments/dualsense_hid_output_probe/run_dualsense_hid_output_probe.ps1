@@ -1,5 +1,8 @@
 param(
     [string]$ProjectRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path,
+    [int]$DurationSeconds = 10,
+    [string]$JsonlPath = "",
+    [string]$RawHexLogPath = "",
     [switch]$SendSafeTest
 )
 
@@ -7,7 +10,57 @@ $ErrorActionPreference = "Stop"
 $ProjectRoot = (Resolve-Path $ProjectRoot).Path
 $EnvScript = Join-Path $ProjectRoot "tools\check_dualsense_env.ps1"
 
-Write-Output "[DUALSENSE_HID] starting"
+function Convert-LogValue {
+    param([object]$Value)
+    if ($Value -is [bool]) { return $Value.ToString().ToLowerInvariant() }
+    if ($null -eq $Value) { return "not_found" }
+    if ($Value -is [string] -and $Value -eq "") { return "not_found" }
+    return ($Value.ToString() -replace "[`r`n]+", " ").Trim()
+}
+
+function Write-Jsonl {
+    param([hashtable]$Event)
+    if (!$JsonlPath) { return }
+    $dir = Split-Path -Parent $JsonlPath
+    if ($dir) { New-Item -ItemType Directory -Force $dir | Out-Null }
+    ($Event | ConvertTo-Json -Compress -Depth 8) | Add-Content -Encoding UTF8 $JsonlPath
+}
+
+function Write-RawHex {
+    param([string]$Line)
+    if (!$RawHexLogPath) { return }
+    $dir = Split-Path -Parent $RawHexLogPath
+    if ($dir) { New-Item -ItemType Directory -Force $dir | Out-Null }
+    $Line | Add-Content -Encoding ASCII $RawHexLogPath
+}
+
+function Get-OutputCategory {
+    param([byte[]]$Data)
+    if ($null -eq $Data -or $Data.Length -eq 0) { return "unknown" }
+    $reportId = $Data[0]
+    if ($reportId -eq 0x02 -or $reportId -eq 0x31) {
+        if ($Data.Length -gt 20) {
+            return "possible_haptic_control"
+        }
+        return "ordinary_rumble"
+    }
+    if ($reportId -eq 0x05 -or $reportId -eq 0x10) { return "lightbar_or_led" }
+    return "unknown"
+}
+
+function Convert-HexToBytes {
+    param([string]$Hex)
+    if (!$Hex) { return @() }
+    $clean = $Hex -replace "[^0-9A-Fa-f]", ""
+    $bytes = New-Object byte[] ($clean.Length / 2)
+    for ($i = 0; $i -lt $bytes.Length; $i++) {
+        $bytes[$i] = [Convert]::ToByte($clean.Substring($i * 2, 2), 16)
+    }
+    return $bytes
+}
+
+Write-Output "[DUALSENSE_HID] starting duration_seconds=$DurationSeconds"
+Write-Jsonl @{ ts = (Get-Date).ToUniversalTime().ToString("o"); event = "start"; duration_seconds = $DurationSeconds }
 & $EnvScript -ProjectRoot $ProjectRoot
 
 $source = @'
@@ -16,7 +69,7 @@ using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using Microsoft.Win32.SafeHandles;
 
-public static class DualSenseHidEnumerator {
+public static class DualSenseHidProbeEnumerator {
   [StructLayout(LayoutKind.Sequential)] struct SP_DEVICE_INTERFACE_DATA { public int cbSize; public Guid InterfaceClassGuid; public int Flags; public IntPtr Reserved; }
   [StructLayout(LayoutKind.Sequential, CharSet=CharSet.Unicode)] struct SP_DEVICE_INTERFACE_DETAIL_DATA { public int cbSize; [MarshalAs(UnmanagedType.ByValTStr, SizeConst=512)] public string DevicePath; }
   [StructLayout(LayoutKind.Sequential)] struct HIDD_ATTRIBUTES { public int Size; public ushort VendorID; public ushort ProductID; public ushort VersionNumber; }
@@ -58,8 +111,6 @@ public static class DualSenseHidEnumerator {
         Console.WriteLine("[DUALSENSE_HID] device=" + path);
         Console.WriteLine("[DUALSENSE_HID] transport=" + transport + " vid=" + attr.VendorID.ToString("x4") + " pid=" + attr.ProductID.ToString("x4") + " ver=" + attr.VersionNumber.ToString("x4"));
         Console.WriteLine("[DUALSENSE_HID] usage_page=0x" + caps.UsagePage.ToString("x4") + " usage=0x" + caps.Usage.ToString("x4") + " input_len=" + caps.InputReportByteLength + " output_len=" + caps.OutputReportByteLength + " feature_len=" + caps.FeatureReportByteLength);
-        Console.WriteLine("[DUALSENSE_OUTPUT] report_id=not_captured len=" + caps.OutputReportByteLength + " hex=not_captured");
-        Console.WriteLine("[DUALSENSE_TRIGGER] supported=unknown reason=no_safe_output_sent");
       }
     }
     return matched;
@@ -91,21 +142,52 @@ public static class DualSenseHidEnumerator {
 }
 '@
 
-Add-Type $source
-$matched = [DualSenseHidEnumerator]::Run()
+Add-Type $source -ErrorAction SilentlyContinue | Out-Null
+$matched = [DualSenseHidProbeEnumerator]::Run()
 Write-Output "[DUALSENSE_HID] matched_devices=$matched"
-Write-Output "[DUALSENSE_ENV] hid_matched_count=$matched"
+Write-Jsonl @{ ts = (Get-Date).ToUniversalTime().ToString("o"); event = "enumeration"; matched_devices = $matched }
 
 if ($matched -eq 0) {
     Write-Output "[DUALSENSE_ENV] hid_usb=false"
     Write-Output "[DUALSENSE_ENV] hid_bluetooth=false"
+    Write-Output "[DUALSENSE_HID] capture_started=false"
+    Write-Output "[DUALSENSE_OUTPUT] captured_reports=0"
     Write-Output "[DUALSENSE_BLOCKED] reason=no_real_dualsense"
+    Write-Jsonl @{ ts = (Get-Date).ToUniversalTime().ToString("o"); event = "blocked"; reason = "no_real_dualsense" }
     exit 0
 }
 
+Write-Output "[DUALSENSE_HID] capture_started=true"
+Write-Output "[DUALSENSE_HID] duration_seconds=$DurationSeconds"
+Write-Output "[DUALSENSE_HID] passive_output_capture_supported=false"
+Write-Output "[DUALSENSE_HID] note=windows_user_mode_cannot_passively_intercept_other_process_hid_output_without_filter_or_instrumented_sender"
+Write-Jsonl @{
+    ts = (Get-Date).ToUniversalTime().ToString("o")
+    event = "capture_started"
+    matched_devices = $matched
+    passive_output_capture_supported = $false
+}
+
+$deadline = (Get-Date).AddSeconds([Math]::Max(0, $DurationSeconds))
+$captured = 0
+while ((Get-Date) -lt $deadline) {
+    Start-Sleep -Milliseconds 500
+}
+
+Write-Output "[DUALSENSE_OUTPUT] captured_reports=$captured"
+Write-Output "[DUALSENSE_TRIGGER] left=unknown right=unknown"
+Write-Output "[DUALSENSE_RUMBLE] small=unknown large=unknown"
+Write-RawHex "# no passive output reports captured"
+Write-Jsonl @{
+    ts = (Get-Date).ToUniversalTime().ToString("o")
+    event = "summary"
+    captured_reports = $captured
+    blocked_reason = "passive_hid_output_capture_requires_filter_or_instrumented_sender"
+}
+
 if (!$SendSafeTest) {
-    Write-Output "[DUALSENSE_BLOCKED] reason=safe_output_disabled"
-    Write-Output "[DUALSENSE_BLOCKED] next=pass -SendSafeTest only after a real DualSense is connected and a safe lightbar/trigger report is selected"
+    Write-Output "[DUALSENSE_BLOCKED] reason=passive_hid_output_capture_requires_filter_or_instrumented_sender"
+    Write-Output "[DUALSENSE_BLOCKED] next=use_native_game_plus_instrumented_sender_or_hid_filter_for_real_output_capture"
     exit 0
 }
 
