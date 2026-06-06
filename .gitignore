@@ -30,6 +30,7 @@ windows/rate_manager_app/
 build_bridge_rate_manager.ps1
 STABLE_CHECKPOINT_*.md
 work/
+research/upstream/
 
 # Keep release artifacts, source jars, and the Windows launcher in the repo.
 !release/

@@ -327,6 +327,41 @@ V5.3 is in progress as DualSense / PS5 haptic source research. It is not a suppo
 
 Without a real DualSense, V5.3 probes should report blocked and exit with code 0 so night-run can continue.
 
+## V5.4/V5.5 双身份路线 / V5.4/V5.5 Dual-Identity Routes
+
+中文：
+
+V5.2 Pure Pro2 / VIIPER 路线已经封存保留，不再作为 V5.5 的改造对象。它继续提供 `pro2_ns2_viiper` 身份，保留已验证的按键、陀螺仪、VIIPER `LeftRumble[16] / RightRumble[16]` 捕获、raw02 转发和真实 Pro2 物理震动。
+
+V5.5 新增独立的 `dualsense_esp32s3_experimental` 身份：PC 将 ESP32-S3 识别为有线 DualSense，游戏可以向它发送 DualSense HID output 和四声道 haptic audio；ESP32-S3 只提取有价值的普通震动、触发器事件和左右 haptic 声道特征，再转换为 Pro2 raw02，通过 BLE 发送给真实 Switch 2 Pro Controller。目标产品不依赖真实 DualSense。
+
+```text
+output_identity=pro2_ns2_viiper
+output_identity=dualsense_esp32s3_experimental
+```
+
+当前版本边界：
+
+- V5.2：Pure Pro2 / VIIPER ns2pro 路线收口并长期保留。
+- V5.3：DualSense haptic audio 到 Pro2 raw02 转译原型。
+- V5.4：双身份策略、游戏行为矩阵和安全策略。
+- V5.5：基于 DS5Dongle 研究的 ESP32-S3 DualSense identity 实验。
+
+English:
+
+The V5.2 Pure Pro2 / VIIPER route is frozen and preserved. It retains the verified buttons, gyro, VIIPER `LeftRumble[16] / RightRumble[16]` capture, raw02 forwarding, and physical Pro2 vibration path.
+
+V5.5 adds a separate `dualsense_esp32s3_experimental` identity. The PC sees the ESP32-S3 as a wired DualSense; the board receives DualSense HID output and four-channel haptic audio, extracts useful rumble/trigger/haptic features, translates them to Pro2 raw02, and writes them to the real Switch 2 Pro over BLE. The target product does not require a real DualSense.
+
+Planning and repeatable probes:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\fetch_v5_5_ds5dongle.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\analyze_v5_5_ds5dongle.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\run_v5_3_dualsense_to_pro2_pipeline.ps1 -Synthetic -Event impact -DryRun
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\run_v5_4_hybrid_haptic_probe.ps1
+```
+
 ## 文档 / Documentation
 
 - [快速开始 / Quickstart](QUICKSTART.md)
@@ -339,6 +374,11 @@ Without a real DualSense, V5.3 probes should report blocked and exit with code 0
 - [V5.3 DualSense 实机测试清单](docs/v5_3_dualsense_test_checklist.md)
 - [V5.3 DualSense 上游研究](docs/v5_3_dualsense_upstream_research.md)
 - [V5.3 DualSense 到 Pro2 转译计划](docs/v5_3_dualsense_to_pro2_translation_plan.md)
+- [V5.4 Hybrid haptic engine 架构](docs/v5_4_hybrid_haptic_engine_architecture.md)
+- [V5.5 DS5Dongle bridge 研究](docs/v5_5_ds5dongle_derived_bridge_study.md)
+- [V5.5 ESP32-S3 移植计划](docs/v5_5_ds5dongle_esp32s3_port_plan.md)
+- [V5.5 DualSense identity 可行性](docs/v5_5_esp32s3_dualsense_identity_feasibility.md)
+- [V5.5 DualSense identity 实验计划](docs/v5_5_esp32s3_dualsense_identity_experiment_plan.md)
 - [V5.0.0 预览说明 / Preview Notes](RELEASE_NOTES_v5.0.0-preview.md)
 - [V4.0.0 发布说明 / Release Notes](RELEASE_NOTES_v4.0.0.md)
 - [ESP32-S3 文档 / ESP32-S3 documentation](docs/esp32s3/README_ESP32S3.md)

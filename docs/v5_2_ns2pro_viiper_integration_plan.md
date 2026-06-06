@@ -194,3 +194,26 @@ Open interface questions:
   running monitor.
 - How to surface `rumble_errors`, BLE disconnects, and usbip-win2 driver state
   without confusing V5.1 users.
+
+## Frozen Route Boundary
+
+As of V5.5 planning, this V5.2 route is frozen and preserved:
+
+```text
+output_identity=pro2_ns2_viiper
+status=stable_long_term_experimental_route
+default_changed=false
+```
+
+The verified buttons, gyro, VIIPER 16+16 capture, raw02 forwarding, and real
+Pro2 vibration logic must not be rewritten for the DualSense experiment.
+
+V5.5 adds a separate identity:
+
+```text
+output_identity=dualsense_esp32s3_experimental
+```
+
+It uses a PC-facing wired DualSense contract and the existing Pro2 BLE/raw02
+capability as a backend. It does not replace the Pure Pro2 / VIIPER route, does
+not make VIIPER the default, and does not enter the V5.1 GUI during probing.

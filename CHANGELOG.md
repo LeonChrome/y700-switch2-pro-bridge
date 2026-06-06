@@ -1,5 +1,25 @@
 # Changelog
 
+## V5.5 Planning - 2026-06-06
+
+### 中文
+
+- 明确 V5.2 Pure Pro2 / VIIPER 路线封存保留，V5.5 不替换、不混入、不修改其默认行为。
+- 新增 DS5Dongle fetch/analyze 工具，固定记录上游 commit、branch、license、USB descriptor、audio/haptic 和 Bluetooth backend 耦合点。
+- 新增 V5.3 synthetic DualSense feature -> Pro2 raw02 dry-run pipeline。
+- 新增 V5.4 hybrid haptic policy probe；没有真实 DualSense 时以 `passed_as_blocked` 安全结束。
+- 新增 ESP32-S3 DualSense identity 架构、移植可行性、风险和 Phase 0-6 实验计划。
+- 建议配置为独立身份：`pro2_ns2_viiper` 与 `dualsense_esp32s3_experimental`。
+
+### English
+
+- Froze and preserved the V5.2 Pure Pro2 / VIIPER route; V5.5 does not replace, merge into, or change its default behavior.
+- Added DS5Dongle fetch/analyze tools that record upstream commit, branch, license, USB descriptors, audio/haptic paths, and Bluetooth backend coupling.
+- Added a V5.3 synthetic DualSense feature to Pro2 raw02 dry-run pipeline.
+- Added a V5.4 hybrid haptic policy probe that exits safely as `passed_as_blocked` without a real DualSense.
+- Added ESP32-S3 DualSense identity architecture, port feasibility, risk analysis, and Phase 0-6 experiment planning.
+- Defined separate identities: `pro2_ns2_viiper` and `dualsense_esp32s3_experimental`.
+
 ## V5.3 In Progress - 2026-06-06
 
 ### 中文
