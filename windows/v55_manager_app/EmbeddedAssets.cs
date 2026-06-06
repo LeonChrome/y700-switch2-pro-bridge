@@ -12,6 +12,10 @@ public static class EmbeddedAssets
 {
     public const string BundledPackageVersion = "v5.5.0-aio";
     public const string BundledFirmwareVersion = "5.5.0-experimental";
+    private static readonly JsonSerializerOptions ManifestJsonOptions = new()
+    {
+        PropertyNameCaseInsensitive = true
+    };
 
     public static string RootDirectory =>
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
@@ -30,11 +34,21 @@ public static class EmbeddedAssets
             throw new FileNotFoundException("Bundled V5.5 firmware manifest was not extracted.", manifestPath);
         }
 
-        FirmwareManifest manifest = JsonSerializer.Deserialize<FirmwareManifest>(File.ReadAllText(manifestPath))
+        FirmwareManifest manifest = JsonSerializer.Deserialize<FirmwareManifest>(
+                File.ReadAllText(manifestPath),
+                ManifestJsonOptions)
             ?? throw new InvalidOperationException("Bundled V5.5 firmware manifest is invalid.");
+        if (manifest.Profiles is not { Count: > 0 })
+        {
+            throw new InvalidOperationException("Bundled V5.5 firmware manifest contains no profiles.");
+        }
 
         foreach (FirmwareProfile profile in manifest.Profiles)
         {
+            if (string.IsNullOrWhiteSpace(profile.Id) || profile.Assets is not { Count: > 0 })
+            {
+                throw new InvalidOperationException("Bundled V5.5 firmware manifest contains an incomplete profile.");
+            }
             foreach (FirmwareAsset asset in profile.Assets)
             {
                 string path = Path.Combine(firmwareRoot, asset.Path.Replace('/', Path.DirectorySeparatorChar));

@@ -162,6 +162,35 @@ if (!$DryRun) {
         throw "Published exe not found: $publishedExe"
     }
     Copy-Item -LiteralPath $publishedExe -Destination $SingleExe -Force
+
+    $verifyLog = Join-Path $RepoRoot "work\v5_5_manager_package_verify.txt"
+    Remove-Item -LiteralPath $verifyLog -Force -ErrorAction SilentlyContinue
+    $verifyProcess = Start-Process -FilePath $SingleExe `
+        -ArgumentList @("--verify-package", ('"{0}"' -f $verifyLog)) `
+        -Wait -PassThru
+    if ($verifyProcess.ExitCode -ne 0) {
+        $verifyDetails = if (Test-Path -LiteralPath $verifyLog) {
+            Get-Content -LiteralPath $verifyLog -Raw
+        } else {
+            "verification log was not created"
+        }
+        throw "Published manager package verification failed (exit=$($verifyProcess.ExitCode)):`n$verifyDetails"
+    }
+    $verifyDetails = Get-Content -LiteralPath $verifyLog -Raw
+    $verifyData = @{}
+    foreach ($line in Get-Content -LiteralPath $verifyLog) {
+        $parts = $line -split "=", 2
+        if ($parts.Count -eq 2) {
+            $verifyData[$parts[0].Trim()] = $parts[1].Trim()
+        }
+    }
+    if ($verifyData["result"] -ne "passed" -or
+        $verifyData["profiles"] -ne "hid_audio_uac1_4ch_ds5like,hid_only" -or
+        $verifyData["asset_count"] -ne "6") {
+        throw "Published manager package verification returned unexpected data:`n$verifyDetails"
+    }
+    Write-Step "package_verify" "passed"
+
     $hash = Get-FileHash -Algorithm SHA256 -LiteralPath $SingleExe
     Set-Content -Path $HashFile -Value ("{0}  {1}" -f $hash.Hash.ToLowerInvariant(), (Split-Path -Leaf $SingleExe)) -Encoding ascii
     if (Test-Path -LiteralPath $PublishRoot) {

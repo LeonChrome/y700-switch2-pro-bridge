@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using System.Windows;
@@ -19,6 +20,65 @@ public partial class App : Application
             WriteCrashLog(e.Exception);
             e.SetObserved();
         };
+    }
+
+    protected override void OnStartup(StartupEventArgs e)
+    {
+        base.OnStartup(e);
+
+        int verifyIndex = Array.FindIndex(
+            e.Args,
+            arg => string.Equals(arg, "--verify-package", StringComparison.OrdinalIgnoreCase));
+        if (verifyIndex >= 0)
+        {
+            string? outputPath = verifyIndex + 1 < e.Args.Length ? e.Args[verifyIndex + 1] : null;
+            VerifyPackageAndExit(outputPath);
+            return;
+        }
+
+        MainWindow = new MainWindow();
+        MainWindow.Show();
+    }
+
+    private void VerifyPackageAndExit(string? outputPath)
+    {
+        try
+        {
+            FirmwarePackage package = EmbeddedAssets.EnsurePackage();
+            FirmwareProfile haptic = package.GetProfile("hid_audio_uac1_4ch_ds5like");
+            FirmwareProfile recovery = package.GetProfile("hid_only");
+            int assetCount = package.Manifest.Profiles.Sum(profile => profile.Assets.Count);
+            string result = string.Join(Environment.NewLine, new[]
+            {
+                "result=passed",
+                "package=" + package.Manifest.PackageVersion,
+                "firmware=" + package.Manifest.FirmwareVersion,
+                "profiles=" + string.Join(",", package.Manifest.Profiles.Select(profile => profile.Id)),
+                "haptic_assets=" + haptic.Assets.Count,
+                "recovery_assets=" + recovery.Assets.Count,
+                "asset_count=" + assetCount,
+                "esptool=" + package.EsptoolPath
+            });
+            WriteVerificationResult(outputPath, result);
+            Shutdown(0);
+        }
+        catch (Exception ex)
+        {
+            WriteVerificationResult(outputPath, "result=failed" + Environment.NewLine + ex);
+            Shutdown(2);
+        }
+    }
+
+    private static void WriteVerificationResult(string? outputPath, string result)
+    {
+        if (string.IsNullOrWhiteSpace(outputPath))
+        {
+            return;
+        }
+
+        string fullPath = Path.GetFullPath(outputPath);
+        Directory.CreateDirectory(Path.GetDirectoryName(fullPath)!);
+        File.WriteAllText(fullPath, result, Encoding.UTF8);
     }
 
     private void OnDispatcherUnhandledException(object sender, DispatcherUnhandledExceptionEventArgs e)
