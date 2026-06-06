@@ -362,23 +362,24 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\run_v5_3_dualsense_t
 powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\run_v5_4_hybrid_haptic_probe.ps1
 ```
 
-### V5.5 Phase 1: Minimal DualSense HID Identity
+### V5.5 Phase 1/2: DualSense Identity and Pro2 Input
 
 中文：
 
-Phase 1 已新增独立 ESP32-S3 实验固件，不修改现有 V5.2/V5.0 桥接固件。它仅暴露 DualSense-like HID：VID `054c`、PID `0ce6`、`0x01 + 63 bytes` 中性输入和 `0x02 + 47 bytes` 输出捕获。USB Audio、Pro2 BLE、haptic audio 和 raw02 均未启用。
+Phase 1 实机验证已通过：Windows 识别 VID `054c` / PID `0ce6`，持续接收 `0x01 + 63 bytes`、约 `250 Hz` 的输入报告，且未发生 USB 断连。Phase 2 在同一个独立实验固件中复用现有 Pro2 BLE FD2 解析器，将真实 Pro2 的按键、摇杆、扳机和 motion 映射到 DualSense 输入报告。现有 V5.2/V5.0 默认桥接固件和 GUI 不变；USB Audio、haptic audio 和 raw02 仍未启用。
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\esp32s3\build_v5_5_dualsense_identity.ps1 -IdfPath C:\Espressif\v5.3.3\esp-idf
 powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\esp32s3\flash_v5_5_dualsense_identity.ps1 -Port COM12 -IdfPath C:\Espressif\v5.3.3\esp-idf -Monitor
 powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\check_v5_5_dualsense_identity.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\check_v5_5_dualsense_input.ps1
 ```
 
 English:
 
-Phase 1 adds a standalone ESP32-S3 experiment and leaves the existing V5.2/V5.0 bridge firmware untouched. It exposes only a DualSense-like HID identity: VID `054c`, PID `0ce6`, neutral `0x01 + 63-byte` input, and `0x02 + 47-byte` output capture. USB Audio, Pro2 BLE, haptic audio, and raw02 are disabled.
+Phase 1 passed hardware validation with VID `054c`, PID `0ce6`, stable `0x01 + 63-byte` input at about 250 Hz, and no USB disconnect. Phase 2 reuses the existing Pro2 BLE FD2 parser inside the standalone experiment and maps real Pro2 buttons, sticks, triggers, and motion into the DualSense input report. The V5.2/V5.0 default firmware and GUI remain unchanged; USB Audio, haptic audio, and raw02 are disabled.
 
-See [the Phase 1 guide](docs/v5_5_phase1_minimal_dualsense_hid_identity.md).
+See the [Phase 1 guide](docs/v5_5_phase1_minimal_dualsense_hid_identity.md) and [Phase 2 mapping guide](docs/v5_5_phase2_pro2_to_dualsense_input_mapping.md).
 
 ## 文档 / Documentation
 
@@ -398,6 +399,7 @@ See [the Phase 1 guide](docs/v5_5_phase1_minimal_dualsense_hid_identity.md).
 - [V5.5 DualSense identity 可行性](docs/v5_5_esp32s3_dualsense_identity_feasibility.md)
 - [V5.5 DualSense identity 实验计划](docs/v5_5_esp32s3_dualsense_identity_experiment_plan.md)
 - [V5.5 Phase 1 最小 DualSense HID identity](docs/v5_5_phase1_minimal_dualsense_hid_identity.md)
+- [V5.5 Phase 2 Pro2 到 DualSense 输入映射](docs/v5_5_phase2_pro2_to_dualsense_input_mapping.md)
 - [V5.5 DS5 descriptor 对照](docs/generated/v5_5_ds5_descriptor_mapping.md)
 - [V5.0.0 预览说明 / Preview Notes](RELEASE_NOTES_v5.0.0-preview.md)
 - [V4.0.0 发布说明 / Release Notes](RELEASE_NOTES_v4.0.0.md)

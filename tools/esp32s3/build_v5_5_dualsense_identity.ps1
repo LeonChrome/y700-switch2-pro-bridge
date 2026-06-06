@@ -6,6 +6,7 @@ param(
 $ErrorActionPreference = "Stop"
 $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 $FirmwareRoot = Join-Path $RepoRoot "firmware\esp32s3_dualsense_identity_experiment"
+$BuildRoot = Join-Path $RepoRoot "work\build\v5_5_dualsense_identity"
 
 function Import-IdfEnvironment {
     param([string]$Path)
@@ -39,24 +40,38 @@ if (!(Get-Command idf.py -ErrorAction SilentlyContinue)) {
 }
 
 Write-Output "[V5_5_DS5_BUILD] firmware=firmware/esp32s3_dualsense_identity_experiment"
+Write-Output "[V5_5_DS5_BUILD] build_dir=work/build/v5_5_dualsense_identity"
 Write-Output "[V5_5_DS5_BUILD] identity=dualsense_experimental"
 Write-Output "[V5_5_DS5_BUILD] v5_2_default_unchanged=true"
 
 Push-Location $FirmwareRoot
 try {
-    if (!(Test-Path -LiteralPath (Join-Path $FirmwareRoot "sdkconfig"))) {
-        & idf.py set-target esp32s3
+    $sdkconfig = Join-Path $FirmwareRoot "sdkconfig"
+    $needsTargetReset = !(Test-Path -LiteralPath $sdkconfig)
+    if (!$needsTargetReset) {
+        $needsTargetReset = !(Select-String -LiteralPath $sdkconfig -Pattern '^CONFIG_BT_ENABLED=y$' -Quiet)
+    }
+    if ($needsTargetReset) {
+        if (Test-Path -LiteralPath $sdkconfig) {
+            Write-Output "[V5_5_DS5_BUILD] sdkconfig_reset=phase2_bluetooth_defaults"
+            Remove-Item -LiteralPath $sdkconfig -Force
+        }
+        if (Test-Path -LiteralPath (Join-Path $BuildRoot "CMakeCache.txt")) {
+            & idf.py -B $BuildRoot reconfigure
+        } else {
+            & idf.py -B $BuildRoot set-target esp32s3
+        }
         if ($LASTEXITCODE -ne 0) {
-            throw "idf.py set-target esp32s3 failed: $LASTEXITCODE"
+            throw "ESP-IDF target/configure failed: $LASTEXITCODE"
         }
     }
     if ($Clean) {
-        & idf.py fullclean
+        & idf.py -B $BuildRoot fullclean
         if ($LASTEXITCODE -ne 0) {
             throw "idf.py fullclean failed: $LASTEXITCODE"
         }
     }
-    & idf.py build
+    & idf.py -B $BuildRoot build
     if ($LASTEXITCODE -ne 0) {
         throw "idf.py build failed: $LASTEXITCODE"
     }

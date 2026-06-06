@@ -9,6 +9,7 @@ param(
 $ErrorActionPreference = "Stop"
 $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 $FirmwareRoot = Join-Path $RepoRoot "firmware\esp32s3_dualsense_identity_experiment"
+$BuildRoot = Join-Path $RepoRoot "work\build\v5_5_dualsense_identity"
 
 function Import-IdfEnvironment {
     param([string]$Path)
@@ -42,13 +43,14 @@ if (!(Get-Command idf.py -ErrorAction SilentlyContinue)) {
 }
 
 Write-Output "[V5_5_DS5_FLASH] firmware=firmware/esp32s3_dualsense_identity_experiment"
+Write-Output "[V5_5_DS5_FLASH] build_dir=work/build/v5_5_dualsense_identity"
 Write-Output "[V5_5_DS5_FLASH] target=$Port"
 Write-Output "[V5_5_DS5_FLASH] native_usb_action=replug_after_flash"
 Write-Warning "This replaces the firmware currently on the board. Reflash esp32s3_switch2_bridge to return to V5.2/V5.0 behavior."
 
 Push-Location $FirmwareRoot
 try {
-    & idf.py -p $Port -b $Baud flash
+    & idf.py -B $BuildRoot -p $Port -b $Baud flash
     if ($LASTEXITCODE -ne 0) {
         throw "idf.py flash failed: $LASTEXITCODE"
     }
@@ -56,7 +58,7 @@ try {
 
     if ($Monitor) {
         Write-Output "[V5_5_DS5_FLASH] monitor=true"
-        & idf.py -p $Port monitor
+        & idf.py -B $BuildRoot -p $Port monitor
         if ($LASTEXITCODE -ne 0) {
             throw "idf.py monitor failed: $LASTEXITCODE"
         }

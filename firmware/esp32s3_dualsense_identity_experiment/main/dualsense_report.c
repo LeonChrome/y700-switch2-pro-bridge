@@ -16,6 +16,14 @@ void dualsense_report_make_neutral(uint8_t report[DUALSENSE_INPUT_PAYLOAD_SIZE])
 
     // Low nibble is the hat. Value 8 is the descriptor's null position.
     report[7] = 0x08;
+
+    // Both touch contacts are not touching.
+    report[32] = 0x80;
+    report[36] = 0x80;
+
+    // Fixed 80%/complete battery and wired USB data state for Phase 2.
+    report[52] = 0x28;
+    report[53] = 0x08;
 }
 
 size_t dualsense_report_feature_size(uint8_t report_id)

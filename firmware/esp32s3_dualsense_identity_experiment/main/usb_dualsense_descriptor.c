@@ -19,8 +19,8 @@ enum {
     STRID_HID_INTERFACE,
 };
 
-// Phase 1 keeps the DS5 input/output shape while declaring only the feature
-// reports needed for early host-enumeration experiments.
+// Phase 1/2 keeps the DS5 input/output shape while declaring only the feature
+// reports needed for early identity and input-mapping experiments.
 static const uint8_t s_ds5_hid_report_descriptor[] = {
     0x05, 0x01,       // Usage Page (Generic Desktop)
     0x09, 0x05,       // Usage (Game Pad)
@@ -139,7 +139,7 @@ static const char *s_ds5_string_descriptors[] = {
     "",
     "Sony Interactive Entertainment",
     "DualSense Wireless Controller",
-    "V55PHASE1",
+    "V55PHASE2",
     "Wireless Controller",
 };
 

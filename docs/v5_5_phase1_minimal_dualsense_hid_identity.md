@@ -106,6 +106,25 @@ Expected after successful enumeration:
 [V5_5_DS5_IDENTITY] likely_dualsense=true
 ```
 
+Hardware validation completed on 2026-06-06:
+
+```text
+hid_found=true
+vid=054C
+pid=0CE6
+product=HID-compliant game controller
+likely_dualsense=true
+report_id=0x01
+len=63
+rate=250Hz
+usb_disconnect=false
+phase1_status=passed
+```
+
+Windows used a generic localized HID product label, but the VID/PID,
+63-byte input payload, 250 Hz cadence, and stable USB connection all matched
+the Phase 1 contract.
+
 Before flashing, no matching device is a valid blocked result with exit code
 zero:
 
@@ -195,7 +214,8 @@ TinyUSB problem:
 
 ## 9. Next Phase
 
-Phase 2 maps real Pro2 BLE input into DualSense input report `0x01`:
+Phase 1 is closed as passed. Phase 2 maps real Pro2 BLE input into DualSense
+input report `0x01`:
 
 ```text
 Pro2 buttons/sticks/triggers/gyro/accel
@@ -204,3 +224,5 @@ Pro2 buttons/sticks/triggers/gyro/accel
 ```
 
 Audio and haptic translation remain deferred until Phase 4 and Phase 5.
+
+See `docs/v5_5_phase2_pro2_to_dualsense_input_mapping.md`.

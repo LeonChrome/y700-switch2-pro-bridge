@@ -3,8 +3,13 @@ idf_component_register(
         "app_main.c"
         "usb_dualsense_descriptor.c"
         "dualsense_report.c"
+        "dualsense_report_mapper.c"
+        "pro2_input_backend.c"
     INCLUDE_DIRS
         "."
     REQUIRES
         esp_tinyusb
+        pro2_bridge_reuse
+        nvs_flash
+        esp_timer
 )

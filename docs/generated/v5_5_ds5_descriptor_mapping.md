@@ -89,9 +89,34 @@ motion/touch/vendor data=0x00
 This validates enumeration and periodic input only. It is not calibrated
 DualSense motion data.
 
+## Hardware Verification
+
+Phase 1 hardware verification passed on 2026-06-06:
+
+```text
+VID=054C
+PID=0CE6
+input report=0x01 + 63 bytes
+observed rate=250 Hz
+USB disconnect=false
+```
+
+Windows displayed the generic `HID-compliant game controller` label, while
+the underlying VID/PID and report contract matched the experiment.
+
+## Phase 2 Input Mapping
+
+Phase 2 keeps the same descriptor and endpoints. It reuses the existing Pro2
+BLE FD2 parser, maps buttons and 12-bit sticks into report `0x01`, and copies
+the newest parsed accelerometer/gyroscope sample into the DualSense motion
+fields. Neutral reports continue to carry increasing sequence and timestamp
+values when the Pro2 is disconnected or its input is stale.
+
+Phase 2 does not add USB Audio, haptic translation, or raw02 forwarding.
+
 ## Deferred
 
-Not implemented in Phase 1:
+Not implemented in Phase 2:
 
 - Audio Control interface,
 - Audio Streaming OUT/IN interfaces,
@@ -101,7 +126,6 @@ Not implemented in Phase 1:
 - complete feature report table,
 - calibration and pairing data,
 - microphone/touchpad behavior,
-- Pro2 input mapping,
 - Pro2 raw02 output.
 
 ## Phase 4 Mapping
