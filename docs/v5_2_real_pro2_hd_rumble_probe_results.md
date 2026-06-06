@@ -11,13 +11,24 @@ host helper: implemented
 default mode: dry_run
 firmware build with -IdfPath: passed
 firmware flash on COM12: passed
+firmware_flash: true
 real Pro2 BLE connected: true
+ble_connected: true
 real Pro2 send attempted: true
 low preset sent: true
+raw02_low_sent: true
 medium preset sent: true
+raw02_medium_sent: true
 captured VIIPER payload sent: true
-physical vibration: user_confirmation_pending
-real Pro2 verified: pending physical confirmation
+viiper_captured_sent: true
+physical vibration: true
+physical_vibration: true
+real Pro2 verified: true
+button_input: true
+gyro_input: true
+rumble_writes: 49
+rumble_errors: 0
+ble_disconnect: false
 blocked_by_real_pro2: false
 V5.1 GUI changed: false
 ```
@@ -34,8 +45,38 @@ VIIPER LeftRumble[16] + RightRumble[16]
 
 The code path is implemented and was exercised against the flashed ESP32-S3
 bridge on COM12 with a BLE-connected real Switch 2 Pro. Firmware logs confirmed
-`sent=true` for low, medium, and captured VIIPER payloads. Physical vibration
-still needs the user to confirm by touch.
+`sent=true` for low, medium, and captured VIIPER payloads. The user then
+confirmed the real controller produced physical vibration, while buttons and
+gyro remained effective and BLE did not disconnect.
+
+V5.2 should therefore close as an experimental `ns2pro_viiper` / raw02
+forwarding path, not as a promise that every Steam or SDL title can emit native
+Switch 2 Pro HD rumble.
+
+## Final Acceptance State
+
+```text
+firmware_flash=true
+ble_connected=true
+raw02_low_sent=true
+raw02_medium_sent=true
+viiper_captured_sent=true
+physical_vibration=true
+button_input=true
+gyro_input=true
+rumble_writes=49
+rumble_errors=0
+ble_disconnect=false
+```
+
+Limitations:
+
+- Steam/SDL ordinary rumble is not the same as the ns2pro HD `0x02` report.
+- The reliable V5.2 source is direct HID `0x02` or the VIIPER probe path that
+  captures `LeftRumble[16] / RightRumble[16]`.
+- Native game HD rumble depends on the game, Steam Input state, SDL/HID backend,
+  and whether that stack emits Nintendo-style HD output.
+- V5.2 does not claim all Steam games support HD rumble.
 
 ## Build And Flash Readiness
 
@@ -228,7 +269,12 @@ low_sent=true
 medium_sent=true
 captured_sent=true
 controller_disconnect=false
-physical_vibration=user_confirmation_pending
+physical_vibration=true
+button_input=true
+gyro_input=true
+rumble_writes=49
+rumble_errors=0
+ble_disconnect=false
 ```
 
 ## Real Send Log Summary
@@ -258,9 +304,10 @@ Captured VIIPER sample:
 [PRO2_HD_RUMBLE] sent=true
 ```
 
-Current blocker:
+Final blocker state:
 
 ```text
 blocked_by_real_pro2=false
-reason=physical vibration must be confirmed by the person holding the controller
+blocked_by_steam_sdl_native_hd_source=false_for_v5_2_closeout
+reason=V5.2 uses verified direct HID 0x02 / VIIPER raw02 forwarding; Steam/SDL natural game HD rumble is a separate compatibility question
 ```

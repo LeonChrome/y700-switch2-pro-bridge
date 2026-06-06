@@ -15,7 +15,7 @@ output_feedback: true
 LeftRumble[16]/RightRumble[16] nonzero: true
 nonzero trigger source: direct Windows HID output write through tools\Send-HidHapticProbe.ps1
 repeatable validation: experiments\viiper_ns2pro_hid_rumble_probe
-current blocker: Steam/SDL ordinary rumble sources still need mapping/recognition work
+current blocker: none for V5.2 closeout; Steam/SDL natural HD rumble remains compatibility research
 ```
 
 Phase 2 reached the important proof point: VIIPER's `ns2pro` output callback can
@@ -23,8 +23,8 @@ carry non-zero 16-byte left and right rumble blocks. The non-zero trigger source
 is not Steam or SDL's ordinary rumble API yet; it is a direct HID output report
 written to the virtual `VID_057E&PID_2069&MI_00` interface.
 
-This does not modify V5.1, the ESP32-S3 firmware, the Manager GUI, or real Pro2
-rumble forwarding.
+This does not modify V5.1 or the Manager GUI. Phase 3 used the captured 16+16
+payload through raw02 and verified physical vibration on the real Pro2.
 
 ## Environment
 
@@ -240,11 +240,22 @@ Then:
 5. A direct 64-byte HID output report with report ID `0x02` and Switch-style HD
    rumble bytes does map into VIIPER's 16+16 callback.
 
-## Next Phase 2 Work
+## V5.2 Closeout
 
 The next useful research target is no longer "can VIIPER carry non-zero rumble";
-that is proven and automated. The next target is to make a real host-side source
-generate the same `0x02` output path:
+that is proven and automated. V5.2 closes on direct HID `0x02` / VIIPER raw02
+forwarding:
+
+```text
+VIIPER attach=true
+synthetic input=true
+output_feedback=true
+LeftRumble[16]/RightRumble[16] nonzero=true
+raw02 forwarding to real Pro2=true
+physical vibration=true
+```
+
+Remaining Steam/SDL items are compatibility research, not V5.2 blockers:
 
 1. Steam Controller Test while monitor is running.
 2. SDL mapping/HIDAPI recognition so `VID_057E&PID_2069` becomes a supported

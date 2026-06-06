@@ -4,126 +4,149 @@ Date: 2026-06-06
 
 ## Decision
 
-DualSense haptics should stay in V5.3 research. It must not block V5.2 Pro2 HD
-rumble, and it must not be merged into the V5.2 stable GUI until a real
-DualSense HID device and DualSense audio endpoint are verified locally.
+V5.3 is the DualSense / PS5 haptic source research phase. It must not be added
+to the V5.2 GUI and must not be described as supported until real output data is
+captured.
+
+Target:
 
 ```text
-v5_2_scope=Switch 2 Pro / ns2pro HD rumble
-v5_3_scope=DualSense haptic research
-current_blocker=no_real_dualsense_and_no_dualsense_audio_endpoint
+game / Steam / native PC DualSense output
+-> DualSense advanced haptic source
+-> HID output and/or haptic audio endpoint
+-> capture and analyze
+-> future translation to Pro2 raw02 / HD rumble
 ```
 
-## Three Layers
-
-1. HID ordinary output
-
-   This is normal controller output: basic rumble, lightbar, player LEDs, and
-   simple state changes. It is useful for smoke tests, but it is not enough for
-   DualSense advanced haptics.
-
-2. Adaptive trigger HID output
-
-   Adaptive triggers are HID output reports that configure trigger resistance
-   patterns. They can be tested without solving haptic audio, but they are only
-   one part of the DualSense feature set.
-
-3. Haptic audio / audio endpoint
-
-   The advanced grip haptics behave like a wideband audio/haptic stream, not
-   just a traditional motor strength value. On PC, this usually means the
-   controller must expose an audio endpoint and games must send the native
-   DualSense haptic stream to it.
-
-## Why ViGEm DS4 Is Not Enough
-
-ViGEm DS4 gives a useful compatibility layer for ordinary gamepad input and
-basic rumble. It does not expose a real DualSense device shape, adaptive trigger
-semantics, or the haptic audio endpoint that native PC games expect.
-
-## Why Virtual HID Alone May Still Be Insufficient
-
-A virtual DualSense HID device may satisfy some enumeration and adaptive trigger
-tests, but native DualSense haptics can also require an audio-class endpoint.
-Without that endpoint, a game may never route haptic audio to the virtual
-controller, so there is nothing meaningful to translate.
-
-## Why A Virtual Audio Device May Be Needed
-
-If this project wants to capture or translate PC DualSense haptic audio, it may
-need to expose or monitor a dedicated audio endpoint. The endpoint would let
-games output haptic audio, while the bridge captures metrics or raw PCM-like
-haptic data for translation.
-
-## DS5Dongle Study Route
-
-DS5Dongle is valuable because it uses a Pico 2 W as a wireless bridge: the real
-DualSense connects to the dongle over Bluetooth while the PC sees something
-closer to a wired DualSense. Its public README describes full DualSense
-connectivity, HD haptics support, and wireless Bluetooth bridging.
-
-Core idea to study:
-
-```text
-real DualSense wireless
--> hardware bridge
--> PC-visible wired DualSense shape
--> preserve haptic/audio/adaptive trigger behavior
-```
-
-This is not a direct implementation plan for V5.2. It is a V5.3 reference for
-how advanced haptics may need both HID and audio behavior, not just XInput/DS4
-rumble.
-
-## SAxense / dualsense-bt-haptics Study Route
-
-SAxense is a Linux proof of concept for DualSense haptics over Bluetooth. Its
-README demonstrates routing low-rate audio/haptic data through a haptics sink or
-loopback capture, then writing generated data to a DualSense hidraw device.
-
-Research value:
-
-- capture or synthesize haptic audio,
-- turn haptic audio into DualSense haptic packets,
-- understand latency from loopback capture,
-- separate real haptic audio capture from ordinary rumble.
-
-## Candidate V5.3 Routes
-
-A. Real DualSense capture route
-
-Use a real USB DualSense, enumerate HID and audio endpoints, trigger known
-native game haptics, and capture HID output plus audio activity. This is the
-first route to run when hardware is available.
-
-B. DS5Dongle study route
-
-Study how a hardware bridge preserves a wired-DualSense host shape while the
-controller is physically wireless. This may inform a future ESP32/Pico-class
-bridge, but it is not a short V5.2 patch.
-
-C. Virtual DualSense HID + virtual audio route
-
-Expose a virtual DualSense-like HID device and a virtual audio endpoint. This is
-the most complete but also the highest-effort route, because both device classes
-must match what games expect.
-
-D. Haptic audio to Pro2 translator route
-
-Capture DualSense haptic audio activity and translate it to Switch 2 Pro raw02 /
-HD rumble payloads. This should only be attempted after route A confirms real
-DualSense haptic audio on this machine.
-
-## Current Local Probe Status
+Current local state:
 
 ```text
 real_dualsense=false
+hid_usb=false
+hid_bluetooth=false
+audio_endpoint=not_found
+wasapi_loopback=false
 dualsense_hid_output_probe=runnable_but_blocked
 dualsense_haptic_audio_probe=runnable_but_blocked
-blocker=no_real_dualsense_audio_endpoint
+current_blocker=no_real_dualsense_and_no_dualsense_audio_endpoint
 ```
 
-Run probes from the repository root:
+## Signal Types To Keep Separate
+
+Ordinary rumble:
+
+- Traditional low/high motor strength feedback.
+- Useful as a smoke test.
+- Not enough to prove advanced DualSense haptics.
+
+Adaptive trigger HID output:
+
+- HID output reports configure L2/R2 trigger resistance and effects.
+- Can be probed separately from grip haptic audio.
+- Should be logged as trigger output, not as HD haptic audio.
+
+Haptic audio / audio endpoint:
+
+- Advanced grip haptics can be delivered through an audio-like endpoint.
+- On PC, Sony states haptic feedback on PC requires USB and game support.
+- A native game may route haptic content to a DualSense audio endpoint instead
+  of emitting ordinary rumble.
+
+Lightbar, mute LED, speaker, and status outputs:
+
+- Useful for identifying the output report shape.
+- Not evidence of advanced haptics by themselves.
+
+Steam Input wrapped ordinary feedback:
+
+- Steam may translate or wrap feedback into ordinary controller rumble.
+- This is not the same as a game sending native DualSense haptic output.
+
+Native game DualSense output:
+
+- The most valuable source for V5.3.
+- First pass should prefer USB DualSense and Steam Input disabled for the game,
+  when the game supports native DualSense features.
+
+## Why DS4 / ViGEm Is Not Enough
+
+DS4/ViGEm compatibility is useful for ordinary input and basic rumble. It does
+not prove a host-visible DualSense device shape, adaptive trigger semantics, or
+a DualSense audio endpoint. A pure DS4 route cannot be treated as PS5 haptic
+support.
+
+## Why DualSense Is Worth Researching
+
+DualSense is worth a V5.3 phase because PC games are more likely to generate an
+advanced haptic source for it than for Switch 2 Pro today. Sony documents PC
+USB/Bluetooth connectivity and notes that haptic feedback on PC depends on game
+support and USB. That makes a real USB DualSense the cleanest first capture
+target.
+
+## Route A: Real Capture First
+
+Use a real USB DualSense and capture:
+
+```text
+HID enumeration
+VID/PID
+USB vs Bluetooth transport
+output report length
+ordinary rumble output
+adaptive trigger output
+audio endpoint presence
+WASAPI loopback activity
+native game scene metadata
+```
+
+This is the preferred V5.3 first step because it avoids guessing the host
+contract.
+
+## Route B: DS5Dongle Study
+
+DS5Dongle turns a Pico2W into a wireless adapter for a real DualSense. Its
+project goal is a host-visible bridge after the real controller connects over
+Bluetooth, while preserving enhanced haptics behavior.
+
+Research value:
+
+- shows a hardware-assisted DualSense bridge shape,
+- suggests haptics may require preserving more than ordinary HID rumble,
+- useful reference for future ESP32/Pico-class bridge ideas.
+
+It is not a direct V5.2 solution and still depends on a real DualSense.
+
+## Route C: dualsense-bt-haptics / SAxense
+
+`dualsense-bt-haptics` combines a virtual DualSense-like controller, a virtual
+audio device, and Bluetooth haptic packet forwarding. Its README notes that it
+is not universal and can have noticeable latency.
+
+SAxense is a Linux proof of concept that converts low-rate audio/haptic input
+into DualSense Bluetooth haptic packets. Its README explicitly warns that large
+delays can come from loopback audio capture latency, not necessarily from the
+HID/Bluetooth conversion itself.
+
+Research value:
+
+- separates haptic audio from ordinary rumble,
+- highlights the need for a named virtual audio endpoint,
+- exposes latency sources,
+- gives a route from haptic audio to controller haptic packets.
+
+## Route D: Pure Virtual DualSense HID + Audio
+
+A virtual DualSense HID device alone is likely incomplete. A convincing pure
+software route also needs a virtual audio endpoint that games recognize as a
+DualSense / Wireless Controller audio path.
+
+On Windows, virtual audio and virtual HID drivers are driver work, and kernel
+driver loading/signing policy applies. Do not install unknown virtual audio
+drivers during V5.3 probing.
+
+## Probe Commands
+
+Run from the repository root:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\check_dualsense_env.ps1
@@ -131,10 +154,40 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\experiments\dualsense_hid_
 powershell -NoProfile -ExecutionPolicy Bypass -File .\experiments\dualsense_haptic_audio_probe\run_dualsense_haptic_audio_probe.ps1
 ```
 
+Expected blocked state when no real DualSense is attached:
+
+```text
+[DUALSENSE_ENV] hid_usb=false
+[DUALSENSE_ENV] hid_bluetooth=false
+[DUALSENSE_ENV] audio_endpoint=not_found
+[DUALSENSE_ENV] wasapi_loopback=false
+[DUALSENSE_BLOCKED] reason=no_real_dualsense
+```
+
+## Decision Gate For Future Translation
+
+Proceed to a Pro2 translator only after at least one of these is true:
+
+- real DualSense HID output changes are captured from a native game,
+- adaptive trigger output reports are classified,
+- DualSense audio endpoint activity is captured through WASAPI loopback,
+- a reliable virtual DualSense + virtual audio stack is proven in a controlled
+  environment.
+
+Until then:
+
+```text
+ps5_haptic_support=false
+dualsense_in_v5_2_gui=false
+safe_next=attach real DualSense over USB and rerun V5.3 probes
+```
+
 ## Sources
 
-- Sony support: [Pair a DualSense wireless controller with a computer](https://www.playstation.com/en-us/support/hardware/pair-dualsense-controller-bluetooth/)
-  and [DualSense controller support](https://www.playstation.com/en-us/support/hardware/dualsense-controller-support/).
+- Sony support: [DualSense wireless controllers with PC, Mac and mobile devices](https://www.playstation.com/en-us/support/hardware/pair-dualsense-controller-bluetooth/).
 - DS5Dongle reference: [awalol/DS5Dongle](https://github.com/awalol/DS5Dongle).
+- dualsense-bt-haptics reference: [awalol/dualsense-bt-haptics](https://github.com/awalol/dualsense-bt-haptics).
 - SAxense reference: [egormanga/SAxense](https://github.com/egormanga/SAxense).
-- DualSense Bluetooth haptic forwarding reference: [awalol/dualsense-bt-haptics](https://github.com/awalol/dualsense-bt-haptics).
+- Linux DualSense HID reference: [hid-playstation.c](https://github.com/torvalds/linux/blob/master/drivers/hid/hid-playstation.c).
+- SDL DualSense HIDAPI reference: [SDL_hidapi_ps5.c](https://github.com/libsdl-org/SDL/blob/main/src/joystick/hidapi/SDL_hidapi_ps5.c).
+- Microsoft driver signing policy: [Driver Signing Policy](https://learn.microsoft.com/en-us/windows-hardware/drivers/install/kernel-mode-code-signing-policy--windows-vista-and-later-).

@@ -24,6 +24,16 @@ Validated result:
 Therefore, the remaining gap is not VIIPER's output callback. It is host-side
 recognition and API mapping.
 
+This gap is not a V5.2 closeout blocker. V5.2 closes on the verified direct HID
+`0x02` / VIIPER raw02 forwarding path:
+
+```text
+VIIPER ns2pro output callback=true
+direct HID 0x02 nonzero 16+16=true
+raw02 forwarding to real Pro2=true
+physical vibration=true
+```
+
 ## SDL Result
 
 SDL 3.4.10 runtime is automatically prepared by:
@@ -97,10 +107,21 @@ They did not promote the device into an SDL gamepad.
 
 ## Next Probe Ideas
 
+These are future compatibility ideas, not required V5.2 work:
+
 1. Compare VIIPER `ns2pro` descriptor against the descriptor SDL expects for
    Switch Pro / Switch 2 Pro HIDAPI.
 2. Test SDL nightly once available in the same runtime loader.
 3. Run Steam Controller Test while the monitor is online and inspect whether it
    emits non-zero `0x02` output.
-4. If SDL remains generic, use raw HID write as the controlled baseline for V5.2
+4. If SDL remains generic, keep raw HID write as the controlled baseline for
    Pro2 HD payload forwarding research.
+
+Final V5.2 conclusion:
+
+```text
+Steam/SDL ordinary rumble != ns2pro HD 0x02
+native Steam game HD rumble support=game/input-stack dependent
+V5.2 reliable source=direct HID 0x02 or VIIPER probe capture
+all-games HD rumble claim=false
+```

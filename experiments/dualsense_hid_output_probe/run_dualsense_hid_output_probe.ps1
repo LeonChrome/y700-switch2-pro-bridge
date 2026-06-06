@@ -93,6 +93,7 @@ public static class DualSenseHidEnumerator {
 
 Add-Type $source
 $matched = [DualSenseHidEnumerator]::Run()
+Write-Output "[DUALSENSE_HID] matched_devices=$matched"
 Write-Output "[DUALSENSE_ENV] hid_matched_count=$matched"
 
 if ($matched -eq 0) {

@@ -16,6 +16,11 @@ function Write-EnvLine {
     Write-Output "[DUALSENSE_ENV] $Key=$Value"
 }
 
+function Write-BlockedLine {
+    param([string]$Reason)
+    Write-Output "[DUALSENSE_BLOCKED] reason=$Reason"
+}
+
 function Test-Admin {
     $principal = [Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()
     return $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
@@ -27,6 +32,33 @@ function Test-DualSensePnpDevice {
     $id = if ($Device.InstanceId) { $Device.InstanceId } else { "" }
     return $name -match "DualSense|Wireless Controller" -or
         $id -match "VID_054C&PID_0CE6|VID&0002054C_PID&0CE6|VID_054C&PID_0DF2|VID&0002054C_PID&0DF2"
+}
+
+function Get-VidPid {
+    param([object[]]$Devices)
+
+    foreach ($dev in $Devices) {
+        $id = if ($dev.InstanceId) { $dev.InstanceId } else { "" }
+        $patterns = @(
+            'VID_([0-9A-Fa-f]{4}).*PID_([0-9A-Fa-f]{4})',
+            'VID&0002([0-9A-Fa-f]{4}).*PID&([0-9A-Fa-f]{4})',
+            'VID&([0-9A-Fa-f]{4}).*PID&([0-9A-Fa-f]{4})'
+        )
+        foreach ($pattern in $patterns) {
+            $match = [regex]::Match($id, $pattern)
+            if ($match.Success) {
+                return [pscustomobject]@{
+                    Vid = $match.Groups[1].Value.ToUpperInvariant()
+                    Pid = $match.Groups[2].Value.ToUpperInvariant()
+                }
+            }
+        }
+    }
+
+    return [pscustomobject]@{
+        Vid = "not_found"
+        Pid = "not_found"
+    }
 }
 
 $pnp = @(Get-PnpDevice -ErrorAction SilentlyContinue)
@@ -51,18 +83,35 @@ $dualSenseAudio = @($sound + $audioEndpoints | Where-Object {
 $steam = Get-Process -Name steam -ErrorAction SilentlyContinue | Select-Object -First 1
 $isWindows = [System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform([System.Runtime.InteropServices.OSPlatform]::Windows)
 $wasapiLoopback = $isWindows -and $dualSenseAudio.Count -gt 0
+$vidPid = Get-VidPid $dualSenseDevices
+$audioName = if ($dualSenseAudio.Count -gt 0) {
+    $first = $dualSenseAudio | Select-Object -First 1
+    if ($first.Name) { $first.Name } else { $first.FriendlyName }
+} else {
+    "not_found"
+}
 
 Write-EnvLine "project" $ProjectRoot
 Write-EnvLine "admin" (Test-Admin)
 Write-EnvLine "hid_usb" ($hidUsb.Count -gt 0)
 Write-EnvLine "hid_bluetooth" ($hidBluetooth.Count -gt 0)
+Write-EnvLine "vid" $vidPid.Vid
+Write-EnvLine "pid" $vidPid.Pid
 Write-EnvLine "real_dualsense" ($dualSenseDevices.Count -gt 0)
-Write-EnvLine "audio_device" ($(if ($dualSenseAudio.Count -gt 0) { ($dualSenseAudio | Select-Object -First 1).Name } else { "not_found" }))
+Write-EnvLine "audio_endpoint" $audioName
+Write-EnvLine "audio_device" $audioName
 Write-EnvLine "wasapi_loopback_api" $isWindows
 Write-EnvLine "wasapi_loopback" $wasapiLoopback
+Write-EnvLine "steam_running" ($null -ne $steam)
 Write-EnvLine "steam" ($(if ($steam) { "running pid=$($steam.Id)" } else { "not_running" }))
 Write-EnvLine "blocked_by_missing_real_dualsense" ($dualSenseDevices.Count -eq 0)
 
 foreach ($dev in $dualSenseDevices | Select-Object -First 8) {
     Write-Output "[DUALSENSE_ENV] device name=$($dev.FriendlyName) class=$($dev.Class) id=$($dev.InstanceId)"
+}
+
+if ($dualSenseDevices.Count -eq 0) {
+    Write-BlockedLine "no_real_dualsense"
+} elseif ($dualSenseAudio.Count -eq 0) {
+    Write-BlockedLine "no_dualsense_audio_endpoint"
 }

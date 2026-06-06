@@ -18,7 +18,10 @@ $audio = @($sound + $pnp | Where-Object {
 
 if ($audio.Count -eq 0) {
     Write-Output "[DUALSENSE_AUDIO] device=not_found"
+    Write-Output "[DUALSENSE_AUDIO] endpoint_count=0"
+    Write-Output "[DUALSENSE_AUDIO] wasapi_loopback=false"
     Write-Output "[HAPTIC_AUDIO] channels=0 sample_rate=0"
+    Write-Output "[HAPTIC_AUDIO] sample_rate=0"
     Write-Output "[HAPTIC_AUDIO] rms_ch0=0 rms_ch1=0 rms_ch2=0 rms_ch3=0"
     Write-Output "[HAPTIC_AUDIO] peak_ch0=0 peak_ch1=0 peak_ch2=0 peak_ch3=0"
     Write-Output "[HAPTIC_AUDIO] activity=false"
@@ -31,7 +34,10 @@ foreach ($dev in $audio | Select-Object -First 8) {
     Write-Output "[DUALSENSE_AUDIO] device=$name"
 }
 
+Write-Output "[DUALSENSE_AUDIO] endpoint_count=$($audio.Count)"
+Write-Output "[DUALSENSE_AUDIO] wasapi_loopback=true"
 Write-Output "[HAPTIC_AUDIO] channels=unknown sample_rate=unknown"
+Write-Output "[HAPTIC_AUDIO] sample_rate=unknown"
 Write-Output "[HAPTIC_AUDIO] rms_ch0=unknown rms_ch1=unknown rms_ch2=unknown rms_ch3=unknown"
 Write-Output "[HAPTIC_AUDIO] peak_ch0=unknown peak_ch1=unknown peak_ch2=unknown peak_ch3=unknown"
 Write-Output "[HAPTIC_AUDIO] activity=unknown"

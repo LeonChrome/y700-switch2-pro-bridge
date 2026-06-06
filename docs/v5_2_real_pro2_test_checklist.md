@@ -17,6 +17,22 @@ VIIPER / preset raw02 payload
 -> physical vibration
 ```
 
+Final V5.2 status after the real hardware run:
+
+```text
+firmware_flash=true
+ble_connected=true
+raw02_low_sent=true
+raw02_medium_sent=true
+viiper_captured_sent=true
+physical_vibration=true
+button_input=true
+gyro_input=true
+rumble_writes=49
+rumble_errors=0
+ble_disconnect=false
+```
+
 ## 2. Prerequisites
 
 - ESP32-S3 is connected to the PC.
@@ -169,6 +185,16 @@ host helper, and ESP32-to-Pro2 rumble path are working.
 
 If the captured VIIPER payload also vibrates, the full
 `VIIPER ns2pro HD rumble -> real Pro2 raw02 forwarding` chain is working.
+
+Observed final result:
+
+```text
+low=true
+medium=true
+captured_viiper=true
+physical_vibration=true
+controller_disconnect=false
+```
 
 ### Failure A: unknown command
 

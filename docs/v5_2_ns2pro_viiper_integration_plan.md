@@ -11,8 +11,20 @@ behavior unless the user explicitly runs the Phase 3 raw02 send command.
 Proposed opt-in mode:
 
 ```text
-output_mode=ns2pro_viiper
+output_mode = pro2 | ps4 | ns2pro_viiper
+default = pro2
 ```
+
+Mode meanings:
+
+```text
+pro2          = default ESP32-S3 Switch 2 Pro bridge path
+ps4           = V5.1 DS4/raw compatibility path
+ns2pro_viiper = V5.2 experimental VIIPER virtual Switch 2 Pro HD rumble capture + raw02 forwarding path
+```
+
+`ns2pro_viiper` must be shown as `Experimental` anywhere it appears. It is not
+the default and must not silently replace the stable Pro2 path.
 
 Experimental flow:
 
@@ -105,17 +117,21 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\esp32s3\send_command
 ## Current Decision
 
 The raw02 chain is implemented and has now passed host/firmware real-send
-validation on a BLE-connected Pro2. The person holding the controller still
-needs to confirm physical vibration before this becomes a V5.2 integration
-candidate.
+validation on a BLE-connected Pro2. The user has confirmed physical vibration,
+buttons, and gyro on the real controller, with no BLE abnormal disconnect.
 
 ```text
 blocked_by_real_pro2=false
 real_send_low=true
 real_send_medium=true
 real_send_captured_viiper=true
-physical_vibration=user_confirmation_pending
-next=confirm physical vibration, then design opt-in experimental output mode
+physical_vibration=true
+button_input=true
+gyro_input=true
+rumble_writes=49
+rumble_errors=0
+ble_disconnect=false
+next=keep ns2pro_viiper as opt-in experimental mode; do not block V5.2 on Steam/SDL natural HD rumble
 ```
 
 ## Experimental Output Mode Boundary
@@ -137,6 +153,38 @@ Rules before implementation:
 - Keep `-MaxPackets 1` style safety for probes; runtime forwarding needs a
   separate rate limiter and stop path.
 - Keep the stable raw Pro2 bridge usable without VIIPER.
+
+Required dependencies:
+
+```text
+usbip-win2=true
+VIIPER=true
+ESP32 bridge firmware raw02=true
+real Pro2 BLE connected=true
+serial control port available=true
+```
+
+Error cases the mode should surface clearly:
+
+```text
+missing usbip-win2
+missing VIIPER
+VIIPER attach failed
+Pro2 not connected
+raw02 unsupported firmware
+serial port missing or busy
+no game HD rumble source
+Steam/SDL ordinary rumble does not map to ns2pro HD 0x02
+```
+
+V5.2 conclusion:
+
+```text
+ns2pro_viiper experimental mode ready for documented opt-in
+native Steam game HD rumble support remains game/input-stack dependent
+do not claim all games support HD rumble
+do not claim PS5/DualSense haptic support
+```
 
 Open interface questions:
 

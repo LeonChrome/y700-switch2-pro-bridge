@@ -26,15 +26,25 @@ Expected:
 
 ```text
 [DUALSENSE_ENV] hid_usb=true
-[DUALSENSE_ENV] audio_device=<DualSense or Wireless Controller endpoint>
+[DUALSENSE_ENV] hid_bluetooth=false/true
+[DUALSENSE_ENV] vid=054C
+[DUALSENSE_ENV] pid=0CE6 or 0DF2
+[DUALSENSE_ENV] audio_endpoint=<DualSense or Wireless Controller endpoint>
+[DUALSENSE_ENV] wasapi_loopback=true
+[DUALSENSE_ENV] steam_running=true/false
 ```
 
 Blocked result on the current machine:
 
 ```text
 hid_usb=false
+hid_bluetooth=false
+vid=not_found
+pid=not_found
 real_dualsense=false
-audio_device=not_found
+audio_endpoint=not_found
+wasapi_loopback=false
+[DUALSENSE_BLOCKED] reason=no_real_dualsense
 ```
 
 ## Step 2: HID Output Probe
@@ -53,6 +63,9 @@ Goals:
 - test adaptive trigger report paths,
 - test ordinary rumble,
 - record whether output reports are USB or Bluetooth shaped.
+- print `[DUALSENSE_HID]` device/caps lines.
+- print `[DUALSENSE_OUTPUT]` output report placeholders or captured reports.
+- print `[DUALSENSE_TRIGGER]` trigger support/classification.
 
 Stop if the controller disconnects or the output report causes repeated
 unexpected state changes.
@@ -75,6 +88,17 @@ Goals:
 - detect whether haptic audio activity changes during a native haptic scene.
 
 If no DualSense audio endpoint exists, do not claim haptic audio support.
+
+Expected fields:
+
+```text
+[DUALSENSE_AUDIO] device=...
+[HAPTIC_AUDIO] channels=...
+[HAPTIC_AUDIO] sample_rate=...
+[HAPTIC_AUDIO] rms_ch0=...
+[HAPTIC_AUDIO] peak_ch0=...
+[HAPTIC_AUDIO] activity=true/false
+```
 
 ## Step 4: Native PC Game Test
 
@@ -108,13 +132,20 @@ Record:
 ```text
 real_dualsense_present=true/false
 hid_usb=true/false
-audio_device=true/false
+hid_bluetooth=true/false
+vid=...
+pid=...
+audio_endpoint=true/false
+wasapi_loopback=true/false
+steam_running=true/false
 ordinary_rumble=true/false
 adaptive_trigger=true/false
 haptic_audio_activity=true/false
 game_name=<name>
 steam_input=on/off
 connection=usb/bluetooth
+native_dualsense_mode=true/false
+notes=<short result>
 ```
 
 ## V5.3 Decision Gate

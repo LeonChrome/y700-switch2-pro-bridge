@@ -188,11 +188,13 @@ English:
 - Host applications may show lower rates because OS/game APIs can coalesce or throttle events.
 - Gyro feel depends on Steam Input settings, game mouse handling, USB cable quality, BLE environment, and controller firmware.
 
-## V5.2 VIIPER ns2pro 探针 / V5.2 VIIPER ns2pro Probe
+## V5.2 VIIPER ns2pro 实验模式 / V5.2 VIIPER ns2pro Experimental Mode
 
 中文：
 
-V5.2 Phase 2 是研究路线，不影响 V5.1/V5.0 ESP32-S3 正式桥接功能。目标是用 VIIPER 创建虚拟 Switch 2 Pro / `ns2pro` USB 设备，让 Windows / Steam / SDL 识别它，并捕获非零 `LeftRumble[16]` / `RightRumble[16]`，用于后续 HD Rumble 复刻。
+V5.2 是实验路线，不影响 V5.1/V5.0 ESP32-S3 正式桥接功能。它使用 VIIPER 创建虚拟 Switch 2 Pro / `ns2pro` USB 设备，捕获 `LeftRumble[16]` / `RightRumble[16]`，再通过 firmware/control 的 `rumble raw02 <hex>` 转发到真实 Pro2。当前已验证按钮、陀螺仪和 raw02 震动链路，真实 Pro2 已产生物理震动。
+
+注意：Steam/SDL 的普通 rumble API 不等于 ns2pro HD `0x02` 输出。V5.2 已验证的可靠来源是 direct HID `0x02` 或 VIIPER probe 捕获；原生游戏 HD rumble 仍取决于游戏、Steam Input 和输入栈，不承诺所有 Steam 游戏都支持 HD rumble。
 
 从仓库根目录先检查环境：
 
@@ -226,7 +228,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\experiments\viiper_ns2pro_
 
 English:
 
-V5.2 Phase 2 is a research path and does not modify the V5.1/V5.0 ESP32-S3 stable bridge. It uses VIIPER to create a virtual Switch 2 Pro / `ns2pro` USB device, then checks Windows / Steam / SDL recognition and attempts to capture non-zero `LeftRumble[16]` / `RightRumble[16]` for future HD Rumble reproduction.
+V5.2 is an experimental path and does not modify the V5.1/V5.0 ESP32-S3 stable bridge. It uses VIIPER to create a virtual Switch 2 Pro / `ns2pro` USB device, captures `LeftRumble[16]` / `RightRumble[16]`, then forwards the payload to the real Pro2 through the firmware/control `rumble raw02 <hex>` command. Buttons, gyro, and the raw02 rumble chain have been verified, including physical vibration on the real Pro2.
+
+Note: Steam/SDL ordinary rumble is not the same as ns2pro HD `0x02` output. The reliable V5.2 source is direct HID `0x02` or VIIPER probe capture; native game HD rumble still depends on the game, Steam Input, and the input stack. V5.2 does not claim all Steam games support HD rumble.
 
 Check the environment from the repository root:
 
@@ -273,7 +277,7 @@ Expected result:
 
 中文：
 
-V5.2 raw02 路线已经刷入 ESP32-S3 并完成 host/firmware 侧验证：BLE connected、low/medium/captured VIIPER payload 均返回 `sent=true`，最终状态里 `rumble_writes=49`、`rumble_errors=0`。物理震感仍需要手持真实 Pro2 的用户确认，不能把 dry-run 或日志成功写成体感成功。
+V5.2 raw02 路线已经刷入 ESP32-S3 并完成真实 Pro2 验证：BLE connected、low/medium/captured VIIPER payload 均返回 `sent=true`，最终状态里 `rumble_writes=49`、`rumble_errors=0`，没有 BLE 异常断连。用户已确认按键、陀螺仪和物理震动均有效。
 
 从仓库根目录执行 build/flash：
 
@@ -299,7 +303,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\experiments\viiper_ns2pro_
 
 English:
 
-The V5.2 raw02 path has been flashed to ESP32-S3 and validated on the host/firmware side: BLE connected, low/medium/captured VIIPER payloads returned `sent=true`, and final status showed `rumble_writes=49` with `rumble_errors=0`. Physical vibration still needs confirmation from the person holding the real Pro2 controller.
+The V5.2 raw02 path has been flashed to ESP32-S3 and validated on a real Pro2: BLE connected, low/medium/captured VIIPER payloads returned `sent=true`, and final status showed `rumble_writes=49` with `rumble_errors=0` and no abnormal BLE disconnect. The user confirmed buttons, gyro, and physical vibration on the real controller.
 
 Detailed notes are tracked in [docs/v5_2_real_pro2_hd_rumble_probe_results.md](docs/v5_2_real_pro2_hd_rumble_probe_results.md) and [docs/v5_2_ns2pro_viiper_integration_plan.md](docs/v5_2_ns2pro_viiper_integration_plan.md).
 
@@ -307,6 +311,10 @@ Detailed notes are tracked in [docs/v5_2_real_pro2_hd_rumble_probe_results.md](d
 
 - [快速开始 / Quickstart](QUICKSTART.md)
 - [V5.0.0 发布说明 / Release Notes](RELEASE_NOTES_v5.0.0.md)
+- [V5.2 实验说明 / Experimental Notes](RELEASE_NOTES_v5.2.0-experimental.md)
+- [V5.2 VIIPER / raw02 实测结果](docs/v5_2_real_pro2_hd_rumble_probe_results.md)
+- [V5.3 DualSense 触觉路线图](docs/v5_3_dualsense_haptic_roadmap.md)
+- [V5.3 DualSense 上游研究](docs/v5_3_dualsense_upstream_research.md)
 - [V5.0.0 预览说明 / Preview Notes](RELEASE_NOTES_v5.0.0-preview.md)
 - [V4.0.0 发布说明 / Release Notes](RELEASE_NOTES_v4.0.0.md)
 - [ESP32-S3 文档 / ESP32-S3 documentation](docs/esp32s3/README_ESP32S3.md)
