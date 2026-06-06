@@ -3,12 +3,23 @@
     <OutputType>WinExe</OutputType>
     <TargetFramework>net8.0-windows</TargetFramework>
     <UseWPF>true</UseWPF>
-    <Nullable>disable</Nullable>
-    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>Y700Switch2V55Manager</AssemblyName>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <ApplicationIcon>assets\icon.ico</ApplicationIcon>
+    <PublishSingleFile>true</PublishSingleFile>
+    <SelfContained>true</SelfContained>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="System.IO.Ports" Version="8.0.0" />
+    <PackageReference Include="System.Management" Version="8.0.0" />
+  </ItemGroup>
+  <ItemGroup>
+    <Content Include="assets\icon.ico" CopyToOutputDirectory="PreserveNewest" />
+    <EmbeddedResource Include="embedded\firmware\v5.5\**\*.*" LogicalName="embedded/firmware/v5.5/%(RecursiveDir)%(Filename)%(Extension)" />
+    <EmbeddedResource Include="embedded\tools\**\*.*" LogicalName="embedded/tools/%(RecursiveDir)%(Filename)%(Extension)" />
   </ItemGroup>
 </Project>

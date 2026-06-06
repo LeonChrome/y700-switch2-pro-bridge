@@ -417,7 +417,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\package_v5_5_manager
 运行：
 
 ```powershell
-.\release\v5.5\Y700Switch2V55Manager\Y700Switch2V55Manager.exe
+.\release\v5.5\Y700Switch2V55Manager-aio-v5.5.0.exe
 ```
 
 命令行验证：

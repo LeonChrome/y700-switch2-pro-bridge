@@ -1,77 +1,130 @@
 param(
     [string]$IdfPath = "C:\Espressif\v5.3.3\esp-idf",
     [switch]$SkipFirmwareBuild,
+    [switch]$SkipDotnetInstall,
     [switch]$DryRun
 )
 
 $ErrorActionPreference = "Stop"
 $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
+$ManagerRoot = Join-Path $RepoRoot "windows\v55_manager_app"
 $ReleaseRoot = Join-Path $RepoRoot "release\v5.5"
-$PackageRoot = Join-Path $ReleaseRoot "Y700Switch2V55Manager"
-$ZipPath = Join-Path $ReleaseRoot "Y700Switch2V55Manager-aio-v5.5-experimental.zip"
+$PublishRoot = Join-Path $ReleaseRoot "publish"
+$SingleExe = Join-Path $ReleaseRoot "Y700Switch2V55Manager-aio-v5.5.0.exe"
+$HashFile = Join-Path $ReleaseRoot "SHA256SUMS-v5.5.0.txt"
+$DotnetRoot = Join-Path $RepoRoot "work\dotnet"
 
 function Write-Step([string]$Name, [string]$Value) {
     Write-Output "[V5_5_PACKAGE] $Name=$Value"
 }
 
-function Find-Csc {
-    $candidates = @(
-        (Join-Path $env:WINDIR "Microsoft.NET\Framework64\v4.0.30319\csc.exe"),
-        (Join-Path $env:WINDIR "Microsoft.NET\Framework\v4.0.30319\csc.exe")
+function Ensure-Dotnet {
+    $local = Join-Path $DotnetRoot "dotnet.exe"
+    if (Test-Path -LiteralPath $local) {
+        return $local
+    }
+
+    $cmd = Get-Command dotnet -ErrorAction SilentlyContinue
+    if ($cmd) {
+        return $cmd.Source
+    }
+
+    if ($SkipDotnetInstall) {
+        throw "dotnet SDK not found and -SkipDotnetInstall was set."
+    }
+
+    Write-Step "dotnet" "install_local_8.0"
+    if ($DryRun) {
+        return $local
+    }
+
+    New-Item -ItemType Directory -Force -Path (Join-Path $RepoRoot "work") | Out-Null
+    $installer = Join-Path $RepoRoot "work\dotnet-install.ps1"
+    Invoke-WebRequest -Uri "https://dot.net/v1/dotnet-install.ps1" -OutFile $installer
+    & powershell -NoProfile -ExecutionPolicy Bypass -File $installer -Channel 8.0 -InstallDir $DotnetRoot -Architecture x64
+    if (!(Test-Path -LiteralPath $local)) {
+        throw "dotnet local install failed: $local"
+    }
+    return $local
+}
+
+function Add-FirmwareProfilePayload([string]$Profile, [string]$TargetRoot) {
+    $buildDir = Join-Path $RepoRoot "work\build\v5_5_dualsense_identity\$Profile"
+    if (!(Test-Path -LiteralPath $buildDir)) {
+        throw "Missing firmware build directory: $buildDir"
+    }
+
+    $profileRoot = Join-Path $TargetRoot $Profile
+    New-Item -ItemType Directory -Force -Path (Join-Path $profileRoot "bootloader") | Out-Null
+    New-Item -ItemType Directory -Force -Path (Join-Path $profileRoot "partition_table") | Out-Null
+    Copy-Item -LiteralPath (Join-Path $buildDir "bootloader\bootloader.bin") -Destination (Join-Path $profileRoot "bootloader\bootloader.bin") -Force
+    Copy-Item -LiteralPath (Join-Path $buildDir "partition_table\partition-table.bin") -Destination (Join-Path $profileRoot "partition_table\partition-table.bin") -Force
+    Copy-Item -LiteralPath (Join-Path $buildDir "esp32s3_dualsense_identity_experiment.bin") -Destination (Join-Path $profileRoot "esp32s3_dualsense_identity_experiment.bin") -Force
+    Copy-Item -LiteralPath (Join-Path $buildDir "flash_args") -Destination (Join-Path $profileRoot "flash_args") -Force
+
+    $assetDefs = @(
+        @{ offset = "0x0"; path = "$Profile/bootloader/bootloader.bin" },
+        @{ offset = "0x8000"; path = "$Profile/partition_table/partition-table.bin" },
+        @{ offset = "0x10000"; path = "$Profile/esp32s3_dualsense_identity_experiment.bin" }
     )
-    foreach ($candidate in $candidates) {
-        if (Test-Path -LiteralPath $candidate) { return $candidate }
-    }
-    $cmd = Get-Command csc.exe -ErrorAction SilentlyContinue
-    if ($cmd) { return $cmd.Source }
-    throw "csc.exe not found"
-}
 
-function Resolve-WpfReference([string]$Name) {
-    $referenceRoots = @()
-    if (${env:ProgramFiles(x86)}) {
-        $referenceRoots += Join-Path ${env:ProgramFiles(x86)} "Reference Assemblies\Microsoft\Framework\.NETFramework"
+    $assets = @()
+    foreach ($asset in $assetDefs) {
+        $file = Join-Path $TargetRoot ($asset.path -replace '/', [IO.Path]::DirectorySeparatorChar)
+        $assets += [ordered]@{
+            offset = $asset.offset
+            path = $asset.path
+            sha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $file).Hash.ToLowerInvariant()
+        }
     }
 
-    foreach ($root in $referenceRoots) {
-        if (!(Test-Path -LiteralPath $root)) { continue }
-        $match = Get-ChildItem -LiteralPath $root -Directory -ErrorAction SilentlyContinue |
-            Sort-Object Name -Descending |
-            ForEach-Object { Join-Path $_.FullName $Name } |
-            Where-Object { Test-Path -LiteralPath $_ } |
-            Select-Object -First 1
-        if ($match) { return $match }
-    }
-
-    $gacRoots = @(
-        (Join-Path $env:WINDIR "Microsoft.NET\assembly\GAC_MSIL"),
-        (Join-Path $env:WINDIR "Microsoft.NET\assembly\GAC_64"),
-        (Join-Path $env:WINDIR "Microsoft.NET\assembly\GAC_32")
-    )
-    foreach ($root in $gacRoots) {
-        $assemblyDir = Join-Path $root ([IO.Path]::GetFileNameWithoutExtension($Name))
-        if (!(Test-Path -LiteralPath $assemblyDir)) { continue }
-        $match = Get-ChildItem -LiteralPath $assemblyDir -Recurse -Filter $Name -ErrorAction SilentlyContinue |
-            Select-Object -First 1 -ExpandProperty FullName
-        if ($match) { return $match }
-    }
-
-    throw "WPF reference not found: $Name"
-}
-
-function Copy-IfExists([string]$Source, [string]$Destination) {
-    if (Test-Path -LiteralPath $Source) {
-        New-Item -ItemType Directory -Force -Path (Split-Path -Parent $Destination) | Out-Null
-        Copy-Item -LiteralPath $Source -Destination $Destination -Force
-        Write-Step "copy" (($Source.Substring($RepoRoot.Length + 1)) -replace '\\','/')
+    $label = if ($Profile -eq "hid_only") { "HID-only recovery" } else { "V5.5 DualSense haptic 4ch" }
+    return [ordered]@{
+        id = $Profile
+        label = $label
+        app = "esp32s3_dualsense_identity_experiment.bin"
+        assets = $assets
     }
 }
 
-if (!$DryRun) {
-    if (Test-Path -LiteralPath $PackageRoot) {
-        Remove-Item -LiteralPath $PackageRoot -Recurse -Force
+function Refresh-EmbeddedAssets {
+    Write-Step "embedded_assets" "refresh"
+    if ($DryRun) { return }
+
+    $firmwareRoot = Join-Path $ManagerRoot "embedded\firmware\v5.5"
+    $toolsRoot = Join-Path $ManagerRoot "embedded\tools"
+    New-Item -ItemType Directory -Force -Path $firmwareRoot | Out-Null
+    New-Item -ItemType Directory -Force -Path $toolsRoot | Out-Null
+
+    $profiles = @()
+    $profiles += Add-FirmwareProfilePayload "hid_audio_uac1_4ch_ds5like" $firmwareRoot
+    $profiles += Add-FirmwareProfilePayload "hid_only" $firmwareRoot
+
+    $manifest = [ordered]@{
+        packageVersion = "v5.5.0-aio"
+        firmwareVersion = "5.5.0-experimental"
+        target = "esp32s3"
+        flashMode = "dio"
+        flashFreq = "80m"
+        flashSize = "16MB"
+        defaultProfile = "hid_audio_uac1_4ch_ds5like"
+        profiles = $profiles
+        notes = "V5.5 experimental DualSense-like HID + UAC1 4ch haptic audio to Pro2 raw02 forwarding. Live raw02 defaults off."
     }
-    New-Item -ItemType Directory -Force -Path $PackageRoot | Out-Null
+    $manifest | ConvertTo-Json -Depth 8 | Set-Content -Encoding UTF8 -Path (Join-Path $firmwareRoot "firmware_manifest.json")
+
+    $esptool = Join-Path $RepoRoot "windows\manager_app\embedded\tools\esptool.exe"
+    if (!(Test-Path -LiteralPath $esptool)) { throw "Missing source esptool: $esptool" }
+    Copy-Item -LiteralPath $esptool -Destination (Join-Path $toolsRoot "esptool.exe") -Force
+
+    & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $RepoRoot "tools\send_v5_5_haptic_audio_test.ps1") -CompileOnly
+    Copy-Item -LiteralPath (Join-Path $RepoRoot "tools\SendV55HapticAudioTest.exe") -Destination (Join-Path $toolsRoot "SendV55HapticAudioTest.exe") -Force
+
+    $icon = Join-Path $RepoRoot "windows\manager_app\assets\icon.ico"
+    if (Test-Path -LiteralPath $icon) {
+        New-Item -ItemType Directory -Force -Path (Join-Path $ManagerRoot "assets") | Out-Null
+        Copy-Item -LiteralPath $icon -Destination (Join-Path $ManagerRoot "assets\icon.ico") -Force
+    }
 }
 
 if (!$SkipFirmwareBuild) {
@@ -85,133 +138,36 @@ if (!$SkipFirmwareBuild) {
     }
 }
 
-Write-Step "host_sender" "compile"
-if (!$DryRun) {
-    & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $RepoRoot "tools\send_v5_5_haptic_audio_test.ps1") -CompileOnly
-}
+Refresh-EmbeddedAssets
 
-$dotnet = Get-Command dotnet -ErrorAction SilentlyContinue
-$managerOut = Join-Path $PackageRoot "Y700Switch2V55Manager.exe"
-if ($dotnet) {
-    Write-Step "manager_build" "dotnet_publish"
-    if (!$DryRun) {
-        & $dotnet.Source publish (Join-Path $RepoRoot "windows\v55_manager_app\Y700Switch2V55Manager.csproj") -c Release -r win-x64 --self-contained true -o (Join-Path $PackageRoot "app")
-        if ($LASTEXITCODE -ne 0) { throw "dotnet publish failed" }
-        Copy-IfExists (Join-Path $PackageRoot "app\Y700Switch2V55Manager.exe") $managerOut
-    }
-} else {
-    Write-Step "manager_build" "framework_csc_fallback"
-    if (!$DryRun) {
-        $csc = Find-Csc
-        $source = Join-Path $RepoRoot "windows\v55_manager_app\ManagerApp.cs"
-        $presentationCore = Resolve-WpfReference "PresentationCore.dll"
-        $presentationFramework = Resolve-WpfReference "PresentationFramework.dll"
-        $windowsBase = Resolve-WpfReference "WindowsBase.dll"
-        $systemXaml = Resolve-WpfReference "System.Xaml.dll"
-        & $csc /nologo /target:winexe /platform:x64 /out:$managerOut `
-            /reference:$presentationCore `
-            /reference:$presentationFramework `
-            /reference:$windowsBase `
-            /reference:$systemXaml `
-            /reference:System.dll `
-            /reference:System.Core.dll `
-            $source
-        if ($LASTEXITCODE -ne 0) { throw "Framework WPF fallback build failed" }
-    }
-}
+$dotnet = Ensure-Dotnet
+Write-Step "dotnet" $dotnet
 
 if (!$DryRun) {
-    foreach ($relative in @(
-        "tools\send_v5_5_haptic_audio_test.ps1",
-        "tools\SendV55HapticAudioTest.cs",
-        "tools\SendV55HapticAudioTest.exe",
-        "tools\check_v5_5_usb_composite.ps1",
-        "tools\check_v5_5_dualsense_identity.ps1",
-        "tools\check_v5_5_dualsense_audio.ps1",
-        "tools\check_v5_5_dualsense_reports.ps1",
-        "tools\esp32s3\flash_v5_5_dualsense_identity.ps1",
-        "tools\esp32s3\build_v5_5_dualsense_identity.ps1",
-        "tools\esp32s3\monitor.ps1",
-        "tools\esp32s3\detect_ports.ps1"
-    )) {
-        Copy-IfExists (Join-Path $RepoRoot $relative) (Join-Path $PackageRoot $relative)
+    New-Item -ItemType Directory -Force -Path $ReleaseRoot | Out-Null
+    if (Test-Path -LiteralPath $PublishRoot) { Remove-Item -LiteralPath $PublishRoot -Recurse -Force }
+    if (Test-Path -LiteralPath $SingleExe) { Remove-Item -LiteralPath $SingleExe -Force }
+
+    $env:DOTNET_ROOT = Split-Path -Parent $dotnet
+    $env:PATH = "$env:DOTNET_ROOT;$env:PATH"
+    & $dotnet publish (Join-Path $ManagerRoot "Y700Switch2V55Manager.csproj") `
+        -c Release -r win-x64 --self-contained true -o $PublishRoot `
+        /p:PublishSingleFile=true `
+        /p:IncludeNativeLibrariesForSelfExtract=true `
+        /p:EnableCompressionInSingleFile=true
+    if ($LASTEXITCODE -ne 0) { throw "dotnet publish failed" }
+
+    $publishedExe = Join-Path $PublishRoot "Y700Switch2V55Manager.exe"
+    if (!(Test-Path -LiteralPath $publishedExe)) {
+        throw "Published exe not found: $publishedExe"
     }
-
-    foreach ($profile in @("hid_audio_uac1_4ch_ds5like", "hid_only")) {
-        $buildDir = Join-Path $RepoRoot "work\build\v5_5_dualsense_identity\$profile"
-        Copy-IfExists (Join-Path $buildDir "bootloader\bootloader.bin") (Join-Path $PackageRoot "firmware\$profile\bootloader.bin")
-        Copy-IfExists (Join-Path $buildDir "partition_table\partition-table.bin") (Join-Path $PackageRoot "firmware\$profile\partition-table.bin")
-        Copy-IfExists (Join-Path $buildDir "esp32s3_dualsense_identity_experiment.bin") (Join-Path $PackageRoot "firmware\$profile\esp32s3_dualsense_identity_experiment.bin")
-        Copy-IfExists (Join-Path $buildDir "flash_args") (Join-Path $PackageRoot "firmware\$profile\flash_args")
+    Copy-Item -LiteralPath $publishedExe -Destination $SingleExe -Force
+    $hash = Get-FileHash -Algorithm SHA256 -LiteralPath $SingleExe
+    Set-Content -Path $HashFile -Value ("{0}  {1}" -f $hash.Hash.ToLowerInvariant(), (Split-Path -Leaf $SingleExe)) -Encoding ascii
+    if (Test-Path -LiteralPath $PublishRoot) {
+        Remove-Item -LiteralPath $PublishRoot -Recurse -Force
     }
-
-    $readme = @'
-# Y700 Switch2 V5.5 Manager
-
-## 中文
-
-这是 V5.5 实验包，用于验证：
-
-```text
-PC / Steam / game
--> ESP32-S3 DualSense-like HID + UAC1 4ch audio
--> haptic audio channel 2/3
--> Pro2 raw02
--> BLE real Switch 2 Pro Controller
-```
-
-默认安全状态：
-
-- haptic live forwarding 关闭。
-- dry-run 开启。
-- raw02 live 必须 BLE connected，并且显式执行 `haptic raw02 on` + `haptic dryrun off`。
-- BLE 发送失败会自动关闭 live forwarding。
-- `Live On` 会在 Manager 中二次确认。
-
-首次运行：
-
-1. 打开 `Y700Switch2V55Manager.exe`。
-2. 选择 CH343P COM 口。
-3. 点击 `Flash V5.5 DualSense-Pro2 Haptic`。
-4. 重插 native USB / OTG。
-5. 依次运行 USB Checks、BLE Connect Last、Haptic Status。
-6. 先保持 Dry-run，点击 Send Audio Pattern 看 raw02 preview。
-7. 确认 BLE 和 dry-run preview 正常后，再手动开启 Live。
-
-V5.5 不替换 V5.0/V5.2 Pro2 stable firmware。
-
-## English
-
-This is the V5.5 experimental package for DualSense-like HID + UAC1 4ch haptic audio to Pro2 raw02 forwarding.
-
-Default safety:
-
-- haptic live forwarding is off.
-- dry-run is on.
-- raw02 live requires BLE connected plus explicit `haptic raw02 on` and `haptic dryrun off`.
-- BLE send errors automatically disable live forwarding.
-- `Live On` asks for confirmation in the Manager.
-
-Recommended first run:
-
-1. Start `Y700Switch2V55Manager.exe`.
-2. Select the CH343P COM port.
-3. Flash `V5.5 DualSense-Pro2 Haptic`.
-4. Replug native USB / OTG.
-5. Run USB Checks, BLE Connect Last, and Haptic Status.
-6. Keep Dry-run on first and use Send Audio Pattern to inspect raw02 preview.
-7. Enable Live manually only after BLE and dry-run preview are healthy.
-
-V5.0/V5.2 Pro2 stable firmware is not replaced by V5.5.
-'@
-    Set-Content -Path (Join-Path $PackageRoot "README.md") -Value $readme -Encoding UTF8
-
-    if (Test-Path -LiteralPath $ZipPath) { Remove-Item -LiteralPath $ZipPath -Force }
-    Compress-Archive -Path (Join-Path $PackageRoot "*") -DestinationPath $ZipPath -Force
-    $hashFile = Join-Path $ReleaseRoot "SHA256SUMS.txt"
-    $hash = Get-FileHash -Algorithm SHA256 -LiteralPath $ZipPath
-    Set-Content -Path $hashFile -Value ("{0}  {1}" -f $hash.Hash.ToLowerInvariant(), (Split-Path -Leaf $ZipPath)) -Encoding ascii
-    Write-Step "zip" (($ZipPath.Substring($RepoRoot.Length + 1)) -replace '\\','/')
+    Write-Step "exe" (($SingleExe.Substring($RepoRoot.Length + 1)) -replace '\\','/')
     Write-Step "sha256" $hash.Hash.ToLowerInvariant()
 }
 

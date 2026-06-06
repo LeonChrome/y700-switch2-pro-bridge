@@ -1,0 +1,224 @@
+<Window x:Class="Y700Switch2V55Manager.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Y700 Switch2 V5.5 Manager"
+        Width="1180" Height="760" MinWidth="1080" MinHeight="680"
+        Background="#F4F6F8">
+    <Window.Resources>
+        <SolidColorBrush x:Key="Ink" Color="#17212B"/>
+        <SolidColorBrush x:Key="Muted" Color="#667085"/>
+        <SolidColorBrush x:Key="Line" Color="#D8DEE6"/>
+        <Style x:Key="Panel" TargetType="Border">
+            <Setter Property="Background" Value="#FFFFFF"/>
+            <Setter Property="BorderBrush" Value="{StaticResource Line}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="CornerRadius" Value="6"/>
+            <Setter Property="Padding" Value="14"/>
+            <Setter Property="Margin" Value="0,0,0,10"/>
+        </Style>
+        <Style x:Key="TitleText" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{StaticResource Ink}"/>
+            <Setter Property="FontSize" Value="15"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Margin" Value="0,0,0,8"/>
+        </Style>
+        <Style x:Key="HintText" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{StaticResource Muted}"/>
+            <Setter Property="TextWrapping" Value="Wrap"/>
+        </Style>
+        <Style x:Key="PrimaryButton" TargetType="Button">
+            <Setter Property="Margin" Value="3"/>
+            <Setter Property="Padding" Value="12,7"/>
+            <Setter Property="MinWidth" Value="92"/>
+            <Setter Property="Background" Value="#2563EB"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="BorderBrush" Value="#2563EB"/>
+        </Style>
+        <Style x:Key="ButtonLite" TargetType="Button">
+            <Setter Property="Margin" Value="3"/>
+            <Setter Property="Padding" Value="10,6"/>
+            <Setter Property="MinWidth" Value="82"/>
+        </Style>
+        <Style x:Key="MetricLabel" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{StaticResource Muted}"/>
+            <Setter Property="Margin" Value="0,2,8,2"/>
+        </Style>
+        <Style x:Key="MetricValue" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{StaticResource Ink}"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Margin" Value="0,2,0,2"/>
+            <Setter Property="TextWrapping" Value="Wrap"/>
+        </Style>
+    </Window.Resources>
+
+    <DockPanel>
+        <Border DockPanel.Dock="Top" Background="#111827" Padding="18,14">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <StackPanel>
+                    <TextBlock Foreground="White" FontSize="22" FontWeight="SemiBold" Text="Y700 Switch2 V5.5 Manager"/>
+                    <TextBlock Foreground="#CBD5E1" Text="DualSense-like USB + UAC1 4ch haptic audio -> Pro2 raw02 BLE forwarding"/>
+                </StackPanel>
+                <Border Grid.Column="1" Background="#1F2937" BorderBrush="#374151" BorderThickness="1" CornerRadius="6" Padding="12,8" VerticalAlignment="Center">
+                    <StackPanel Orientation="Horizontal">
+                        <Ellipse Width="10" Height="10" Fill="{Binding OverallBrush}" Margin="0,0,8,0"/>
+                        <TextBlock Foreground="White" Text="{Binding OverallStatus}"/>
+                    </StackPanel>
+                </Border>
+            </Grid>
+        </Border>
+
+        <Grid Margin="14">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="342"/>
+                <ColumnDefinition Width="14"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+
+            <ScrollViewer Grid.Column="0" VerticalScrollBarVisibility="Auto">
+                <StackPanel>
+                    <Border Style="{StaticResource Panel}">
+                        <StackPanel>
+                            <TextBlock Style="{StaticResource TitleText}" Text="1. 端口与烧录"/>
+                            <TextBlock Style="{StaticResource HintText}" Text="只接 CH343P Type-C 时刷机；刷完再重插 native USB / OTG 做 HID 和音频枚举。"/>
+                            <ComboBox ItemsSource="{Binding Ports}" SelectedItem="{Binding SelectedPort}" DisplayMemberPath="DisplayName" Margin="0,10,0,6"/>
+                            <WrapPanel>
+                                <Button Style="{StaticResource ButtonLite}" Content="刷新端口" Command="{Binding RefreshPortsCommand}"/>
+                                <Button Style="{StaticResource PrimaryButton}" Content="一键刷 V5.5" Command="{Binding FlashHapticCommand}"/>
+                                <Button Style="{StaticResource ButtonLite}" Content="HID 恢复" Command="{Binding FlashHidOnlyCommand}"/>
+                            </WrapPanel>
+                            <TextBlock Style="{StaticResource HintText}" Text="{Binding PortStatus}" Margin="0,6,0,0"/>
+                        </StackPanel>
+                    </Border>
+
+                    <Border Style="{StaticResource Panel}">
+                        <StackPanel>
+                            <TextBlock Style="{StaticResource TitleText}" Text="2. USB 与音频检查"/>
+                            <WrapPanel>
+                                <Button Style="{StaticResource ButtonLite}" Content="快速检查" Command="{Binding CheckUsbCommand}"/>
+                                <Button Style="{StaticResource ButtonLite}" Content="音频列表" Command="{Binding ListAudioCommand}"/>
+                                <Button Style="{StaticResource ButtonLite}" Content="joy.cpl" Command="{Binding OpenJoyCommand}"/>
+                                <Button Style="{StaticResource ButtonLite}" Content="设备管理器" Command="{Binding OpenDeviceManagerCommand}"/>
+                            </WrapPanel>
+                            <TextBlock Style="{StaticResource HintText}" Text="{Binding UsbStatus}" Margin="0,6,0,0"/>
+                            <TextBlock Style="{StaticResource HintText}" Text="{Binding AudioStatus}" Margin="0,3,0,0"/>
+                        </StackPanel>
+                    </Border>
+
+                    <Border Style="{StaticResource Panel}">
+                        <StackPanel>
+                            <TextBlock Style="{StaticResource TitleText}" Text="3. BLE 控制"/>
+                            <WrapPanel>
+                                <Button Style="{StaticResource ButtonLite}" Content="扫描" Command="{Binding BleScanCommand}"/>
+                                <Button Style="{StaticResource ButtonLite}" Content="列表" Command="{Binding BleListCommand}"/>
+                                <Button Style="{StaticResource ButtonLite}" Content="连上次" Command="{Binding BleReconnectCommand}"/>
+                                <Button Style="{StaticResource ButtonLite}" Content="自动开" Command="{Binding BleAutoOnCommand}"/>
+                                <Button Style="{StaticResource ButtonLite}" Content="自动关" Command="{Binding BleAutoOffCommand}"/>
+                                <Button Style="{StaticResource ButtonLite}" Content="断开" Command="{Binding BleDisconnectCommand}"/>
+                            </WrapPanel>
+                            <TextBox Text="{Binding BleTarget, UpdateSourceTrigger=PropertyChanged}" Margin="0,8,0,4" ToolTip="地址、#序号、名称关键字，留空表示 last"/>
+                            <Button Style="{StaticResource ButtonLite}" Content="连接目标" Command="{Binding BleConnectCommand}" HorizontalAlignment="Left"/>
+                            <TextBlock Style="{StaticResource HintText}" Text="{Binding BleStatus}" Margin="0,6,0,0"/>
+                        </StackPanel>
+                    </Border>
+
+                    <Border Style="{StaticResource Panel}">
+                        <StackPanel>
+                            <TextBlock Style="{StaticResource TitleText}" Text="4. Haptic / raw02"/>
+                            <WrapPanel>
+                                <Button Style="{StaticResource ButtonLite}" Content="状态" Command="{Binding HapticStatusCommand}"/>
+                                <Button Style="{StaticResource ButtonLite}" Content="Dry-run 开" Command="{Binding DryRunOnCommand}"/>
+                                <Button Style="{StaticResource ButtonLite}" Content="Live 关" Command="{Binding LiveOffCommand}"/>
+                                <Button Style="{StaticResource PrimaryButton}" Content="Live 开" Command="{Binding LiveOnCommand}"/>
+                                <Button Style="{StaticResource ButtonLite}" Content="Tick" Command="{Binding HapticTickCommand}"/>
+                                <Button Style="{StaticResource ButtonLite}" Content="Punch" Command="{Binding HapticPunchCommand}"/>
+                                <Button Style="{StaticResource ButtonLite}" Content="Stop" Command="{Binding HapticStopCommand}"/>
+                            </WrapPanel>
+                            <TextBlock Style="{StaticResource HintText}" Text="{Binding HapticStatus}" Margin="0,6,0,0"/>
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+            </ScrollViewer>
+
+            <Grid Grid.Column="2">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                </Grid.RowDefinitions>
+
+                <Border Grid.Row="0" Style="{StaticResource Panel}">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0">
+                            <TextBlock Style="{StaticResource MetricLabel}" Text="固件包"/>
+                            <TextBlock Style="{StaticResource MetricValue}" Text="{Binding FirmwareSummary}"/>
+                        </StackPanel>
+                        <StackPanel Grid.Column="1">
+                            <TextBlock Style="{StaticResource MetricLabel}" Text="raw02 安全状态"/>
+                            <TextBlock Style="{StaticResource MetricValue}" Text="{Binding SafetySummary}"/>
+                        </StackPanel>
+                        <StackPanel Grid.Column="2">
+                            <TextBlock Style="{StaticResource MetricLabel}" Text="下一步"/>
+                            <TextBlock Style="{StaticResource MetricValue}" Text="{Binding NextAction}"/>
+                        </StackPanel>
+                    </Grid>
+                </Border>
+
+                <Border Grid.Row="1" Style="{StaticResource Panel}">
+                    <StackPanel>
+                        <TextBlock Style="{StaticResource TitleText}" Text="音频触觉测试"/>
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="130"/>
+                                <ColumnDefinition Width="110"/>
+                                <ColumnDefinition Width="110"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <ComboBox Grid.Column="0" ItemsSource="{Binding AudioPatterns}" SelectedItem="{Binding AudioPattern}" Margin="0,0,8,0"/>
+                            <TextBox Grid.Column="1" Text="{Binding AudioIntensity}" Margin="0,0,8,0" ToolTip="0..100"/>
+                            <TextBox Grid.Column="2" Text="{Binding AudioDurationMs}" Margin="0,0,8,0" ToolTip="milliseconds"/>
+                            <TextBox Grid.Column="3" Text="{Binding AudioDeviceName}" Margin="0,0,8,0" ToolTip="Device name substring"/>
+                            <Button Grid.Column="4" Style="{StaticResource PrimaryButton}" Content="发送音频 Pattern" Command="{Binding SendAudioPatternCommand}"/>
+                        </Grid>
+                    </StackPanel>
+                </Border>
+
+                <Border Grid.Row="2" Style="{StaticResource Panel}" Margin="0">
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="*"/>
+                        </Grid.RowDefinitions>
+                        <Grid Grid.Row="0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Style="{StaticResource TitleText}" Text="日志"/>
+                            <TextBox Grid.Column="1" Text="{Binding CustomCommand, UpdateSourceTrigger=PropertyChanged}" Margin="12,0,8,8" ToolTip="串口命令，例如 status / haptic status"/>
+                            <WrapPanel Grid.Column="2">
+                                <Button Style="{StaticResource ButtonLite}" Content="发送" Command="{Binding SendCustomCommand}"/>
+                                <Button Style="{StaticResource ButtonLite}" Content="清空" Command="{Binding ClearLogCommand}"/>
+                                <Button Style="{StaticResource ButtonLite}" Content="保存" Command="{Binding SaveLogCommand}"/>
+                            </WrapPanel>
+                        </Grid>
+                        <TextBox Grid.Row="1" Text="{Binding LogText}" FontFamily="Consolas" FontSize="12"
+                                 IsReadOnly="True" TextWrapping="NoWrap"
+                                 VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto"
+                                 Background="#0B1220" Foreground="#DDE7F3" BorderThickness="0"/>
+                    </Grid>
+                </Border>
+            </Grid>
+        </Grid>
+    </DockPanel>
+</Window>

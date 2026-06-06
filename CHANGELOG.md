@@ -12,8 +12,8 @@
 - UAC1 4ch driver 在收到 384-byte/ms 等时 OUT 包时直接喂给 haptic feature extractor，音频 alt 0 / stop 会触发 haptic stop。
 - 新增 host 侧 `send_v5_5_haptic_audio_test.ps1` 和 `SendV55HapticAudioTest.cs`，支持枚举 Windows waveOut endpoint 并发送 4ch 测试 pattern。
 - 新增独立 V5.5 WPF Manager：一页式集成烧录、模式、BLE、USB 检查、haptic 参数、audio pattern、raw02 live/dry-run 开关和日志。
-- 新增 `package_v5_5_manager.ps1`，能构建固件、编译 host sender、编译/发布 Manager、复制工具和 firmware payload，并生成 `Y700Switch2V55Manager-aio-v5.5-experimental.zip` 与 SHA256。
-- 打包脚本支持没有 .NET SDK 的机器：使用 .NET Framework `csc.exe` fallback，并动态定位 WPF reference assemblies / GAC。
+- 新增 `package_v5_5_manager.ps1`，能构建固件、编译 host sender、刷新内嵌 firmware/tool payload，并生成单文件 `Y700Switch2V55Manager-aio-v5.5.0.exe` 与 SHA256。
+- 打包脚本支持没有 .NET SDK 的机器：自动下载本地 .NET 8 SDK 到 `.\work\dotnet`，不要求用户安装系统级开发环境。
 - 新增 Phase 4/5/6 和 Manager 文档，明确 V5.5 不替换 V5.0 stable，也不修改 V5.2 VIIPER/raw02 默认行为。
 - ESP-IDF 5.3.3 实际构建已通过 `hid_audio_uac1_4ch_ds5like` 与 `hid_only`。
 
@@ -27,8 +27,8 @@
 - The UAC1 4ch driver feeds each 384-byte/ms isochronous OUT packet directly into the haptic feature extractor; audio alt 0 / stop triggers haptic stop.
 - Added the host-side haptic audio sender (`send_v5_5_haptic_audio_test.ps1` and `SendV55HapticAudioTest.cs`) for Windows endpoint enumeration and 4ch test patterns.
 - Added the standalone V5.5 WPF Manager with flashing, mode notes, BLE controls, USB checks, haptic parameters, audio patterns, raw02 dry-run/live toggles, and logs on one page.
-- Added `package_v5_5_manager.ps1` to build firmware, compile the host sender, build/publish the Manager, copy tools and firmware payloads, and generate the V5.5 experimental aio zip plus SHA256.
-- The package script works without a .NET SDK by using the .NET Framework `csc.exe` fallback and dynamically resolving WPF reference assemblies / GAC.
+- Added `package_v5_5_manager.ps1` to build firmware, compile the host sender, refresh embedded firmware/tool payloads, and generate the single-file `Y700Switch2V55Manager-aio-v5.5.0.exe` plus SHA256.
+- The package script works without an existing .NET SDK by downloading a local .NET 8 SDK into `.\work\dotnet`; it does not require a system-wide developer environment.
 - Added Phase 4/5/6 and Manager documentation. V5.5 remains separate from V5.0 stable and does not change the V5.2 VIIPER/raw02 default behavior.
 - ESP-IDF 5.3.3 builds pass for both `hid_audio_uac1_4ch_ds5like` and `hid_only`.
 

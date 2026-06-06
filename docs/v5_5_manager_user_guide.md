@@ -27,22 +27,21 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\package_v5_5_manager
 生成：
 
 ```text
-.\release\v5.5\Y700Switch2V55Manager\Y700Switch2V55Manager.exe
-.\release\v5.5\Y700Switch2V55Manager-aio-v5.5-experimental.zip
-.\release\v5.5\SHA256SUMS.txt
+.\release\v5.5\Y700Switch2V55Manager-aio-v5.5.0.exe
+.\release\v5.5\SHA256SUMS-v5.5.0.txt
 ```
 
 ### 首次使用
 
 1. 连接 CH343P Type-C。
-2. 打开 `.\release\v5.5\Y700Switch2V55Manager\Y700Switch2V55Manager.exe`。
+2. 打开 `.\release\v5.5\Y700Switch2V55Manager-aio-v5.5.0.exe`。
 3. 选择 COM 口。
-4. 点击 `Flash V5.5 DualSense-Pro2 Haptic`。
+4. 点击 `一键刷 V5.5`。
 5. 重插 native USB / OTG 口。
-6. 依次点击 `Composite`、`Identity`、`Audio`、`Reports`。
-7. 点击 `Scan` 或 `Connect Last` 连接真实 Pro2。
+6. 点击 `快速检查` 和 `音频列表`。
+7. 点击 `扫描` 或 `连上次` 连接真实 Pro2。
 8. 先保持 `Dry-run On` 和 `Live Off`。
-9. 点击 `List Audio Devices` 和 `Send Audio Pattern`，观察日志里的 audio/raw02 counters。
+9. 点击 `音频列表` 和 `发送音频 Pattern`，观察日志里的 audio/raw02 counters。
 
 ### 开启真实震动
 
@@ -90,4 +89,4 @@ Package from the repository root:
 powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\package_v5_5_manager.ps1
 ```
 
-Run `.\release\v5.5\Y700Switch2V55Manager\Y700Switch2V55Manager.exe`, flash the V5.5 haptic profile, replug native USB, run the USB checks, connect the real Pro2 over BLE, keep dry-run on first, then test audio patterns before enabling live forwarding.
+Run `.\release\v5.5\Y700Switch2V55Manager-aio-v5.5.0.exe`, flash the V5.5 haptic profile, replug native USB, run the USB checks, connect the real Pro2 over BLE, keep dry-run on first, then test audio patterns before enabling live forwarding.
