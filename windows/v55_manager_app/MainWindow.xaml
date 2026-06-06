@@ -136,6 +136,8 @@
                                 <Button Style="{StaticResource ButtonLite}" Content="Tick" Command="{Binding HapticTickCommand}"/>
                                 <Button Style="{StaticResource ButtonLite}" Content="Punch" Command="{Binding HapticPunchCommand}"/>
                                 <Button Style="{StaticResource ButtonLite}" Content="Stop" Command="{Binding HapticStopCommand}"/>
+                                <Button Style="{StaticResource PrimaryButton}" Content="安全实震" Command="{Binding SafeHapticTestCommand}"
+                                        ToolTip="低强度测试完整 4ch 音频 -> raw02 -> BLE 链路，结束后自动恢复 Dry-run"/>
                             </WrapPanel>
                             <TextBlock Style="{StaticResource HintText}" Text="{Binding HapticStatus}" Margin="0,6,0,0"/>
                         </StackPanel>

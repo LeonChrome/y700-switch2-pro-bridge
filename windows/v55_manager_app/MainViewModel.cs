@@ -6,6 +6,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Runtime.CompilerServices;
 using System.Text;
+using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Input;
@@ -83,6 +84,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public ICommand HapticTickCommand { get; }
     public ICommand HapticPunchCommand { get; }
     public ICommand HapticStopCommand { get; }
+    public ICommand SafeHapticTestCommand { get; }
     public ICommand SendAudioPatternCommand { get; }
     public ICommand SendCustomCommand { get; }
     public ICommand ClearLogCommand { get; }
@@ -112,6 +114,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         HapticTickCommand = new RelayCommand(async _ => await SendSerialAsync("haptic test tick", 4, _ => HapticStatus = "已发送短 tick 测试。"));
         HapticPunchCommand = new RelayCommand(async _ => await SendSerialAsync("haptic test punch", 4, _ => HapticStatus = "已发送 punch 测试。"));
         HapticStopCommand = new RelayCommand(async _ => await SendSerialAsync("haptic test stop", 4, _ => HapticStatus = "已发送 stop。"));
+        SafeHapticTestCommand = new RelayCommand(async _ => await RunSafeHapticTestAsync());
         SendAudioPatternCommand = new RelayCommand(async _ => await SendAudioPatternAsync());
         SendCustomCommand = new RelayCommand(async _ => await SendSerialAsync(CustomCommand, 6, _ => { }));
         ClearLogCommand = new RelayCommand(_ => { log.Clear(); OnPropertyChanged(nameof(LogText)); });
@@ -217,9 +220,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         try
         {
             Busy = true;
-            if (SelectedPort == null) RefreshPorts();
-            if (SelectedPort == null) throw new InvalidOperationException("没有可用 COM 口。");
-            string output = await SerialCommandClient.SendAsync(SelectedPort.PortName, command, readSeconds, new Progress<string>(AppendLog));
+            string output = await SendSerialCoreAsync(command, readSeconds);
             after(output);
         }
         catch (Exception ex)
@@ -231,6 +232,98 @@ public sealed class MainViewModel : INotifyPropertyChanged
         {
             Busy = false;
         }
+    }
+
+    private async Task<string> SendSerialCoreAsync(string command, int readSeconds)
+    {
+        if (SelectedPort == null) RefreshPorts();
+        if (SelectedPort == null) throw new InvalidOperationException("没有可用 COM 口。");
+        return await SerialCommandClient.SendAsync(
+            SelectedPort.PortName,
+            command,
+            readSeconds,
+            new Progress<string>(AppendLog));
+    }
+
+    private async Task RunSafeHapticTestAsync()
+    {
+        MessageBoxResult result = MessageBox.Show(owner,
+            "将进行一次约 350 ms、低强度的完整链路实震：4ch DualSense 音频 -> raw02 -> BLE Pro2。测试后会自动停止并恢复 Dry-run。",
+            "安全实震测试",
+            MessageBoxButton.OKCancel,
+            MessageBoxImage.Information);
+        if (result != MessageBoxResult.OK) return;
+
+        Busy = true;
+        OverallStatus = "Haptic test";
+        HapticStatus = "正在准备安全实震测试。";
+        try
+        {
+            string initial = await SendSerialCoreAsync("haptic status", 3);
+            if (!initial.Contains("\"ble\":\"connected\"", StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidOperationException("Pro2 BLE 尚未连接，已取消真实发送。");
+            }
+
+            await SendSerialCoreAsync("haptic defaults", 3);
+            await SendSerialCoreAsync("haptic max 48", 3);
+            await SendSerialCoreAsync("haptic interval 50", 3);
+            await SendSerialCoreAsync("haptic raw02 on", 3);
+            await SendSerialCoreAsync("haptic dryrun off", 3);
+
+            FirmwarePackage package = EmbeddedAssets.EnsurePackage();
+            string audioOutput = await RunProcessAsync(
+                package.AudioSenderPath,
+                "-DeviceName \"Wireless Controller\" -Pattern both_tick -DurationMs 350 -Intensity 28");
+            AppendLog(audioOutput);
+            await Task.Delay(300);
+
+            string status = await SendSerialCoreAsync("haptic status", 3);
+            long writes = ReadJsonCounter(status, "raw02_ble_writes");
+            long livePackets = ReadJsonCounter(status, "raw02_live_packets");
+            long errors = ReadJsonCounter(status, "raw02_ble_errors");
+            if (writes <= 0 || livePackets <= 0 || errors != 0)
+            {
+                throw new InvalidOperationException(
+                    $"完整链路未确认：BLE writes={writes}, live packets={livePackets}, errors={errors}。");
+            }
+
+            HapticStatus = $"安全实震通过：BLE writes={writes}，errors={errors}。";
+            OverallStatus = "Haptic OK";
+            NextAction = "可在支持 DualSense 触觉音频的游戏中测试；先保持低强度。";
+            AppendLog("[SAFE_HAPTIC_TEST] result=passed ble_writes=" + writes +
+                      " live_packets=" + livePackets + " errors=" + errors);
+        }
+        catch (Exception ex)
+        {
+            HapticStatus = "安全实震失败：" + FirstLine(ex.Message);
+            OverallStatus = "Error";
+            AppendLog("ERROR safe haptic test: " + ex);
+        }
+        finally
+        {
+            foreach (string command in new[] { "haptic test stop", "haptic dryrun on", "haptic raw02 off" })
+            {
+                try
+                {
+                    await SendSerialCoreAsync(command, 2);
+                }
+                catch (Exception cleanupError)
+                {
+                    AppendLog("WARN haptic cleanup: " + cleanupError.Message);
+                }
+            }
+            Busy = false;
+        }
+    }
+
+    private static long ReadJsonCounter(string text, string name)
+    {
+        MatchCollection matches = Regex.Matches(
+            text,
+            "\"" + Regex.Escape(name) + "\"\\s*:\\s*(\\d+)",
+            RegexOptions.IgnoreCase);
+        return matches.Count == 0 ? -1 : long.Parse(matches[^1].Groups[1].Value);
     }
 
     private async Task TurnLiveOnAsync()
