@@ -310,7 +310,9 @@ Detailed notes are tracked in [docs/v5_2_real_pro2_hd_rumble_probe_results.md](d
 ## 文档 / Documentation
 
 - [快速开始 / Quickstart](QUICKSTART.md)
+- [更新日志 / Changelog](CHANGELOG.md)
 - [V5.0.0 发布说明 / Release Notes](RELEASE_NOTES_v5.0.0.md)
+- [V5.2 GitHub Release 草稿 / GitHub Release Draft](release_notes/V5.2.md)
 - [V5.2 实验说明 / Experimental Notes](RELEASE_NOTES_v5.2.0-experimental.md)
 - [V5.2 VIIPER / raw02 实测结果](docs/v5_2_real_pro2_hd_rumble_probe_results.md)
 - [V5.3 DualSense 触觉路线图](docs/v5_3_dualsense_haptic_roadmap.md)

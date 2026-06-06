@@ -146,6 +146,12 @@ drivers during V5.3 probing.
 
 ## Probe Commands
 
+The shortest real-device entry is:
+
+```text
+docs/v5_3_dualsense_test_checklist.md
+```
+
 Run from the repository root:
 
 ```powershell
