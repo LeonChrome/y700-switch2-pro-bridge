@@ -19,11 +19,12 @@
 
 static const char *TAG = "control";
 
-#define RUMBLE_RAW02_LEFT_RIGHT_HEX_LEN 64
-#define RUMBLE_RAW02_FULL_PAYLOAD_HEX_LEN 128
-#define RUMBLE_RAW02_PAYLOAD_LEN 64
-#define RUMBLE_RAW02_LEFT_OFFSET 1
-#define RUMBLE_RAW02_RIGHT_OFFSET 17
+#define RAW02_HEX_LEFT_RIGHT_LEN 64
+#define RAW02_HEX_FULL_LEN 128
+#define RAW02_HEX_MAX_LEN RAW02_HEX_FULL_LEN
+#define RAW02_PAYLOAD_LEN 64
+#define RAW02_LEFT_OFFSET 1
+#define RAW02_RIGHT_OFFSET 17
 
 static void trim(char *text)
 {
@@ -64,6 +65,29 @@ static bool parse_long_token(const char **cursor, long *value)
     return true;
 }
 
+static bool copy_trimmed_arg(const char *src, char *out, size_t out_len)
+{
+    if (!src || !out || out_len == 0) {
+        return false;
+    }
+
+    while (*src && isspace((unsigned char)*src)) {
+        src++;
+    }
+
+    size_t len = strlen(src);
+    while (len > 0 && isspace((unsigned char)src[len - 1])) {
+        len--;
+    }
+    if (len >= out_len) {
+        return false;
+    }
+
+    memcpy(out, src, len);
+    out[len] = 0;
+    return true;
+}
+
 static int hex_value(char c)
 {
     if (c >= '0' && c <= '9') {
@@ -76,6 +100,19 @@ static int hex_value(char c)
         return c - 'A' + 10;
     }
     return -1;
+}
+
+static bool is_hex_string(const char *hex, size_t hex_len)
+{
+    if (!hex) {
+        return false;
+    }
+    for (size_t i = 0; i < hex_len; i++) {
+        if (hex_value(hex[i]) < 0) {
+            return false;
+        }
+    }
+    return true;
 }
 
 static bool decode_hex_exact(const char *hex, size_t hex_len, uint8_t *out, size_t out_len)
@@ -318,8 +355,9 @@ esp_err_t control_protocol_handle_line(const char *line, char *reply, int reply_
     }
     if (strncmp(cmd, "ble connect", 11) == 0) {
         char target[96];
-        snprintf(target, sizeof(target), "%s", cmd + 11);
-        trim(target);
+        if (!copy_trimmed_arg(cmd + 11, target, sizeof(target))) {
+            return json_error(reply, reply_len, "ble connect", "BLE target is too long");
+        }
         esp_err_t err = ble_central_connect(target[0] ? target : NULL);
         if (err != ESP_OK) {
             return json_error(reply, reply_len, "ble connect", "connect start failed; run ble scan and use ble connect last, ble connect <addr>, or ble connect <name>");
@@ -356,8 +394,9 @@ esp_err_t control_protocol_handle_line(const char *line, char *reply, int reply_
     }
     if (strncmp(cmd, "ble target ", 11) == 0) {
         char target[96];
-        snprintf(target, sizeof(target), "%s", cmd + 11);
-        trim(target);
+        if (!copy_trimmed_arg(cmd + 11, target, sizeof(target))) {
+            return json_error(reply, reply_len, "ble target", "BLE target is too long");
+        }
         esp_err_t err = device_config_save_ble_target(target);
         if (err != ESP_OK) {
             return json_error(reply, reply_len, "ble target", "failed to save BLE target");
@@ -612,56 +651,66 @@ esp_err_t control_protocol_handle_line(const char *line, char *reply, int reply_
         return json_ok(reply, reply_len, "rumble hold", extra);
     }
     if (strncmp(cmd, "rumble raw02 ", 13) == 0) {
-        const char *hex = cmd + 13;
-        while (*hex && isspace((unsigned char)*hex)) {
-            hex++;
+        const char *hex_start = cmd + strlen("rumble raw02 ");
+        while (*hex_start && isspace((unsigned char)*hex_start)) {
+            hex_start++;
         }
-        size_t hex_len = strlen(hex);
-        while (hex_len > 0 && isspace((unsigned char)hex[hex_len - 1])) {
+        size_t hex_len = strlen(hex_start);
+        while (hex_len > 0 && isspace((unsigned char)hex_start[hex_len - 1])) {
             hex_len--;
         }
 
+        if (hex_len > RAW02_HEX_MAX_LEN) {
+            APP_LOGW(TAG, "[RUMBLE_RAW02] sent=false error=hex_too_long len=%u",
+                     (unsigned)hex_len);
+            return json_error(reply, reply_len, "rumble raw02", "hex payload is too long");
+        }
         if ((hex_len % 2) != 0) {
             APP_LOGW(TAG, "[RUMBLE_RAW02] sent=false error=odd_hex_len len=%u",
                      (unsigned)hex_len);
             return json_error(reply, reply_len, "rumble raw02", "hex must have an even number of characters");
         }
-
-        uint8_t payload[RUMBLE_RAW02_PAYLOAD_LEN];
-        const char *mode = NULL;
-        if (hex_len == RUMBLE_RAW02_LEFT_RIGHT_HEX_LEN) {
-            uint8_t left_right[32];
-            if (!decode_hex_exact(hex, hex_len, left_right, sizeof(left_right))) {
-                APP_LOGW(TAG, "[RUMBLE_RAW02] sent=false error=non_hex");
-                return json_error(reply, reply_len, "rumble raw02", "hex contains non-hex characters");
-            }
-            memset(payload, 0, sizeof(payload));
-            payload[0] = 0x02;
-            memcpy(payload + RUMBLE_RAW02_LEFT_OFFSET, left_right, 16);
-            memcpy(payload + RUMBLE_RAW02_RIGHT_OFFSET, left_right + 16, 16);
-            mode = "left_right_16";
-        } else if (hex_len == RUMBLE_RAW02_FULL_PAYLOAD_HEX_LEN) {
-            if (!decode_hex_exact(hex, hex_len, payload, sizeof(payload))) {
-                APP_LOGW(TAG, "[RUMBLE_RAW02] sent=false error=non_hex");
-                return json_error(reply, reply_len, "rumble raw02", "hex contains non-hex characters");
-            }
-            if (payload[0] != 0x02) {
-                APP_LOGW(TAG, "[RUMBLE_RAW02] sent=false error=invalid_report_id report_id=0x%02x",
-                         payload[0]);
-                return json_error(reply, reply_len, "rumble raw02", "full payload must start with report_id 0x02");
-            }
-            mode = "full_payload";
-        } else {
+        if (hex_len != RAW02_HEX_LEFT_RIGHT_LEN && hex_len != RAW02_HEX_FULL_LEN) {
             APP_LOGW(TAG, "[RUMBLE_RAW02] sent=false error=invalid_hex_len len=%u",
                      (unsigned)hex_len);
             return json_error(reply, reply_len, "rumble raw02", "usage: rumble raw02 <64 hex left+right or 128 hex full payload>");
         }
 
+        char raw_hex[RAW02_HEX_MAX_LEN + 1];
+        memcpy(raw_hex, hex_start, hex_len);
+        raw_hex[hex_len] = 0;
+
+        if (!is_hex_string(raw_hex, hex_len)) {
+            APP_LOGW(TAG, "[RUMBLE_RAW02] sent=false error=non_hex");
+            return json_error(reply, reply_len, "rumble raw02", "hex contains non-hex characters");
+        }
+
+        uint8_t payload[RAW02_PAYLOAD_LEN];
+        const char *mode = NULL;
+        if (hex_len == RAW02_HEX_LEFT_RIGHT_LEN) {
+            uint8_t left_right[32];
+            (void)decode_hex_exact(raw_hex, hex_len, left_right, sizeof(left_right));
+            memset(payload, 0, sizeof(payload));
+            payload[0] = 0x02;
+            memcpy(payload + RAW02_LEFT_OFFSET, left_right, 16);
+            memcpy(payload + RAW02_RIGHT_OFFSET, left_right + 16, 16);
+            mode = "left_right_16";
+        } else {
+            int report_id = (hex_value(raw_hex[0]) << 4) | hex_value(raw_hex[1]);
+            if (report_id != 0x02) {
+                APP_LOGW(TAG, "[RUMBLE_RAW02] sent=false error=invalid_report_id report_id=0x%02x",
+                         (unsigned)report_id);
+                return json_error(reply, reply_len, "rumble raw02", "full payload must start with report_id 0x02");
+            }
+            (void)decode_hex_exact(raw_hex, hex_len, payload, sizeof(payload));
+            mode = "full_payload";
+        }
+
         char left_hex[33];
         char right_hex[33];
         char payload_hex[129];
-        bytes_to_hex(payload + RUMBLE_RAW02_LEFT_OFFSET, 16, left_hex, sizeof(left_hex));
-        bytes_to_hex(payload + RUMBLE_RAW02_RIGHT_OFFSET, 16, right_hex, sizeof(right_hex));
+        bytes_to_hex(payload + RAW02_LEFT_OFFSET, 16, left_hex, sizeof(left_hex));
+        bytes_to_hex(payload + RAW02_RIGHT_OFFSET, 16, right_hex, sizeof(right_hex));
         bytes_to_hex(payload, sizeof(payload), payload_hex, sizeof(payload_hex));
 
         APP_LOGI(TAG, "[RUMBLE_RAW02] mode=%s", mode);
