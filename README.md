@@ -362,6 +362,24 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\run_v5_3_dualsense_t
 powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\run_v5_4_hybrid_haptic_probe.ps1
 ```
 
+### V5.5 Phase 1: Minimal DualSense HID Identity
+
+中文：
+
+Phase 1 已新增独立 ESP32-S3 实验固件，不修改现有 V5.2/V5.0 桥接固件。它仅暴露 DualSense-like HID：VID `054c`、PID `0ce6`、`0x01 + 63 bytes` 中性输入和 `0x02 + 47 bytes` 输出捕获。USB Audio、Pro2 BLE、haptic audio 和 raw02 均未启用。
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\esp32s3\build_v5_5_dualsense_identity.ps1 -IdfPath C:\Espressif\v5.3.3\esp-idf
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\esp32s3\flash_v5_5_dualsense_identity.ps1 -Port COM12 -IdfPath C:\Espressif\v5.3.3\esp-idf -Monitor
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\check_v5_5_dualsense_identity.ps1
+```
+
+English:
+
+Phase 1 adds a standalone ESP32-S3 experiment and leaves the existing V5.2/V5.0 bridge firmware untouched. It exposes only a DualSense-like HID identity: VID `054c`, PID `0ce6`, neutral `0x01 + 63-byte` input, and `0x02 + 47-byte` output capture. USB Audio, Pro2 BLE, haptic audio, and raw02 are disabled.
+
+See [the Phase 1 guide](docs/v5_5_phase1_minimal_dualsense_hid_identity.md).
+
 ## 文档 / Documentation
 
 - [快速开始 / Quickstart](QUICKSTART.md)
@@ -379,6 +397,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\run_v5_4_hybrid_hapt
 - [V5.5 ESP32-S3 移植计划](docs/v5_5_ds5dongle_esp32s3_port_plan.md)
 - [V5.5 DualSense identity 可行性](docs/v5_5_esp32s3_dualsense_identity_feasibility.md)
 - [V5.5 DualSense identity 实验计划](docs/v5_5_esp32s3_dualsense_identity_experiment_plan.md)
+- [V5.5 Phase 1 最小 DualSense HID identity](docs/v5_5_phase1_minimal_dualsense_hid_identity.md)
+- [V5.5 DS5 descriptor 对照](docs/generated/v5_5_ds5_descriptor_mapping.md)
 - [V5.0.0 预览说明 / Preview Notes](RELEASE_NOTES_v5.0.0-preview.md)
 - [V4.0.0 发布说明 / Release Notes](RELEASE_NOTES_v4.0.0.md)
 - [ESP32-S3 文档 / ESP32-S3 documentation](docs/esp32s3/README_ESP32S3.md)

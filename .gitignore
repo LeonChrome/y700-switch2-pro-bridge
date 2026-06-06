@@ -24,6 +24,9 @@ release/esp32s3-pro2-bridge-firmware-v*/
 firmware/esp32s3_switch2_bridge/managed_components/
 firmware/esp32s3_switch2_bridge/sdkconfig
 firmware/esp32s3_switch2_bridge/sdkconfig.old
+firmware/esp32s3_dualsense_identity_experiment/managed_components/
+firmware/esp32s3_dualsense_identity_experiment/sdkconfig
+firmware/esp32s3_dualsense_identity_experiment/sdkconfig.old
 eim_config.toml
 config/
 windows/rate_manager_app/

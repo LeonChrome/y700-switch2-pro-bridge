@@ -4,6 +4,10 @@
 
 ### 中文
 
+- 新增独立 `firmware/esp32s3_dualsense_identity_experiment` Phase 1 固件，现有 V5.2/V5.0 默认固件完全不变。
+- Phase 1 暴露 VID `054c`、PID `0ce6`、DualSense product string、`0x01` 63-byte neutral input、`0x02` 47-byte output capture。
+- 新增独立 build/flash 工具和 Windows DualSense identity 检测工具。
+- ESP-IDF 5.3.3 实际 build 已通过；未刷实验固件时 host check 以 blocked/exit 0 结束。
 - 明确 V5.2 Pure Pro2 / VIIPER 路线封存保留，V5.5 不替换、不混入、不修改其默认行为。
 - 新增 DS5Dongle fetch/analyze 工具，固定记录上游 commit、branch、license、USB descriptor、audio/haptic 和 Bluetooth backend 耦合点。
 - 新增 V5.3 synthetic DualSense feature -> Pro2 raw02 dry-run pipeline。
@@ -13,6 +17,10 @@
 
 ### English
 
+- Added the standalone `firmware/esp32s3_dualsense_identity_experiment` Phase 1 firmware; the existing V5.2/V5.0 default firmware is unchanged.
+- Phase 1 exposes VID `054c`, PID `0ce6`, DualSense product strings, neutral `0x01` 63-byte input, and `0x02` 47-byte output capture.
+- Added standalone build/flash tools and a Windows DualSense identity checker.
+- Verified a real ESP-IDF 5.3.3 build; before flashing, the host checker exits zero with a blocked result.
 - Froze and preserved the V5.2 Pure Pro2 / VIIPER route; V5.5 does not replace, merge into, or change its default behavior.
 - Added DS5Dongle fetch/analyze tools that record upstream commit, branch, license, USB descriptors, audio/haptic paths, and Bluetooth backend coupling.
 - Added a V5.3 synthetic DualSense feature to Pro2 raw02 dry-run pipeline.
