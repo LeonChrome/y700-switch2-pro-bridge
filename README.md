@@ -362,11 +362,11 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\run_v5_3_dualsense_t
 powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\run_v5_4_hybrid_haptic_probe.ps1
 ```
 
-### V5.5 Phase 1/2: DualSense Identity and Pro2 Input
+### V5.5 Phase 1/2/3: DualSense Identity, Pro2 Input, and Audio Stub
 
 中文：
 
-Phase 1 实机验证已通过：Windows 识别 VID `054c` / PID `0ce6`，持续接收 `0x01 + 63 bytes`、约 `250 Hz` 的输入报告，且未发生 USB 断连。Phase 2 在同一个独立实验固件中复用现有 Pro2 BLE FD2 解析器，将真实 Pro2 的按键、摇杆、扳机和 motion 映射到 DualSense 输入报告。Phase 2.1 根据实测反转了两根摇杆 Y 轴，并把 DualSense 普通 light/heavy motor 输出安全近似为 Pro2 BLE vibration；受控测试已得到非零 BLE 写入和零错误。现有 V5.2/V5.0 默认桥接固件和 GUI 不变；USB Audio、haptic audio 和 raw02 仍未启用。
+Phase 1 实机验证已通过：Windows 识别 VID `054c` / PID `0ce6`，持续接收 `0x01 + 63 bytes`、约 `250 Hz` 的输入报告，且未发生 USB 断连。Phase 2 在同一个独立实验固件中复用现有 Pro2 BLE FD2 解析器，将真实 Pro2 的按键、摇杆、扳机和 motion 映射到 DualSense 输入报告。Phase 2.1 根据实测反转了两根摇杆 Y 轴，并把 DualSense 普通 light/heavy motor 输出安全近似为 Pro2 BLE vibration；受控测试已得到非零 BLE 写入和零错误。Phase 3 新增最小 USB Audio render endpoint stub：目标是让 Windows 枚举 DualSense-like 4ch/48kHz 音频输出，并在固件中只统计 haptic channels 2/3，生成 Pro2 raw02 dry-run payload。现有 V5.2/V5.0 默认桥接固件和 GUI 不变；haptic raw02 实时转发仍默认关闭。
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\esp32s3\build_v5_5_dualsense_identity.ps1 -IdfPath C:\Espressif\v5.3.3\esp-idf
@@ -375,13 +375,14 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\check_v5_5_dualsense
 powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\check_v5_5_dualsense_input.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\check_v5_5_dualsense_reports.ps1 -Seconds 6
 powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\send_v5_5_dualsense_rumble_test.ps1 -RightLight 48 -LeftHeavy 80 -PulseMs 250 -Send
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\check_v5_5_dualsense_audio.ps1
 ```
 
 English:
 
-Phase 1 passed hardware validation with VID `054c`, PID `0ce6`, stable `0x01 + 63-byte` input at about 250 Hz, and no USB disconnect. Phase 2 reuses the existing Pro2 BLE FD2 parser inside the standalone experiment and maps real Pro2 buttons, sticks, triggers, and motion into the DualSense input report. Phase 2.1 reverses both stick Y axes from hardware feedback and safely approximates ordinary DualSense light/heavy motor output through Pro2 BLE vibration; a controlled test produced non-zero BLE writes with zero errors. The V5.2/V5.0 default firmware and GUI remain unchanged; USB Audio, haptic audio, and raw02 are disabled.
+Phase 1 passed hardware validation with VID `054c`, PID `0ce6`, stable `0x01 + 63-byte` input at about 250 Hz, and no USB disconnect. Phase 2 reuses the existing Pro2 BLE FD2 parser inside the standalone experiment and maps real Pro2 buttons, sticks, triggers, and motion into the DualSense input report. Phase 2.1 reverses both stick Y axes from hardware feedback and safely approximates ordinary DualSense light/heavy motor output through Pro2 BLE vibration; a controlled test produced non-zero BLE writes with zero errors. Phase 3 adds a minimal USB Audio render endpoint stub so Windows can enumerate a DualSense-like 4ch/48 kHz output path; firmware currently extracts haptic channel 2/3 statistics and emits Pro2 raw02 dry-run payloads only. The V5.2/V5.0 default firmware and GUI remain unchanged; live haptic raw02 forwarding remains off.
 
-See the [Phase 1 guide](docs/v5_5_phase1_minimal_dualsense_hid_identity.md) and [Phase 2 mapping guide](docs/v5_5_phase2_pro2_to_dualsense_input_mapping.md).
+See the [Phase 1 guide](docs/v5_5_phase1_minimal_dualsense_hid_identity.md), [Phase 2 mapping guide](docs/v5_5_phase2_pro2_to_dualsense_input_mapping.md), and [Phase 3 audio endpoint guide](docs/v5_5_phase3_dualsense_audio_endpoint.md).
 
 ## 文档 / Documentation
 
@@ -402,7 +403,9 @@ See the [Phase 1 guide](docs/v5_5_phase1_minimal_dualsense_hid_identity.md) and 
 - [V5.5 DualSense identity 实验计划](docs/v5_5_esp32s3_dualsense_identity_experiment_plan.md)
 - [V5.5 Phase 1 最小 DualSense HID identity](docs/v5_5_phase1_minimal_dualsense_hid_identity.md)
 - [V5.5 Phase 2 Pro2 到 DualSense 输入映射](docs/v5_5_phase2_pro2_to_dualsense_input_mapping.md)
+- [V5.5 Phase 3 DualSense audio endpoint](docs/v5_5_phase3_dualsense_audio_endpoint.md)
 - [V5.5 DS5 descriptor 对照](docs/generated/v5_5_ds5_descriptor_mapping.md)
+- [Token 安全卫生](docs/security_token_hygiene.md)
 - [V5.0.0 预览说明 / Preview Notes](RELEASE_NOTES_v5.0.0-preview.md)
 - [V4.0.0 发布说明 / Release Notes](RELEASE_NOTES_v4.0.0.md)
 - [ESP32-S3 文档 / ESP32-S3 documentation](docs/esp32s3/README_ESP32S3.md)

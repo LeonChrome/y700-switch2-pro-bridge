@@ -17,6 +17,10 @@
 - 新增 Phase 2.1 普通 DualSense light/heavy motor 到 Pro2 BLE vibration 的限幅兼容层。
 - 新增一次性低强度 `send_v5_5_dualsense_rumble_test.ps1`；实测 HID `0x02` 解析成功、BLE writes 非零且 errors 为零。
 - 报告循环改为 `xTaskDelayUntil` 绝对节拍，BLE 与震动任务运行时主机实测约 `248.8 Hz`。
+- 新增 Phase 3 最小 USB Audio render endpoint stub：4ch/48kHz/16-bit OUT，HID 输入和普通震动路径保持不变。
+- 新增 `dualsense_haptic_audio` 统计模块，提取 haptic channels 2/3 的 RMS、peak、transient、activity。
+- 新增 `haptic_audio_to_raw02` dry-run 转译模块，默认只打印 Pro2 raw02 16+16 payload，不实时发送。
+- 新增 `tools/check_v5_5_dualsense_audio.ps1` 和 token 安全文档；工作区与 git history 未发现 GitHub token 模式命中。
 - 新增独立 build/flash 工具和 Windows DualSense identity 检测工具。
 - ESP-IDF 5.3.3 实际 build 已通过；未刷实验固件时 host check 以 blocked/exit 0 结束。
 - 明确 V5.2 Pure Pro2 / VIIPER 路线封存保留，V5.5 不替换、不混入、不修改其默认行为。
@@ -41,6 +45,10 @@
 - Added a bounded Phase 2.1 ordinary DualSense light/heavy motor to Pro2 BLE vibration compatibility layer.
 - Added the one-shot low-intensity `send_v5_5_dualsense_rumble_test.ps1`; HID `0x02` parsing passed with non-zero BLE writes and zero errors.
 - Switched the report loop to an absolute `xTaskDelayUntil` cadence; host-observed rate is about 248.8 Hz with BLE and rumble tasks active.
+- Added the Phase 3 minimal USB Audio render endpoint stub: 4ch/48 kHz/16-bit OUT while preserving HID input and ordinary rumble behavior.
+- Added the `dualsense_haptic_audio` stats module for haptic channels 2/3 RMS, peak, transient, and activity extraction.
+- Added the `haptic_audio_to_raw02` dry-run translator, which logs Pro2 raw02 16+16 payloads and does not send live packets by default.
+- Added `tools/check_v5_5_dualsense_audio.ps1` and token hygiene documentation; worktree and git history scans found no GitHub token pattern hits.
 - Added standalone build/flash tools and a Windows DualSense identity checker.
 - Verified a real ESP-IDF 5.3.3 build; before flashing, the host checker exits zero with a blocked result.
 - Froze and preserved the V5.2 Pure Pro2 / VIIPER route; V5.5 does not replace, merge into, or change its default behavior.

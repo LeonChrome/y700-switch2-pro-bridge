@@ -63,16 +63,24 @@ DS5Dongle full composite device:
 | `0x84` IN interrupt | HID input |
 | `0x03` OUT interrupt | HID output |
 
-Phase 1 HID-only experiment:
+Phase 1/2 HID-only experiment:
 
 | Endpoint | Role |
 | --- | --- |
 | `0x81` IN interrupt | HID input |
 | `0x01` OUT interrupt | HID output |
 
-The Phase 1 endpoint numbers differ because Audio Class endpoints do not yet
-exist. Phase 4 must move HID to the composite layout and reserve audio endpoint
-numbers before Windows compatibility testing.
+Phase 3 audio stub experiment:
+
+| Endpoint | Role |
+| --- | --- |
+| `0x02` OUT isochronous | Four-channel audio/haptics render stream |
+| `0x81` IN interrupt | HID input |
+| `0x01` OUT interrupt | HID output |
+
+Phase 3 adds Audio Control interface `0`, Audio Streaming OUT interface `1`,
+and moves the HID interface to `2`. HID report IDs and HID endpoint addresses
+remain unchanged to preserve the Phase 2 input and ordinary-rumble paths.
 
 ## Neutral Input
 
@@ -112,39 +120,58 @@ the newest parsed accelerometer/gyroscope sample into the DualSense motion
 fields. Neutral reports continue to carry increasing sequence and timestamp
 values when the Pro2 is disconnected or its input is stale.
 
-Phase 2 does not add USB Audio, haptic audio, or raw02 forwarding.
-
 Phase 2.1 keeps the descriptor unchanged and consumes the existing output
 report `0x02`. Ordinary light/heavy motor intensity is converted into bounded
 Pro2 BLE vibration. DualSense haptic audio and raw02 pass-through remain
 deferred.
 
+## Phase 3 Audio Stub
+
+Phase 3 changes the configuration descriptor from HID-only to a minimal
+composite Audio + HID shape:
+
+```text
+interface 0 = Audio Control, UAC2
+interface 1 = Audio Streaming OUT, 4ch, 48 kHz, signed 16-bit PCM
+interface 2 = HID gamepad
+```
+
+The firmware reads host OUT audio data with TinyUSB and extracts channels 2/3
+as haptic left/right statistics:
+
+```text
+rms_l/rms_r
+peak_l/peak_r
+activity
+transient
+frame_count
+overrun_count
+```
+
+`haptic_audio_to_raw02` currently emits dry-run `Left[16] + Right[16]`
+payloads only. Live raw02 forwarding remains disabled.
+
 ## Deferred
 
-Not implemented in Phase 2:
+Not implemented in Phase 3:
 
-- Audio Control interface,
-- Audio Streaming OUT/IN interfaces,
-- four-channel 48 kHz 16-bit audio,
-- haptic channels 2/3,
 - speaker/headset processing,
 - complete feature report table,
 - calibration and pairing data,
 - microphone/touchpad behavior,
-- Pro2 raw02 output.
+- live Pro2 raw02 output from haptic audio.
 
-## Phase 4 Mapping
+## Future Mapping
 
-Phase 4 will add:
+Future phases may add:
 
 ```text
-Audio Control interface
-Audio Streaming OUT: 4 channels, 48 kHz, 16-bit
 Audio Streaming IN compatibility shape, if required
 HID IN endpoint 0x84
 HID OUT endpoint 0x03
 Audio OUT endpoint 0x01
 Audio IN endpoint 0x82
+safe haptic_raw02_forwarding=on switch
 ```
 
 Channels:

@@ -2,6 +2,7 @@
 #include <stdint.h>
 #include <string.h>
 
+#include "dualsense_haptic_audio.h"
 #include "dualsense_report.h"
 #include "dualsense_report_mapper.h"
 #include "esp_err.h"
@@ -210,7 +211,7 @@ void app_main(void)
     ESP_LOGI(TAG,
              "[DS5_IDENTITY] vid=0x054c pid=0x0ce6 product=DualSense Wireless Controller");
     ESP_LOGI(TAG,
-             "[DS5_IDENTITY] audio=false ble_input=true rumble_compat=true raw02=false");
+             "[DS5_IDENTITY] audio=experimental ble_input=true rumble_compat=true raw02_forwarding=false");
 
     esp_err_t nvs_err = nvs_flash_init();
     if (nvs_err == ESP_ERR_NVS_NO_FREE_PAGES ||
@@ -233,6 +234,7 @@ void app_main(void)
     ESP_ERROR_CHECK(tinyusb_driver_install(&tusb_config));
     pro2_input_backend_init();
     pro2_rumble_backend_init();
+    dualsense_haptic_audio_init();
     ESP_ERROR_CHECK(xTaskCreate(neutral_report_task,
                                 "ds5_input",
                                 3072,

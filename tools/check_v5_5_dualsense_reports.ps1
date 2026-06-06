@@ -35,5 +35,10 @@ if ($needsBuild) {
 }
 
 Write-Output "[V5_5_DS5_REPORT] seconds=$Seconds"
+Write-Output "[V5_5_DS5_REPORT] input_rate=measured_hz"
+Write-Output "[V5_5_DS5_REPORT] output_0x02_seen=use_tools/send_v5_5_dualsense_rumble_test.ps1"
+Write-Output "[V5_5_DS5_REPORT] audio_endpoint_found=use_tools/check_v5_5_dualsense_audio.ps1"
+Write-Output "[V5_5_DS5_REPORT] haptic_audio_activity=firmware_log_required"
+Write-Output "[V5_5_DS5_REPORT] ordinary_rumble_to_pro2_status=phase2_1_supported"
 & $Reader $Seconds
 exit $LASTEXITCODE

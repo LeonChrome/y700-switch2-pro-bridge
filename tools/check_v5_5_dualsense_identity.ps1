@@ -14,15 +14,6 @@ function Write-IdentityLine {
     Write-Output "[V5_5_DS5_IDENTITY] $Key=$text"
 }
 
-function Get-PropertyValue {
-    param($Device, [string]$KeyName)
-    try {
-        return (Get-PnpDeviceProperty -InstanceId $Device.InstanceId -KeyName $KeyName -ErrorAction Stop).Data
-    } catch {
-        return $null
-    }
-}
-
 $allDevices = @(Get-PnpDevice -PresentOnly -ErrorAction SilentlyContinue)
 $candidates = @()
 
@@ -34,9 +25,7 @@ foreach ($device in $allDevices) {
         continue
     }
 
-    $busProduct = Get-PropertyValue -Device $device -KeyName "DEVPKEY_Device_BusReportedDeviceDesc"
-    $deviceDesc = Get-PropertyValue -Device $device -KeyName "DEVPKEY_Device_DeviceDesc"
-    $text = "$friendlyName $busProduct $deviceDesc $instanceId"
+    $text = "$friendlyName $instanceId"
 
     if ($instanceId -match "VID_054C&PID_0CE6" -or
         $text -match "DualSense|Wireless Controller|Sony Interactive Entertainment") {
@@ -44,7 +33,7 @@ foreach ($device in $allDevices) {
             Device = $device
             InstanceId = $instanceId
             FriendlyName = $friendlyName
-            Product = if ($busProduct) { $busProduct } elseif ($deviceDesc) { $deviceDesc } else { $friendlyName }
+            Product = if ($friendlyName) { $friendlyName } else { $device.Name }
             Vid = if ($instanceId -match "VID_([0-9A-Fa-f]{4})") { $Matches[1].ToUpperInvariant() } else { "not_found" }
             Pid = if ($instanceId -match "PID_([0-9A-Fa-f]{4})") { $Matches[1].ToUpperInvariant() } else { "not_found" }
             HidClass = $device.Class -eq "HIDClass" -or $instanceId -match "^HID\\"
@@ -62,14 +51,38 @@ $likelyDualSense = $hidFound -and
     (($best.Vid -eq "054C" -and $best.Pid -eq "0CE6") -or
      $best.Product -match "DualSense|Wireless Controller")
 $steam = Get-Process -Name steam -ErrorAction SilentlyContinue | Select-Object -First 1
+$audioEndpointFound = $false
+
+try {
+    $audioDevices = @(Get-CimInstance Win32_SoundDevice -ErrorAction Stop |
+        Where-Object {
+            ($_.Name -match "DualSense|Wireless Controller|054C|0CE6|Sony") -or
+            ($_.PNPDeviceID -match "VID_054C&PID_0CE6")
+        })
+    $audioPnpDevices = @(Get-PnpDevice -PresentOnly -ErrorAction Stop |
+        Where-Object {
+            (($_.Class -match "AudioEndpoint|Media") -or
+             ($_.FriendlyName -match "Speaker|Headphones|Wireless Controller|DualSense")) -and
+            (($_.FriendlyName -match "DualSense|Wireless Controller|054C|0CE6|Sony") -or
+             ($_.InstanceId -match "VID_054C&PID_0CE6"))
+        })
+    $audioEndpointFound = ($audioDevices.Count -gt 0) -or ($audioPnpDevices.Count -gt 0)
+} catch {
+    $audioEndpointFound = $false
+}
 
 Write-IdentityLine "hid_found" $hidFound
+Write-IdentityLine "identity_found" $likelyDualSense
 Write-IdentityLine "vid" ($(if ($best) { $best.Vid } else { "not_found" }))
 Write-IdentityLine "pid" ($(if ($best) { $best.Pid } else { "not_found" }))
 Write-IdentityLine "product" ($(if ($best) { $best.Product } else { "not_found" }))
 Write-IdentityLine "instance_id" ($(if ($best) { $best.InstanceId } else { "not_found" }))
 Write-IdentityLine "steam_running" ($null -ne $steam)
 Write-IdentityLine "likely_dualsense" $likelyDualSense
+Write-IdentityLine "audio_endpoint_found" $audioEndpointFound
+Write-IdentityLine "output_0x02_seen" "use_tools/send_v5_5_dualsense_rumble_test.ps1"
+Write-IdentityLine "haptic_audio_activity" "firmware_log_required"
+Write-IdentityLine "ordinary_rumble_to_pro2_status" "phase2_1_supported"
 Write-IdentityLine "candidate_count" $candidates.Count
 
 foreach ($candidate in $candidates | Select-Object -First 8) {
