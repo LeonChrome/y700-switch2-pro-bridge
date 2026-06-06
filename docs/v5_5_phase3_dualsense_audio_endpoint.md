@@ -187,11 +187,19 @@ input rate drops badly: USB/BLE/audio scheduling needs throttling
 ordinary rumble stops working: HID OUT path was disturbed and must be restored
 ```
 
-## Current Limits
+## Phase 3 Limits
 
 - No speaker playback.
 - No microphone/audio IN endpoint.
 - No complete DualSense haptic audio reproduction.
-- No live Pro2 raw02 forwarding.
-- raw02 dry-run payloads are safe approximation templates, not final HD Rumble
-  2 reproduction.
+- Phase 3 itself did not enable live Pro2 raw02 forwarding.
+- raw02 dry-run payloads in this phase were safe approximation templates, not
+  final HD Rumble 2 reproduction.
+
+Later V5.5 work adds haptic channel analysis, guarded dry-run/live raw02
+forwarding, and the V5.5 Manager. See:
+
+- [Phase 4 haptic audio channel analysis](v5_5_phase4_haptic_audio_channel_analysis.md)
+- [Phase 5 haptic audio to raw02 dry-run](v5_5_phase5_haptic_audio_to_raw02_dryrun.md)
+- [Phase 6 haptic raw02 live forwarding safety](v5_5_phase6_haptic_raw02_live_forwarding_safety.md)
+- [V5.5 Manager user guide](v5_5_manager_user_guide.md)

@@ -19,8 +19,11 @@ set(main_sources
     "usb_dualsense_descriptor.c"
     "dualsense_report.c"
     "dualsense_report_mapper.c"
+    "dualsense_haptic_audio.c"
+    "haptic_audio_to_raw02.c"
     "pro2_input_backend.c"
     "pro2_rumble_backend.c"
+    "v55_control_protocol.c"
 )
 
 if(V5_5_DS5_PROFILE STREQUAL "hid_audio_uac2")
@@ -103,10 +106,6 @@ elseif(V5_5_DS5_PROFILE STREQUAL "hid_audio_uac2_2ch")
     set(DS5_HID_INTERFACE_NUMBER 2)
     set(DS5_INTERFACE_COUNT 3)
     set(DS5_PROFILE_SERIAL "V55UAC2_2CH")
-    list(APPEND main_sources
-        "dualsense_haptic_audio.c"
-        "haptic_audio_to_raw02.c"
-    )
 elseif(V5_5_DS5_PROFILE STREQUAL "hid_audio_uac2_4ch")
     set(DS5_ENABLE_USB_COMPOSITE 1)
     set(DS5_DEVICE_CLASS_IAD 1)
@@ -116,10 +115,6 @@ elseif(V5_5_DS5_PROFILE STREQUAL "hid_audio_uac2_4ch")
     set(DS5_HID_INTERFACE_NUMBER 2)
     set(DS5_INTERFACE_COUNT 3)
     set(DS5_PROFILE_SERIAL "V55UAC2_4CH")
-    list(APPEND main_sources
-        "dualsense_haptic_audio.c"
-        "haptic_audio_to_raw02.c"
-    )
 elseif(V5_5_DS5_PROFILE STREQUAL "hid_only")
     set(DS5_PROFILE_SERIAL "V55HIDONLY")
 else()

@@ -2,6 +2,8 @@
 #include <stdint.h>
 
 #include "class/audio/audio.h"
+#include "dualsense_haptic_audio.h"
+#include "esp_timer.h"
 #include "device/usbd_pvt.h"
 #include "esp_log.h"
 #include "tusb.h"
@@ -50,6 +52,7 @@ static void uac1_init(void)
     s_alt_setting = DS5_UAC1_ALT_IDLE;
 #if DS5_ENABLE_UAC1_AUDIO
     s_packet_count = 0;
+    dualsense_haptic_audio_set_streaming(false, DS5_UAC1_ALT_IDLE);
 #endif
 }
 
@@ -64,6 +67,7 @@ static void uac1_reset(uint8_t rhport)
     s_alt_setting = DS5_UAC1_ALT_IDLE;
 #if DS5_ENABLE_UAC1_AUDIO
     s_packet_count = 0;
+    dualsense_haptic_audio_set_streaming(false, DS5_UAC1_ALT_IDLE);
 #endif
 }
 
@@ -142,6 +146,7 @@ static bool uac1_start_stream(uint8_t rhport)
         return false;
     }
     s_packet_count = 0;
+    dualsense_haptic_audio_set_streaming(true, DS5_UAC1_ALT_STREAMING);
     bool armed = usbd_edpt_xfer(rhport,
                                 DUALSENSE_USB_AUDIO_EP_OUT,
                                 s_audio_out_buffer,
@@ -200,6 +205,7 @@ static bool uac1_control_xfer_cb(uint8_t rhport,
             }
         } else {
             s_alt_setting = DS5_UAC1_ALT_IDLE;
+            dualsense_haptic_audio_set_streaming(false, DS5_UAC1_ALT_IDLE);
         }
 #else
         return false;
@@ -225,6 +231,12 @@ static bool uac1_xfer_cb(uint8_t rhport,
         return false;
     }
     if (result == XFER_RESULT_SUCCESS) {
+        if (xferred_bytes > 0 && xferred_bytes <= sizeof(s_audio_out_buffer)) {
+            dualsense_haptic_audio_process_packet(s_audio_out_buffer,
+                                                   (uint16_t)xferred_bytes,
+                                                   DUALSENSE_HAPTIC_AUDIO_CHANNELS,
+                                                   esp_timer_get_time());
+        }
         s_packet_count++;
         if (s_packet_count == 1 || (s_packet_count % 500) == 0) {
             ESP_LOGI(TAG,

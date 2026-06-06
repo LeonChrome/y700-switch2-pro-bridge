@@ -1,6 +1,8 @@
 #include <stdbool.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <string.h>
+#include <unistd.h>
 
 #include "dualsense_report.h"
 #include "dualsense_report_mapper.h"
@@ -15,8 +17,9 @@
 #include "tinyusb.h"
 #include "tusb.h"
 #include "usb_dualsense_descriptor.h"
+#include "v55_control_protocol.h"
 
-#if DS5_ENABLE_UAC2_AUDIO
+#if DS5_ENABLE_UAC1_AUDIO || DS5_ENABLE_UAC2_AUDIO
 #include "dualsense_haptic_audio.h"
 #endif
 
@@ -50,6 +53,7 @@ static uint32_t s_report_count;
 static uint32_t s_output_count;
 
 #define PRO2_INPUT_STALE_US 1000000LL
+#define V55_CONTROL_LINE_MAX 192
 
 void tud_mount_cb(void)
 {
@@ -141,6 +145,53 @@ void tud_hid_set_report_cb(uint8_t instance,
              (unsigned)bufsize,
              (unsigned long)s_output_count,
              rumble_handled ? "true" : "false");
+}
+
+static void control_task(void *arg)
+{
+    (void)arg;
+    char line[V55_CONTROL_LINE_MAX];
+    uint8_t rx[64];
+    size_t line_len = 0;
+    bool overflow = false;
+    static char reply[3072];
+
+    while (true) {
+        int rx_len = read(STDIN_FILENO, rx, sizeof(rx));
+        if (rx_len <= 0) {
+            vTaskDelay(pdMS_TO_TICKS(20));
+            continue;
+        }
+
+        for (int i = 0; i < rx_len; i++) {
+            uint8_t ch = rx[i];
+            if (ch == '\r' || ch == '\n') {
+                if (overflow) {
+                    ESP_LOGW(TAG, "[V55_CONTROL] line too long; discarded");
+                    printf("{\"ok\":false,\"cmd\":\"serial\",\"error\":\"command line too long\"}\n");
+                    overflow = false;
+                    line_len = 0;
+                    continue;
+                }
+                if (line_len > 0) {
+                    line[line_len] = 0;
+                    v55_control_protocol_handle_line(line, reply, sizeof(reply));
+                    line_len = 0;
+                }
+                continue;
+            }
+
+            if (overflow) {
+                continue;
+            }
+            if (line_len + 1 >= sizeof(line)) {
+                overflow = true;
+                line_len = 0;
+                continue;
+            }
+            line[line_len++] = (char)ch;
+        }
+    }
 }
 
 static void neutral_report_task(void *arg)
@@ -276,9 +327,16 @@ void app_main(void)
     ESP_ERROR_CHECK(tinyusb_driver_install(&tusb_config));
     pro2_input_backend_init();
     pro2_rumble_backend_init();
-#if DS5_ENABLE_UAC2_AUDIO
+#if DS5_ENABLE_UAC1_AUDIO || DS5_ENABLE_UAC2_AUDIO
     dualsense_haptic_audio_init();
 #endif
+    v55_control_protocol_init();
+    ESP_ERROR_CHECK(xTaskCreate(control_task,
+                                "v55_control",
+                                6144,
+                                NULL,
+                                6,
+                                NULL) == pdPASS ? ESP_OK : ESP_FAIL);
     ESP_ERROR_CHECK(xTaskCreate(neutral_report_task,
                                 "ds5_input",
                                 3072,

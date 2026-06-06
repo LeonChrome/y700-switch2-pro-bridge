@@ -84,6 +84,163 @@ static void build_packet(uint8_t packet_id, const uint8_t vibration[5],
     write_motor_block(out, 17, packet_id, vibration, zero);
 }
 
+
+static bool raw02_has_non_zero_payload(const uint8_t *data, uint16_t len, uint16_t offset)
+{
+    for (uint16_t i = offset; i < len; i++) {
+        if (data[i] != 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static bool raw02_is_switch2_rumble_report(const uint8_t *data, uint16_t len)
+{
+    return len >= 7 && data[0] == 0x02 && (data[1] & 0xf0) == 0x50;
+}
+
+static int raw02_clamp_int(int value, int min_value, int max_value)
+{
+    if (value < min_value) {
+        return min_value;
+    }
+    if (value > max_value) {
+        return max_value;
+    }
+    return value;
+}
+
+static int raw02_map_switch_amp_to_ble(int value)
+{
+    int64_t scaled = (int64_t)value * 1023LL;
+    int64_t mapped = (scaled + 1450000LL) / 2900000LL;
+    return raw02_clamp_int((int)mapped, 0, 1023);
+}
+
+static void raw02_build_ble_vibration_data(uint16_t lf_freq,
+                                           bool lf_tone,
+                                           uint16_t lf_amp,
+                                           uint16_t hf_freq,
+                                           bool hf_tone,
+                                           uint16_t hf_amp,
+                                           uint8_t out[5])
+{
+    uint64_t value = 0;
+    value |= (uint64_t)(lf_freq & 0x01ff);
+    value |= (uint64_t)(lf_tone ? 1 : 0) << 9;
+    value |= (uint64_t)(lf_amp & 0x03ff) << 10;
+    value |= (uint64_t)(hf_freq & 0x01ff) << 20;
+    value |= (uint64_t)(hf_tone ? 1 : 0) << 29;
+    value |= (uint64_t)(hf_amp & 0x03ff) << 30;
+
+    for (size_t i = 0; i < 5; i++) {
+        out[i] = (uint8_t)((value >> (8 * i)) & 0xff);
+    }
+}
+
+static void raw02_build_zero_ble_vibration(uint8_t out[5])
+{
+    raw02_build_ble_vibration_data(0x0e1, false, 0, 0x1e1, false, 0, out);
+}
+
+static void raw02_encode_ble_vibration_from_switch_frame(const uint8_t *report,
+                                                         uint16_t len,
+                                                         uint16_t offset,
+                                                         uint8_t out[5])
+{
+    if (len < offset + 5) {
+        raw02_build_zero_ble_vibration(out);
+        return;
+    }
+
+    int b0 = report[offset];
+    int b1 = report[offset + 1];
+    int b2 = report[offset + 2];
+    int b3 = report[offset + 3];
+    int b4 = report[offset + 4];
+
+    int high_freq = b0 | ((b1 & 0x03) << 8);
+    int high_amp = ((b1 & 0xfc) << 4) | ((b2 & 0x0f) << 12);
+    int low_freq = ((b2 & 0xf0) >> 4) | ((b3 & 0x3f) << 4);
+    int low_amp = (b3 & 0xc0) | (b4 << 8);
+
+    raw02_build_ble_vibration_data((uint16_t)low_freq,
+                                   false,
+                                   (uint16_t)raw02_map_switch_amp_to_ble(low_amp),
+                                   (uint16_t)high_freq,
+                                   false,
+                                   (uint16_t)raw02_map_switch_amp_to_ble(high_amp),
+                                   out);
+}
+
+static void raw02_build_pro2_packet(uint8_t packet_id,
+                                    const uint8_t left[5],
+                                    const uint8_t right[5],
+                                    uint8_t out[33])
+{
+    uint8_t zero[5];
+    raw02_build_zero_ble_vibration(zero);
+    memset(out, 0, 33);
+    out[0] = 0x00;
+    write_motor_block(out, 1, packet_id, left, zero);
+    write_motor_block(out, 17, packet_id, right, zero);
+}
+
+esp_err_t pro2_rumble_backend_send_raw02_payload(const uint8_t *payload, uint16_t len)
+{
+    if (!payload || len != 64) {
+        ESP_LOGW(TAG,
+                 "[RUMBLE_RAW02] sent=false error=invalid_payload_len len=%u",
+                 (unsigned)len);
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (!raw02_is_switch2_rumble_report(payload, len)) {
+        ESP_LOGW(TAG,
+                 "[RUMBLE_RAW02] sent=false error=invalid_report first=%02x/%02x",
+                 payload[0],
+                 payload[1]);
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    uint8_t left[5];
+    uint8_t right[5];
+    bool active = raw02_has_non_zero_payload(payload, len, 2);
+    if (active) {
+        raw02_encode_ble_vibration_from_switch_frame(payload, len, 2, left);
+        raw02_encode_ble_vibration_from_switch_frame(payload, len, 0x12, right);
+    } else {
+        raw02_build_zero_ble_vibration(left);
+        raw02_build_zero_ble_vibration(right);
+    }
+
+    uint8_t packet[33];
+    uint8_t packet_id;
+    portENTER_CRITICAL(&s_lock);
+    packet_id = s_packet_id++ & 0x0f;
+    portEXIT_CRITICAL(&s_lock);
+    raw02_build_pro2_packet(packet_id, left, right, packet);
+
+    esp_err_t err = ble_central_send_rumble(packet, sizeof(packet));
+    portENTER_CRITICAL(&s_lock);
+    if (err == ESP_OK) {
+        s_writes++;
+    } else if (err != ESP_ERR_INVALID_STATE) {
+        s_errors++;
+    }
+    portEXIT_CRITICAL(&s_lock);
+
+    if (err == ESP_OK) {
+        ESP_LOGI(TAG,
+                 "[RUMBLE_RAW02] sent=true active=%s left=%02x%02x%02x%02x%02x right=%02x%02x%02x%02x%02x",
+                 active ? "true" : "false",
+                 left[0], left[1], left[2], left[3], left[4],
+                 right[0], right[1], right[2], right[3], right[4]);
+    } else {
+        ESP_LOGW(TAG, "[RUMBLE_RAW02] sent=false error=%s", esp_err_to_name(err));
+    }
+    return err;
+}
 static void rumble_task(void *arg)
 {
     (void)arg;

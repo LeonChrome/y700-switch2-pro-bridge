@@ -1,5 +1,37 @@
 # Changelog
 
+## V5.5 Integrated Haptic raw02 Manager - 2026-06-06
+
+### 中文
+
+- 新增 V5.5 haptic audio -> Pro2 raw02 实验闭环：UAC1 4ch audio OUT 的 channel 2/3 被解析为左右 haptic source。
+- `dualsense_haptic_audio` 现在提取 RMS、peak、mean abs、envelope、transient、active/silence packet counters 和 streaming state。
+- `haptic_audio_to_raw02` 从 dry-run preview 升级为带安全门的 live forwarding 模块：默认 live off、dry-run on、BLE required、限幅、限频、静音 stop、BLE 错误自动关闭 live。
+- `pro2_rumble_backend` 新增 V5.5 raw02 payload 发送入口，复用已验证的 Pro2 BLE rumble backend。
+- 新增 V5.5 串口控制协议：`haptic status`、`haptic raw02 on/off`、`haptic dryrun on/off`、`haptic max/gain/transient_gain/interval/silence/threshold/mode`、`haptic test tick/punch/texture/continuous/stop`、`rumble raw02 <hex>`。
+- UAC1 4ch driver 在收到 384-byte/ms 等时 OUT 包时直接喂给 haptic feature extractor，音频 alt 0 / stop 会触发 haptic stop。
+- 新增 host 侧 `send_v5_5_haptic_audio_test.ps1` 和 `SendV55HapticAudioTest.cs`，支持枚举 Windows waveOut endpoint 并发送 4ch 测试 pattern。
+- 新增独立 V5.5 WPF Manager：一页式集成烧录、模式、BLE、USB 检查、haptic 参数、audio pattern、raw02 live/dry-run 开关和日志。
+- 新增 `package_v5_5_manager.ps1`，能构建固件、编译 host sender、编译/发布 Manager、复制工具和 firmware payload，并生成 `Y700Switch2V55Manager-aio-v5.5-experimental.zip` 与 SHA256。
+- 打包脚本支持没有 .NET SDK 的机器：使用 .NET Framework `csc.exe` fallback，并动态定位 WPF reference assemblies / GAC。
+- 新增 Phase 4/5/6 和 Manager 文档，明确 V5.5 不替换 V5.0 stable，也不修改 V5.2 VIIPER/raw02 默认行为。
+- ESP-IDF 5.3.3 实际构建已通过 `hid_audio_uac1_4ch_ds5like` 与 `hid_only`。
+
+### English
+
+- Added the V5.5 haptic-audio -> Pro2 raw02 experimental loop: UAC1 4ch audio OUT channels 2/3 are parsed as left/right haptic sources.
+- `dualsense_haptic_audio` now extracts RMS, peak, mean absolute value, envelope, transient, active/silence packet counters, and streaming state.
+- `haptic_audio_to_raw02` now supports guarded live forwarding in addition to dry-run preview: live off by default, dry-run on by default, BLE required, amplitude clamp, rate limit, silence stop, and automatic live disable on BLE errors.
+- `pro2_rumble_backend` exposes a V5.5 raw02 payload sender using the already validated Pro2 BLE rumble backend.
+- Added the V5.5 serial control protocol for haptic status, dry-run/live toggles, tuning parameters, short tests, and `rumble raw02 <hex>`.
+- The UAC1 4ch driver feeds each 384-byte/ms isochronous OUT packet directly into the haptic feature extractor; audio alt 0 / stop triggers haptic stop.
+- Added the host-side haptic audio sender (`send_v5_5_haptic_audio_test.ps1` and `SendV55HapticAudioTest.cs`) for Windows endpoint enumeration and 4ch test patterns.
+- Added the standalone V5.5 WPF Manager with flashing, mode notes, BLE controls, USB checks, haptic parameters, audio patterns, raw02 dry-run/live toggles, and logs on one page.
+- Added `package_v5_5_manager.ps1` to build firmware, compile the host sender, build/publish the Manager, copy tools and firmware payloads, and generate the V5.5 experimental aio zip plus SHA256.
+- The package script works without a .NET SDK by using the .NET Framework `csc.exe` fallback and dynamically resolving WPF reference assemblies / GAC.
+- Added Phase 4/5/6 and Manager documentation. V5.5 remains separate from V5.0 stable and does not change the V5.2 VIIPER/raw02 default behavior.
+- ESP-IDF 5.3.3 builds pass for both `hid_audio_uac1_4ch_ds5like` and `hid_only`.
+
 ## V5.5 Planning - 2026-06-06
 
 ### Descriptor 级 Composite 调试

@@ -393,6 +393,47 @@ profile name remains as an alias for `hid_audio_uac2_4ch` and prints a warning.
 Use `hid_only` first when recovering from Windows USB Composite Device errors,
 then validate UAC1 2ch before testing UAC2 2ch and finally UAC2 4ch.
 
+### V5.5 Phase 4/5/6: Haptic Audio, raw02, and Manager
+
+中文：
+
+V5.5 现在进入完整实验闭环：PC / Steam / 游戏把 ESP32-S3 看作有线 DualSense-like HID + UAC1 四声道音频设备；固件提取 audio channel 2/3 的左右 haptic 特征，转成 Pro2 `raw02` payload，再通过 BLE 发给真实 Switch 2 Pro Controller。V5.5 不替换 V5.0 稳定版，也不改 V5.2 VIIPER/raw02 路线；普通用户仍建议使用 V5.0.0 Manager，V5.5 面向 haptic audio 和 raw02 live forwarding 研究。
+
+安全默认值：
+
+- `haptic raw02` live forwarding 默认关闭。
+- `haptic dryrun` 默认开启。
+- BLE 未连接时不会发送真实 raw02。
+- 发送失败会自动关闭 live forwarding。
+- 静音、播放停止或音频 alt 0 会发送 stop/silence payload。
+- Manager 的 `Live On` 会二次确认；`Live Off` 会恢复 dry-run。
+
+V5.5 Manager 一页式集成烧录、模式说明、BLE、USB 检查、haptic 参数、audio pattern、raw02 live/dry-run 开关和串口日志。打包命令：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\package_v5_5_manager.ps1
+```
+
+运行：
+
+```powershell
+.\release\v5.5\Y700Switch2V55Manager\Y700Switch2V55Manager.exe
+```
+
+命令行验证：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\send_v5_5_haptic_audio_test.ps1 -ListDevices
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\send_v5_5_haptic_audio_test.ps1 -DeviceName "Wireless Controller" -Pattern both_tick -DurationMs 600 -Intensity 48
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\esp32s3\send_command.ps1 -Port COM12 -Command "haptic status" -ReadSeconds 3
+```
+
+English:
+
+V5.5 now forms an experimental end-to-end loop: the PC / Steam / game sees the ESP32-S3 as a wired DualSense-like HID + UAC1 four-channel audio device; the firmware extracts left/right haptic features from audio channels 2/3, translates them into Pro2 `raw02` payloads, and can forward them over BLE to the real Switch 2 Pro Controller. V5.5 does not replace the V5.0 stable release and does not modify the V5.2 VIIPER/raw02 route.
+
+Live forwarding is off by default, dry-run is on by default, BLE is required, BLE send errors automatically disable live forwarding, and playback stop/silence generates a stop payload. The V5.5 Manager integrates flashing, USB checks, BLE controls, haptic parameters, audio pattern tests, raw02 dry-run/live toggles, and serial logs on one page.
+
 ### V5.5 Descriptor 级 Composite 调试 / Descriptor-Level Composite Debug
 
 实机阶梯已确认 `hid_audio_uac1_2ch` 完整通过：Windows Composite parent、
@@ -445,6 +486,11 @@ See the [Phase 1 guide](docs/v5_5_phase1_minimal_dualsense_hid_identity.md), [Ph
 - [V5.5 Phase 2 Pro2 到 DualSense 输入映射](docs/v5_5_phase2_pro2_to_dualsense_input_mapping.md)
 - [V5.5 Phase 3 DualSense audio endpoint](docs/v5_5_phase3_dualsense_audio_endpoint.md)
 - [V5.5 Phase 3 USB composite debug](docs/v5_5_phase3_usb_composite_debug.md)
+- [V5.5 Phase 4 haptic audio channel analysis](docs/v5_5_phase4_haptic_audio_channel_analysis.md)
+- [V5.5 Phase 5 haptic audio to raw02 dry-run](docs/v5_5_phase5_haptic_audio_to_raw02_dryrun.md)
+- [V5.5 Phase 6 haptic raw02 live safety](docs/v5_5_phase6_haptic_raw02_live_forwarding_safety.md)
+- [V5.5 Manager app design](docs/v5_5_manager_app_design.md)
+- [V5.5 Manager user guide](docs/v5_5_manager_user_guide.md)
 - [V5.5 Windows USBView capture guide](docs/v5_5_windows_usbview_capture_guide.md)
 - [V5.5 USB audio bandwidth analysis](docs/v5_5_usb_audio_bandwidth_analysis.md)
 - [V5.5 Windows USB cache cleanup](docs/v5_5_windows_usb_cache_cleanup.md)
@@ -465,6 +511,7 @@ See the [Phase 1 guide](docs/v5_5_phase1_minimal_dualsense_hid_identity.md), [Ph
 ```text
 firmware/esp32s3_switch2_bridge/   ESP-IDF firmware for the ESP32-S3 bridge
 windows/manager_app/               .NET 8 WPF Manager and all-in-one flasher source
+windows/v55_manager_app/           Experimental V5.5 haptic/raw02 Manager source
 tools/esp32s3/                     Build, flash, monitor, and serial command scripts
 tools/                             HID, Steam, haptic, and rate-test helper tools
 docs/esp32s3/                      ESP32-S3 protocol, design, and troubleshooting docs

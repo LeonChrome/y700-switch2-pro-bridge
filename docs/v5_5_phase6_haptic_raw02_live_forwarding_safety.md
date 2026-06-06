@@ -1,0 +1,68 @@
+# V5.5 Phase 6 Haptic raw02 Live Forwarding Safety
+
+Date: 2026-06-06
+
+## 中文
+
+Phase 6 是实验性 live forwarding：把 haptic audio 转译出的 Pro2 `raw02` payload 通过 BLE 发给真实 Switch 2 Pro Controller。它默认关闭，必须显式打开，并且必须关闭 dry-run 才会真实发送。
+
+必须同时满足：
+
+```text
+haptic raw02 on
+haptic dryrun off
+BLE connected
+payload passes raw02 validation
+rate limit allows send
+not silent
+```
+
+安全机制：
+
+- 默认 `live_forwarding=false`。
+- 默认 `dry_run=true`。
+- BLE 未连接时丢弃并计入 `raw02_dropped_no_ble`。
+- 发送失败会记录 `raw02_ble_errors`，并自动关闭 live forwarding。
+- 静音、播放停止或 AudioStreaming alt 0 会发 stop/silence payload。
+- 没有循环满强度测试；测试 pattern 都是短脉冲或低强度 texture。
+- `max_intensity` 和 `min_interval_ms` 可在串口或 Manager 里限制。
+
+真实发送前建议顺序：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\esp32s3\send_command.ps1 -Port COM12 -Command "haptic defaults" -ReadSeconds 3
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\esp32s3\send_command.ps1 -Port COM12 -Command "ble reconnect" -ReadSeconds 20
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\esp32s3\send_command.ps1 -Port COM12 -Command "haptic status" -ReadSeconds 3
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\esp32s3\send_command.ps1 -Port COM12 -Command "haptic raw02 on" -ReadSeconds 3
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\esp32s3\send_command.ps1 -Port COM12 -Command "haptic dryrun off" -ReadSeconds 3
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\esp32s3\send_command.ps1 -Port COM12 -Command "haptic test tick" -ReadSeconds 3
+```
+
+停止命令：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\esp32s3\send_command.ps1 -Port COM12 -Command "haptic test stop" -ReadSeconds 3
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\esp32s3\send_command.ps1 -Port COM12 -Command "haptic dryrun on" -ReadSeconds 3
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\esp32s3\send_command.ps1 -Port COM12 -Command "haptic raw02 off" -ReadSeconds 3
+```
+
+当前实机状态：
+
+```text
+ordinary DualSense HID output -> Pro2 BLE vibration=true
+V5.2 raw02 real Pro2 physical vibration=true
+V5.5 haptic audio -> raw02 live path implemented=true
+V5.5 haptic audio live physical vibration=needs_real_board_retest
+blocked_by_real_pro2=false
+blocked_by_user_replug_or_game_test=true
+```
+
+需要真实硬件复测的是最后一段：刷入 V5.5 4ch profile、BLE 连接 Pro2、打开 live、发送 channel 2/3 测试流或打开支持 DualSense haptic audio 的游戏。固件侧已经保留 stop 和错误回退。
+
+## English
+
+Phase 6 is experimental live forwarding. It sends translated Pro2 `raw02` payloads to the real Switch 2 Pro over BLE. It is off by default and requires both `haptic raw02 on` and `haptic dryrun off`.
+
+Live forwarding also requires BLE connected, validated payloads, rate-limit approval, and non-silent haptic input. BLE errors automatically disable live forwarding. Silence, playback stop, and AudioStreaming alt 0 emit stop/silence payloads.
+
+The final live physical-vibration test still needs the real board flashed with V5.5 4ch, a BLE-connected Pro2, and either the host haptic audio sender or a game that writes DualSense haptic audio.
