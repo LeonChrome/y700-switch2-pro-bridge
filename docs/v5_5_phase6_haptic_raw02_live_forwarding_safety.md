@@ -65,4 +65,10 @@ Phase 6 is experimental live forwarding. It sends translated Pro2 `raw02` payloa
 
 Live forwarding also requires BLE connected, validated payloads, rate-limit approval, and non-silent haptic input. BLE errors automatically disable live forwarding. Silence, playback stop, and AudioStreaming alt 0 emit stop/silence payloads.
 
-The final live physical-vibration test still needs the real board flashed with V5.5 4ch, a BLE-connected Pro2, and either the host haptic audio sender or a game that writes DualSense haptic audio.
+The first live transport test produced successful BLE writes but no perceptible
+physical vibration. The cause was an incorrect amplitude normalization divisor:
+a 16-bit Switch rumble amplitude such as `28992` was mapped to only `10/1023`.
+It is now mapped against `65535`, yielding about `453/1023`, and active raw02
+frames are held for 120 ms and resent every 20 ms. A successful GATT write is
+still reported as transport success only; physical vibration requires human
+confirmation.

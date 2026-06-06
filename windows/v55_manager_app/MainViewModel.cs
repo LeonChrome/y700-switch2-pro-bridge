@@ -288,11 +288,11 @@ public sealed class MainViewModel : INotifyPropertyChanged
                     $"完整链路未确认：BLE writes={writes}, live packets={livePackets}, errors={errors}。");
             }
 
-            HapticStatus = $"安全实震通过：BLE writes={writes}，errors={errors}。";
-            OverallStatus = "Haptic OK";
-            NextAction = "可在支持 DualSense 触觉音频的游戏中测试；先保持低强度。";
-            AppendLog("[SAFE_HAPTIC_TEST] result=passed ble_writes=" + writes +
-                      " live_packets=" + livePackets + " errors=" + errors);
+            HapticStatus = $"传输通过：BLE writes={writes}，errors={errors}；请确认手柄是否有震感。";
+            OverallStatus = "Confirm vibration";
+            NextAction = "传输层已通过；物理震感必须由实际手感确认。";
+            AppendLog("[SAFE_HAPTIC_TEST] result=transport_passed physical_confirmation=required ble_writes=" +
+                      writes + " live_packets=" + livePackets + " errors=" + errors);
         }
         catch (Exception ex)
         {

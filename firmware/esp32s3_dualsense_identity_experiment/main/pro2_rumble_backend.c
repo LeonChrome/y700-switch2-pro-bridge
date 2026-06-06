@@ -18,8 +18,13 @@
 #define DS5_IMPROVED_RUMBLE_MASK 0x04
 #define PRO2_RUMBLE_TICK_MS 20
 #define PRO2_RUMBLE_HOLD_MS 250
+#define PRO2_RAW02_HOLD_MS 120
 #define PRO2_RUMBLE_STOP_PACKETS 3
 #define PRO2_RUMBLE_MAX_AMPLITUDE 640
+#define RAW02_LEFT_FRAME_OFFSET 2
+#define RAW02_RIGHT_FRAME_OFFSET 18
+#define RAW02_FRAME_BYTES 5
+#define RAW02_SOURCE_AMPLITUDE_MAX 65535
 
 static const char *TAG = "v5.5_rumble";
 static portMUX_TYPE s_lock = portMUX_INITIALIZER_UNLOCKED;
@@ -29,6 +34,10 @@ static int64_t s_active_until_us;
 static uint8_t s_vibration[5];
 static uint8_t s_packet_id;
 static uint8_t s_stop_packets_pending;
+static bool s_raw02_active;
+static int64_t s_raw02_active_until_us;
+static uint8_t s_raw02_left[5];
+static uint8_t s_raw02_right[5];
 static uint8_t s_last_right;
 static uint8_t s_last_left;
 static uint32_t s_updates;
@@ -85,9 +94,12 @@ static void build_packet(uint8_t packet_id, const uint8_t vibration[5],
 }
 
 
-static bool raw02_has_non_zero_payload(const uint8_t *data, uint16_t len, uint16_t offset)
+static bool raw02_frame_has_effect(const uint8_t *data, uint16_t len, uint16_t offset)
 {
-    for (uint16_t i = offset; i < len; i++) {
+    if (!data || len < offset + RAW02_FRAME_BYTES) {
+        return false;
+    }
+    for (uint16_t i = offset; i < offset + RAW02_FRAME_BYTES; i++) {
         if (data[i] != 0) {
             return true;
         }
@@ -113,8 +125,10 @@ static int raw02_clamp_int(int value, int min_value, int max_value)
 
 static int raw02_map_switch_amp_to_ble(int value)
 {
-    int64_t scaled = (int64_t)value * 1023LL;
-    int64_t mapped = (scaled + 1450000LL) / 2900000LL;
+    int clamped = raw02_clamp_int(value, 0, RAW02_SOURCE_AMPLITUDE_MAX);
+    int64_t scaled = (int64_t)clamped * 1023LL;
+    int64_t mapped = (scaled + RAW02_SOURCE_AMPLITUDE_MAX / 2) /
+                     RAW02_SOURCE_AMPLITUDE_MAX;
     return raw02_clamp_int((int)mapped, 0, 1023);
 }
 
@@ -205,10 +219,13 @@ esp_err_t pro2_rumble_backend_send_raw02_payload(const uint8_t *payload, uint16_
 
     uint8_t left[5];
     uint8_t right[5];
-    bool active = raw02_has_non_zero_payload(payload, len, 2);
+    bool active = raw02_frame_has_effect(payload, len, RAW02_LEFT_FRAME_OFFSET) ||
+                  raw02_frame_has_effect(payload, len, RAW02_RIGHT_FRAME_OFFSET);
     if (active) {
-        raw02_encode_ble_vibration_from_switch_frame(payload, len, 2, left);
-        raw02_encode_ble_vibration_from_switch_frame(payload, len, 0x12, right);
+        raw02_encode_ble_vibration_from_switch_frame(
+            payload, len, RAW02_LEFT_FRAME_OFFSET, left);
+        raw02_encode_ble_vibration_from_switch_frame(
+            payload, len, RAW02_RIGHT_FRAME_OFFSET, right);
     } else {
         raw02_build_zero_ble_vibration(left);
         raw02_build_zero_ble_vibration(right);
@@ -218,6 +235,20 @@ esp_err_t pro2_rumble_backend_send_raw02_payload(const uint8_t *payload, uint16_
     uint8_t packet_id;
     portENTER_CRITICAL(&s_lock);
     packet_id = s_packet_id++ & 0x0f;
+    s_active = false;
+    s_active_until_us = 0;
+    if (active) {
+        memcpy(s_raw02_left, left, sizeof(s_raw02_left));
+        memcpy(s_raw02_right, right, sizeof(s_raw02_right));
+        s_raw02_active = true;
+        s_raw02_active_until_us =
+            esp_timer_get_time() + (int64_t)PRO2_RAW02_HOLD_MS * 1000LL;
+        s_stop_packets_pending = 0;
+    } else {
+        s_raw02_active = false;
+        s_raw02_active_until_us = 0;
+        s_stop_packets_pending = PRO2_RUMBLE_STOP_PACKETS;
+    }
     portEXIT_CRITICAL(&s_lock);
     raw02_build_pro2_packet(packet_id, left, right, packet);
 
@@ -232,8 +263,9 @@ esp_err_t pro2_rumble_backend_send_raw02_payload(const uint8_t *payload, uint16_
 
     if (err == ESP_OK) {
         ESP_LOGI(TAG,
-                 "[RUMBLE_RAW02] sent=true active=%s left=%02x%02x%02x%02x%02x right=%02x%02x%02x%02x%02x",
+                 "[RUMBLE_RAW02] sent=true active=%s hold_ms=%u left=%02x%02x%02x%02x%02x right=%02x%02x%02x%02x%02x",
                  active ? "true" : "false",
+                 active ? PRO2_RAW02_HOLD_MS : 0,
                  left[0], left[1], left[2], left[3], left[4],
                  right[0], right[1], right[2], right[3], right[4]);
     } else {
@@ -253,12 +285,22 @@ static void rumble_task(void *arg)
         }
 
         uint8_t vibration[5];
+        uint8_t raw02_left[5];
+        uint8_t raw02_right[5];
         bool active;
+        bool raw02_active;
         bool send_stop = false;
         int64_t now_us = esp_timer_get_time();
 
         portENTER_CRITICAL(&s_lock);
-        active = s_active && now_us <= s_active_until_us;
+        raw02_active = s_raw02_active && now_us <= s_raw02_active_until_us;
+        memcpy(raw02_left, s_raw02_left, sizeof(raw02_left));
+        memcpy(raw02_right, s_raw02_right, sizeof(raw02_right));
+        if (s_raw02_active && !raw02_active) {
+            s_raw02_active = false;
+            s_stop_packets_pending = PRO2_RUMBLE_STOP_PACKETS;
+        }
+        active = !raw02_active && s_active && now_us <= s_active_until_us;
         memcpy(vibration, s_vibration, sizeof(vibration));
         if (s_active && !active) {
             s_active = false;
@@ -272,9 +314,13 @@ static void rumble_task(void *arg)
         uint8_t packet_id = s_packet_id++ & 0x0f;
         portEXIT_CRITICAL(&s_lock);
 
-        if (active || send_stop) {
+        if (raw02_active || active || send_stop) {
             uint8_t packet[33];
-            build_packet(packet_id, vibration, packet);
+            if (raw02_active) {
+                raw02_build_pro2_packet(packet_id, raw02_left, raw02_right, packet);
+            } else {
+                build_packet(packet_id, vibration, packet);
+            }
             esp_err_t err = ble_central_send_rumble(packet, sizeof(packet));
 
             portENTER_CRITICAL(&s_lock);
@@ -287,17 +333,18 @@ static void rumble_task(void *arg)
             uint32_t errors = s_errors;
             portEXIT_CRITICAL(&s_lock);
 
-            if (err == ESP_OK && active && now_us >= next_log_us) {
+            if (err == ESP_OK && (raw02_active || active) && now_us >= next_log_us) {
                 next_log_us = now_us + 500000LL;
                 ESP_LOGI(TAG,
-                         "[DS5_RUMBLE] tick=true writes=%lu errors=%lu data=%02x%02x%02x%02x%02x",
+                         "[DS5_RUMBLE] tick=true source=%s writes=%lu errors=%lu data=%02x%02x%02x%02x%02x",
+                         raw02_active ? "raw02" : "ordinary",
                          (unsigned long)writes,
                          (unsigned long)errors,
-                         vibration[0],
-                         vibration[1],
-                         vibration[2],
-                         vibration[3],
-                         vibration[4]);
+                         raw02_active ? raw02_left[0] : vibration[0],
+                         raw02_active ? raw02_left[1] : vibration[1],
+                         raw02_active ? raw02_left[2] : vibration[2],
+                         raw02_active ? raw02_left[3] : vibration[3],
+                         raw02_active ? raw02_left[4] : vibration[4]);
             } else if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) {
                 ESP_LOGW(TAG,
                          "[DS5_RUMBLE] tick=false error=%s active=%s stop=%s",
@@ -371,6 +418,8 @@ bool pro2_rumble_backend_handle_dualsense_output(
     int64_t now_us = esp_timer_get_time();
 
     portENTER_CRITICAL(&s_lock);
+    s_raw02_active = false;
+    s_raw02_active_until_us = 0;
     changed = right_light != s_last_right ||
               left_heavy != s_last_left ||
               active != s_active;
