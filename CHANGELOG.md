@@ -46,6 +46,10 @@
 - Added the one-shot low-intensity `send_v5_5_dualsense_rumble_test.ps1`; HID `0x02` parsing passed with non-zero BLE writes and zero errors.
 - Switched the report loop to an absolute `xTaskDelayUntil` cadence; host-observed rate is about 248.8 Hz with BLE and rumble tasks active.
 - Added the Phase 3 minimal USB Audio render endpoint stub: 4ch/48 kHz/16-bit OUT while preserving HID input and ordinary rumble behavior.
+- Added V5.5 profile isolation for `hid_only`, `hid_audio_uac2`, and `hid_audio_uac1_fallback`; `hid_only` restores the Phase 2.1 HID-only descriptor.
+- Corrected the identity checker so a `USB Composite Device` no longer counts as a successful HID interface.
+- Added `tools/check_v5_5_usb_composite.ps1` for Phase 3 Windows composite error diagnostics.
+- Adjusted the UAC2 descriptor associated-terminal fields for the clock source and output terminal.
 - Added the `dualsense_haptic_audio` stats module for haptic channels 2/3 RMS, peak, transient, and activity extraction.
 - Added the `haptic_audio_to_raw02` dry-run translator, which logs Pro2 raw02 16+16 payloads and does not send live packets by default.
 - Added `tools/check_v5_5_dualsense_audio.ps1` and token hygiene documentation; worktree and git history scans found no GitHub token pattern hits.

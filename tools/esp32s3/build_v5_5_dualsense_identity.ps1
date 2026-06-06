@@ -1,12 +1,14 @@
 param(
     [string]$IdfPath,
+    [ValidateSet("hid_only", "hid_audio_uac2", "hid_audio_uac1_fallback")]
+    [string]$Profile = "hid_audio_uac2",
     [switch]$Clean
 )
 
 $ErrorActionPreference = "Stop"
 $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 $FirmwareRoot = Join-Path $RepoRoot "firmware\esp32s3_dualsense_identity_experiment"
-$BuildRoot = Join-Path $RepoRoot "work\build\v5_5_dualsense_identity"
+$BuildRoot = Join-Path $RepoRoot ("work\build\v5_5_dualsense_identity\{0}" -f $Profile)
 
 function Import-IdfEnvironment {
     param([string]$Path)
@@ -40,8 +42,9 @@ if (!(Get-Command idf.py -ErrorAction SilentlyContinue)) {
 }
 
 Write-Output "[V5_5_DS5_BUILD] firmware=firmware/esp32s3_dualsense_identity_experiment"
-Write-Output "[V5_5_DS5_BUILD] build_dir=work/build/v5_5_dualsense_identity"
+Write-Output "[V5_5_DS5_BUILD] build_dir=work/build/v5_5_dualsense_identity/$Profile"
 Write-Output "[V5_5_DS5_BUILD] identity=dualsense_experimental"
+Write-Output "[V5_5_DS5_BUILD] profile=$Profile"
 Write-Output "[V5_5_DS5_BUILD] v5_2_default_unchanged=true"
 
 Push-Location $FirmwareRoot
@@ -57,7 +60,7 @@ try {
             Remove-Item -LiteralPath $sdkconfig -Force
         }
         if (Test-Path -LiteralPath (Join-Path $BuildRoot "CMakeCache.txt")) {
-            & idf.py -B $BuildRoot reconfigure
+            & idf.py -B $BuildRoot -D "V5_5_DS5_PROFILE=$Profile" reconfigure
         } else {
             & idf.py -B $BuildRoot set-target esp32s3
         }
@@ -71,7 +74,7 @@ try {
             throw "idf.py fullclean failed: $LASTEXITCODE"
         }
     }
-    & idf.py -B $BuildRoot build
+    & idf.py -B $BuildRoot -D "V5_5_DS5_PROFILE=$Profile" build
     if ($LASTEXITCODE -ne 0) {
         throw "idf.py build failed: $LASTEXITCODE"
     }

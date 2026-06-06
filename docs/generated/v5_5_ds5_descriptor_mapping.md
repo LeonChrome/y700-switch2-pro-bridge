@@ -82,6 +82,23 @@ Phase 3 adds Audio Control interface `0`, Audio Streaming OUT interface `1`,
 and moves the HID interface to `2`. HID report IDs and HID endpoint addresses
 remain unchanged to preserve the Phase 2 input and ordinary-rumble paths.
 
+Current V5.5 profiles:
+
+| Profile | Descriptor shape | Serial string | Audio class |
+| --- | --- | --- | --- |
+| `hid_only` | HID-only Phase 2.1 shape | `V55HIDONLY` | Disabled |
+| `hid_audio_uac2` | UAC2 Audio + HID composite | `V55PHASE3` | Enabled |
+| `hid_audio_uac1_fallback` | HID-only safe fallback stub | `V55UAC1FB` | Disabled for now |
+
+Endpoint allocation in `hid_audio_uac2`:
+
+```text
+hid_in=0x81 interrupt
+hid_out=0x01 interrupt
+audio_out=0x02 isochronous adaptive
+conflicts=false
+```
+
 ## Neutral Input
 
 Phase 1 sends report ID `0x01` every 4 ms:
@@ -135,6 +152,20 @@ interface 0 = Audio Control, UAC2
 interface 1 = Audio Streaming OUT, 4ch, 48 kHz, signed 16-bit PCM
 interface 2 = HID gamepad
 ```
+
+The first real hardware check after flashing `V55PHASE3` showed:
+
+```text
+V55PHASE3 USB device appears=true
+phase3_status=Error
+hid_child_active=false
+audio_endpoint_active=false
+stale_phase1_phase2_devices=present
+conclusion=composite enumeration failure
+```
+
+The `hid_only` profile exists to recover the Phase 2.1 HID baseline before
+continuing UAC2 descriptor experiments.
 
 The firmware reads host OUT audio data with TinyUSB and extracts channels 2/3
 as haptic left/right statistics:

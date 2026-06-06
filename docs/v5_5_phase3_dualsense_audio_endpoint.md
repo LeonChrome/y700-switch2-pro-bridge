@@ -22,6 +22,28 @@ HID IN endpoint: 0x81 interrupt
 HID OUT endpoint: 0x01 interrupt
 ```
 
+Current build profiles:
+
+```text
+hid_only: restores the Phase 2.1 HID-only descriptor, audio disabled
+hid_audio_uac2: enables the Phase 3 UAC2 Audio + HID composite descriptor
+hid_audio_uac1_fallback: currently a HID-only safe stub for future UAC1 work
+```
+
+The first real `V55PHASE3` hardware run did not enumerate successfully:
+
+```text
+V55PHASE3 USB device appears=true
+phase3_status=Error
+HID child active=false
+audio endpoint active=false
+conclusion=composite enumeration failure
+```
+
+Because of that result, Phase 3 work is currently focused on composite
+enumeration recovery. Phase 4 haptic feature testing should wait until
+`hid_audio_uac2` exposes both the HID child and audio render endpoint.
+
 The firmware reads host OUT audio packets. Speaker channels 0/1 are ignored for
 now; haptic channels 2/3 are summarized into:
 
@@ -51,8 +73,9 @@ Expected firmware logs:
 Validation commands from the repository root:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\esp32s3\build_v5_5_dualsense_identity.ps1 -IdfPath C:\Espressif\v5.3.3\esp-idf
-powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\esp32s3\flash_v5_5_dualsense_identity.ps1 -Port COM12 -IdfPath C:\Espressif\v5.3.3\esp-idf
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\esp32s3\build_v5_5_dualsense_identity.ps1 -Profile hid_only -IdfPath C:\Espressif\v5.3.3\esp-idf
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\esp32s3\build_v5_5_dualsense_identity.ps1 -Profile hid_audio_uac2 -IdfPath C:\Espressif\v5.3.3\esp-idf
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\check_v5_5_usb_composite.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\check_v5_5_dualsense_identity.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\check_v5_5_dualsense_input.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\check_v5_5_dualsense_reports.ps1 -Seconds 6

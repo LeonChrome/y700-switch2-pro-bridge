@@ -3,6 +3,10 @@
 #include "sdkconfig.h"
 #include "tusb_option.h"
 
+#ifndef DS5_ENABLE_USB_AUDIO
+#define DS5_ENABLE_USB_AUDIO 0
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -91,7 +95,7 @@ extern "C" {
 #define CFG_TUD_DFU 0
 #define CFG_TUD_DFU_RUNTIME 0
 #define CFG_TUD_BTH 0
-#define CFG_TUD_AUDIO 1
+#define CFG_TUD_AUDIO DS5_ENABLE_USB_AUDIO
 
 #define CFG_TUD_CDC_RX_BUFSIZE CONFIG_TINYUSB_CDC_RX_BUFSIZE
 #define CFG_TUD_CDC_TX_BUFSIZE CONFIG_TINYUSB_CDC_TX_BUFSIZE
@@ -111,6 +115,8 @@ extern "C" {
 #define CFG_TUD_NCM_OUT_NTB_MAX_SIZE CONFIG_TINYUSB_NCM_OUT_NTB_BUFF_MAX_SIZE
 #define CFG_TUD_NCM_IN_NTB_MAX_SIZE CONFIG_TINYUSB_NCM_IN_NTB_MAX_SIZE
 
+#if DS5_ENABLE_USB_AUDIO
+
 #define CFG_TUD_AUDIO_FUNC_1_DESC_LEN 144
 #define CFG_TUD_AUDIO_FUNC_1_CTRL_BUF_SZ 64
 #define CFG_TUD_AUDIO_ENABLE_EP_OUT 1
@@ -129,6 +135,8 @@ extern "C" {
                       CFG_TUD_AUDIO_FUNC_1_N_CHANNELS_RX)
 #define CFG_TUD_AUDIO_FUNC_1_EP_OUT_SW_BUF_SZ \
     (4 * CFG_TUD_AUDIO_FUNC_1_EP_OUT_SZ_MAX)
+
+#endif
 
 #ifdef __cplusplus
 }

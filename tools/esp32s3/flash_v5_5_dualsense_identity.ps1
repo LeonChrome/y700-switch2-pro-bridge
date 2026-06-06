@@ -2,6 +2,8 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$Port,
     [string]$IdfPath,
+    [ValidateSet("hid_only", "hid_audio_uac2", "hid_audio_uac1_fallback")]
+    [string]$Profile = "hid_audio_uac2",
     [int]$Baud = 460800,
     [switch]$Monitor
 )
@@ -9,7 +11,7 @@ param(
 $ErrorActionPreference = "Stop"
 $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 $FirmwareRoot = Join-Path $RepoRoot "firmware\esp32s3_dualsense_identity_experiment"
-$BuildRoot = Join-Path $RepoRoot "work\build\v5_5_dualsense_identity"
+$BuildRoot = Join-Path $RepoRoot ("work\build\v5_5_dualsense_identity\{0}" -f $Profile)
 
 function Import-IdfEnvironment {
     param([string]$Path)
@@ -43,7 +45,8 @@ if (!(Get-Command idf.py -ErrorAction SilentlyContinue)) {
 }
 
 Write-Output "[V5_5_DS5_FLASH] firmware=firmware/esp32s3_dualsense_identity_experiment"
-Write-Output "[V5_5_DS5_FLASH] build_dir=work/build/v5_5_dualsense_identity"
+Write-Output "[V5_5_DS5_FLASH] build_dir=work/build/v5_5_dualsense_identity/$Profile"
+Write-Output "[V5_5_DS5_FLASH] profile=$Profile"
 Write-Output "[V5_5_DS5_FLASH] target=$Port"
 Write-Output "[V5_5_DS5_FLASH] native_usb_action=replug_after_flash"
 Write-Warning "This replaces the firmware currently on the board. Reflash esp32s3_switch2_bridge to return to V5.2/V5.0 behavior."

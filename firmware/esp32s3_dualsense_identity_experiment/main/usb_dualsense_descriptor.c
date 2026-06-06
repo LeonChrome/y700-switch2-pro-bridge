@@ -2,15 +2,31 @@
 
 #include "dualsense_report.h"
 
+#ifndef DS5_ENABLE_USB_AUDIO
+#define DS5_ENABLE_USB_AUDIO 0
+#endif
+
+#ifndef DS5_PROFILE_SERIAL
+#define DS5_PROFILE_SERIAL "V55UNKNOWN"
+#endif
+
 #define DS5_USB_VID 0x054c
 #define DS5_USB_PID 0x0ce6
+
+#if DS5_ENABLE_USB_AUDIO
 #define DS5_AUDIO_CONTROL_INTERFACE 0
 #define DS5_AUDIO_STREAMING_INTERFACE 1
 #define DS5_HID_INTERFACE 2
+#else
+#define DS5_HID_INTERFACE 0
+#endif
+
 #define DS5_HID_EP_OUT 0x01
 #define DS5_HID_EP_IN 0x81
 #define DS5_HID_EP_SIZE 64
 #define DS5_HID_POLL_MS 1
+
+#if DS5_ENABLE_USB_AUDIO
 #define DS5_AUDIO_EP_OUT 0x02
 #define DS5_AUDIO_SAMPLE_RATE 48000
 #define DS5_AUDIO_CHANNELS 4
@@ -38,7 +54,11 @@
      TUD_AUDIO_DESC_TYPE_I_FORMAT_LEN + TUD_AUDIO_DESC_STD_AS_ISO_EP_LEN + \
      TUD_AUDIO_DESC_CS_AS_ISO_EP_LEN)
 #define DS5_CONFIG_TOTAL_LEN (TUD_CONFIG_DESC_LEN + DS5_AUDIO_RENDER_DESC_LEN + 32)
+#else
+#define DS5_CONFIG_TOTAL_LEN (TUD_CONFIG_DESC_LEN + 32)
+#endif
 
+#if DS5_ENABLE_USB_AUDIO
 #define DS5_AUDIO_RENDER_DESCRIPTOR(_stridx, _epout, _epsize) \
     TUD_AUDIO_DESC_IAD(DS5_AUDIO_CONTROL_INTERFACE, 0x02, 0x00), \
     TUD_AUDIO_DESC_STD_AC(DS5_AUDIO_CONTROL_INTERFACE, 0x00, _stridx), \
@@ -49,7 +69,7 @@
                            AUDIO_CLOCK_SOURCE_ATT_INT_FIX_CLK, \
                            (AUDIO_CTRL_R << AUDIO_CLOCK_SOURCE_CTRL_CLK_FRQ_POS) | \
                                (AUDIO_CTRL_R << AUDIO_CLOCK_SOURCE_CTRL_CLK_VAL_POS), \
-                           DS5_AUDIO_ENTITY_INPUT_TERMINAL, 0x00), \
+                           0x00, 0x00), \
     TUD_AUDIO_DESC_INPUT_TERM(DS5_AUDIO_ENTITY_INPUT_TERMINAL, \
                               AUDIO_TERM_TYPE_USB_STREAMING, 0x00, \
                               DS5_AUDIO_ENTITY_CLOCK, DS5_AUDIO_CHANNELS, \
@@ -69,7 +89,7 @@
         0x00), \
     TUD_AUDIO_DESC_OUTPUT_TERM(DS5_AUDIO_ENTITY_OUTPUT_TERMINAL, \
                                AUDIO_TERM_TYPE_OUT_HEADPHONES, \
-                               DS5_AUDIO_ENTITY_INPUT_TERMINAL, \
+                               0x00, \
                                DS5_AUDIO_ENTITY_FEATURE_UNIT, \
                                DS5_AUDIO_ENTITY_CLOCK, 0x0000, 0x00), \
     TUD_AUDIO_DESC_STD_AS_INT(DS5_AUDIO_STREAMING_INTERFACE, 0x00, 0x00, \
@@ -91,13 +111,16 @@
     TUD_AUDIO_DESC_CS_AS_ISO_EP( \
         AUDIO_CS_AS_ISO_DATA_EP_ATT_NON_MAX_PACKETS_OK, AUDIO_CTRL_NONE, \
         AUDIO_CS_AS_ISO_DATA_EP_LOCK_DELAY_UNIT_MILLISEC, 0x0001)
+#endif
 
 enum {
     STRID_LANGID = 0,
     STRID_MANUFACTURER,
     STRID_PRODUCT,
     STRID_SERIAL,
+#if DS5_ENABLE_USB_AUDIO
     STRID_AUDIO_INTERFACE,
+#endif
     STRID_HID_INTERFACE,
 };
 
@@ -180,9 +203,15 @@ static const tusb_desc_device_t s_ds5_device_descriptor = {
     .bLength = sizeof(tusb_desc_device_t),
     .bDescriptorType = TUSB_DESC_DEVICE,
     .bcdUSB = 0x0200,
+#if DS5_ENABLE_USB_AUDIO
     .bDeviceClass = TUSB_CLASS_MISC,
     .bDeviceSubClass = MISC_SUBCLASS_COMMON,
     .bDeviceProtocol = MISC_PROTOCOL_IAD,
+#else
+    .bDeviceClass = 0x00,
+    .bDeviceSubClass = 0x00,
+    .bDeviceProtocol = 0x00,
+#endif
     .bMaxPacketSize0 = CFG_TUD_ENDPOINT0_SIZE,
     .idVendor = DS5_USB_VID,
     .idProduct = DS5_USB_PID,
@@ -196,12 +225,18 @@ static const tusb_desc_device_t s_ds5_device_descriptor = {
 static const uint8_t s_ds5_configuration_descriptor[] = {
     0x09, TUSB_DESC_CONFIGURATION,
     U16_TO_U8S_LE(DS5_CONFIG_TOTAL_LEN),
+#if DS5_ENABLE_USB_AUDIO
     0x03, 0x01, 0x00,
+#else
+    0x01, 0x01, 0x00,
+#endif
     0x80, 0x32,
 
+#if DS5_ENABLE_USB_AUDIO
     DS5_AUDIO_RENDER_DESCRIPTOR(STRID_AUDIO_INTERFACE,
                                 DS5_AUDIO_EP_OUT,
                                 DS5_AUDIO_EP_OUT_SIZE),
+#endif
 
     0x09, TUSB_DESC_INTERFACE,
     DS5_HID_INTERFACE, 0x00, 0x02,
@@ -225,8 +260,10 @@ static const char *s_ds5_string_descriptors[] = {
     "",
     "Sony Interactive Entertainment",
     "DualSense Wireless Controller",
-    "V55PHASE3",
+    DS5_PROFILE_SERIAL,
+#if DS5_ENABLE_USB_AUDIO
     "DualSense Haptic Audio",
+#endif
     "Wireless Controller",
 };
 
