@@ -19,6 +19,9 @@
 #define RAW02_DEFAULT_MIN_INTERVAL_MS 50
 #define RAW02_DEFAULT_SILENCE_TIMEOUT_MS 100
 #define RAW02_DEFAULT_ACTIVITY_THRESHOLD 512
+#define RAW02_REFERENCE_MAX_INTENSITY 96
+#define RAW02_REFERENCE_HIGH_FREQ 0x187
+#define RAW02_REFERENCE_LOW_FREQ 0x112
 
 static const char *TAG = "v5.5_haptic_raw02";
 static portMUX_TYPE s_lock = portMUX_INITIALIZER_UNLOCKED;
@@ -37,6 +40,27 @@ static uint8_t clamp_u8_int(int value)
         return 255;
     }
     return (uint8_t)value;
+}
+
+static void encode_switch_rumble_frame(uint16_t high_freq,
+                                       uint16_t high_amp,
+                                       uint16_t low_freq,
+                                       uint16_t low_amp,
+                                       uint8_t out[5])
+{
+    high_freq &= 0x03ff;
+    low_freq &= 0x03ff;
+    high_amp &= 0xffc0;
+    low_amp &= 0xffc0;
+
+    out[0] = (uint8_t)(high_freq & 0xff);
+    out[1] = (uint8_t)(((high_freq >> 8) & 0x03) |
+                       ((high_amp >> 4) & 0xfc));
+    out[2] = (uint8_t)(((high_amp >> 12) & 0x0f) |
+                       ((low_freq & 0x0f) << 4));
+    out[3] = (uint8_t)(((low_freq >> 4) & 0x3f) |
+                       (low_amp & 0xc0));
+    out[4] = (uint8_t)((low_amp >> 8) & 0xff);
 }
 
 static uint16_t clamp_u16_int(int value, uint16_t min_value, uint16_t max_value)
@@ -238,13 +262,17 @@ static void build_side(uint8_t intensity,
         shaped = 32;
     }
 
-    out[1] = (uint8_t)(0x80 | ((shaped >> 2) & 0x3f));
-    out[2] = mode == HAPTIC_RAW02_MODE_PUNCH ? 0x2a :
-             (mode == HAPTIC_RAW02_MODE_TEXTURE ? 0x1b : 0x15);
-    out[3] = (uint8_t)(0x20 | ((shaped >> 3) & 0x1f));
-    out[4] = (uint8_t)(0x40 | ((shaped >> 1) & 0x3f));
-    out[5] = mode == HAPTIC_RAW02_MODE_PUNCH ? 0x7f :
-             (mode == HAPTIC_RAW02_MODE_CONTINUOUS ? 0x78 : 0x71);
+    uint32_t source_amp =
+        ((uint32_t)shaped * UINT16_MAX + RAW02_REFERENCE_MAX_INTENSITY / 2) /
+        RAW02_REFERENCE_MAX_INTENSITY;
+    if (source_amp > UINT16_MAX) {
+        source_amp = UINT16_MAX;
+    }
+    encode_switch_rumble_frame(RAW02_REFERENCE_HIGH_FREQ,
+                               (uint16_t)source_amp,
+                               RAW02_REFERENCE_LOW_FREQ,
+                               (uint16_t)source_amp,
+                               out + 1);
 }
 
 static void build_payload(const uint8_t left[HAPTIC_RAW02_SIDE_BYTES],

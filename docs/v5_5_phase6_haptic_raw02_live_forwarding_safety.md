@@ -72,3 +72,9 @@ It is now mapped against `65535`, yielding about `453/1023`, and active raw02
 frames are held for 120 ms and resent every 20 ms. A successful GATT write is
 still reported as transport success only; physical vibration requires human
 confirmation.
+
+The generated calibration frames now use a real Switch rumble-frame encoder.
+Low, medium, and high tests keep the same frequency pair (`LF=274`, `HF=391`)
+and vary only both amplitudes (`170`, `341`, `512` out of `1023`). The previous
+ad-hoc byte shaping changed frequency while leaving one amplitude nearly fixed,
+so it was not a valid intensity comparison.

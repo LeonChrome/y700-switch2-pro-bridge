@@ -99,12 +99,13 @@ static bool raw02_frame_has_effect(const uint8_t *data, uint16_t len, uint16_t o
     if (!data || len < offset + RAW02_FRAME_BYTES) {
         return false;
     }
-    for (uint16_t i = offset; i < offset + RAW02_FRAME_BYTES; i++) {
-        if (data[i] != 0) {
-            return true;
-        }
-    }
-    return false;
+    int b1 = data[offset + 1];
+    int b2 = data[offset + 2];
+    int b3 = data[offset + 3];
+    int b4 = data[offset + 4];
+    int high_amp = ((b1 & 0xfc) << 4) | ((b2 & 0x0f) << 12);
+    int low_amp = (b3 & 0xc0) | (b4 << 8);
+    return high_amp != 0 || low_amp != 0;
 }
 
 static bool raw02_is_switch2_rumble_report(const uint8_t *data, uint16_t len)

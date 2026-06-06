@@ -1,1 +1,1 @@
-8bac0070996841fa9a8f98e9574c55101978963c353d97c4884b454abda80002  Y700Switch2V55Manager-aio-v5.5.0.exe
+d68aed3d89e32bed652b45ffc4f4d4dd73b804b5aeaea82dc29da11afb83acab  Y700Switch2V55Manager-aio-v5.5.0.exe

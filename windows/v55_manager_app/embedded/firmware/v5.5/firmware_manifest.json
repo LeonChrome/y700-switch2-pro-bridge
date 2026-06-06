@@ -25,7 +25,7 @@
                                         {
                                             "offset":  "0x10000",
                                             "path":  "hid_audio_uac1_4ch_ds5like/esp32s3_dualsense_identity_experiment.bin",
-                                            "sha256":  "996c378a14b01d8825317f58ab64e27eddde459126606de7796225ec0e9480db"
+                                            "sha256":  "133c6ec2341b6149b52253a4e91aee02e2885b9a37e7f0d830a05e397ad5c9ba"
                                         }
                                     ]
                      },
