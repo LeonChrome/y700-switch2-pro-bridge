@@ -4,6 +4,21 @@
 
 ### Descriptor 级 Composite 调试
 
+- descriptor ladder 实机已通过 `hid_only`、两套 dummy composite、
+  AudioControl、AudioStreaming alt0 与完整 UAC1 2ch；Windows 的 composite
+  parent、HID、MEDIA 和音频播放端点均为 `OK`。
+- 找到初始 Code 10 根因：自定义 TinyUSB app driver 虽在 `libmain.a` 中，
+  但 `usbd_app_driver_get_cb` 在最终 ELF 中仍为弱符号；为 main component
+  启用 `WHOLE_ARCHIVE` 后修复。
+- 新增 `hid_audio_uac1_4ch_ds5like`：`00/00/00`、无 IAD、4ch/48 kHz/
+  16-bit PCM OUT、通道位图 `0x0033`、384-byte max packet。
+- 动态播放确认 Windows 已请求 alt 1；修复 ESP32-S3 DWC2 FIFO 不足导致的
+  `usbd_edpt_open(0x02)=false`：仅 4ch UAC1 使用 slave mode 与精确
+  384-byte/ms packet，其他 profile 保持原 TinyUSB 模式。
+- 4ch 动态传输实机通过：`set_interface=1`、`streaming=true`，3 秒连续收到
+  3000 个 384-byte 等时 OUT 包；新增自动播放、串口捕获和默认音频恢复工具。
+- UAC1 自定义驱动改用 DWC2 `iso_alloc`/`iso_activate` 生命周期，并在 alt 0
+  后停止重新挂接传输，修复多次播放时旧 ISO 流持续运行的问题。
 - 实机确认 `hid_audio_uac1_2ch` 与旧 UAC2 4ch 都在 Windows Composite
   parent 发生 Code 10，且没有 HID/Audio child，当前问题收敛到 descriptor
   枚举层。
@@ -21,6 +36,23 @@
 
 ### Descriptor-Level Composite Debug
 
+- The hardware descriptor ladder now passes HID-only, both dummy composites,
+  AudioControl, AudioStreaming alt 0, and complete UAC1 2ch. Windows reports
+  the composite parent, HID, MEDIA, and audio render endpoint as `OK`.
+- Found the initial Code 10 root cause: the custom TinyUSB app driver was in
+  `libmain.a`, but `usbd_app_driver_get_cb` stayed weak in the final ELF.
+  Linking the main component with `WHOLE_ARCHIVE` fixes the callback.
+- Added `hid_audio_uac1_4ch_ds5like`: class `00/00/00`, no IAD, four-channel
+  48 kHz 16-bit PCM OUT, channel map `0x0033`, and 384-byte max packet.
+- Dynamic playback confirmed that Windows requests alt 1. Fixed
+  `usbd_edpt_open(0x02)=false`, caused by the ESP32-S3 DWC2 FIFO budget, by
+  using slave mode and an exact 384-byte/ms packet only for UAC1 4ch.
+- Passed active four-channel transport: alt 1 and streaming are enabled, with
+  3000 consecutive 384-byte isochronous OUT packets over three seconds. Added
+  an automated playback/UART/default-endpoint restoration test.
+- Switched the custom UAC1 driver to the DWC2 ISO allocate/activate lifecycle
+  and stopped transfer re-arming after alt 0, fixing stale streams across
+  repeated playback cycles.
 - Confirmed that both `hid_audio_uac1_2ch` and the earlier UAC2 4ch profile
   fail at the Windows composite parent with Code 10 and no HID/Audio children.
 - Extracted the DS5Dongle default final USB descriptor: UAC1, device class

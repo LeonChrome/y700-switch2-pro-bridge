@@ -366,11 +366,12 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\run_v5_4_hybrid_hapt
 
 中文：
 
-Phase 1 实机验证已通过：Windows 识别 VID `054c` / PID `0ce6`，持续接收 `0x01 + 63 bytes`、约 `250 Hz` 的输入报告，且未发生 USB 断连。Phase 2 在同一个独立实验固件中复用现有 Pro2 BLE FD2 解析器，将真实 Pro2 的按键、摇杆、扳机和 motion 映射到 DualSense 输入报告。Phase 2.1 根据实测反转了两根摇杆 Y 轴，并把 DualSense 普通 light/heavy motor 输出安全近似为 Pro2 BLE vibration；受控测试已得到非零 BLE 写入和零错误。Phase 3 新增 `hid_only`、UAC1 2ch、UAC2 2ch、UAC2 4ch 四级 USB Audio fallback profiles：目标是先恢复 HID baseline，再验证 Windows 能稳定枚举 DualSense-like HID + audio composite。现有 V5.2/V5.0 默认桥接固件和 GUI 不变；haptic raw02 实时转发仍默认关闭。
+Phase 1 实机验证已通过：Windows 识别 VID `054c` / PID `0ce6`，持续接收 `0x01 + 63 bytes`、约 `250 Hz` 的输入报告，且未发生 USB 断连。Phase 2 在同一个独立实验固件中复用现有 Pro2 BLE FD2 解析器，将真实 Pro2 的按键、摇杆、扳机和 motion 映射到 DualSense 输入报告。Phase 2.1 根据实测反转了两根摇杆 Y 轴，并把 DualSense 普通 light/heavy motor 输出安全近似为 Pro2 BLE vibration；受控测试已得到非零 BLE 写入和零错误。Phase 3 descriptor ladder 与 `hid_audio_uac1_4ch_ds5like` 均已通过：Windows 同时识别 HID、MEDIA 与音频播放端点，alt 1 下连续收到 384-byte/ms 等时 OUT；并发音频期间 HID 仍为 248.8 Hz、0 timeout。此前 Code 10 的根因是 TinyUSB 自定义 app driver 未被链接进最终 ELF，现已通过 `WHOLE_ARCHIVE` 修复。现有 V5.2/V5.0 默认桥接固件和 GUI 不变；haptic raw02 实时转发仍默认关闭。
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\esp32s3\build_v5_5_dualsense_identity.ps1 -Profile hid_only -IdfPath C:\Espressif\v5.3.3\esp-idf
 powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\esp32s3\build_v5_5_dualsense_identity.ps1 -Profile hid_audio_uac1_2ch -IdfPath C:\Espressif\v5.3.3\esp-idf
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\esp32s3\build_v5_5_dualsense_identity.ps1 -Profile hid_audio_uac1_4ch_ds5like -IdfPath C:\Espressif\v5.3.3\esp-idf
 powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\esp32s3\build_v5_5_dualsense_identity.ps1 -Profile hid_audio_uac2_2ch -IdfPath C:\Espressif\v5.3.3\esp-idf
 powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\esp32s3\build_v5_5_dualsense_identity.ps1 -Profile hid_audio_uac2_4ch -IdfPath C:\Espressif\v5.3.3\esp-idf
 powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\check_v5_5_usb_composite.ps1
@@ -379,11 +380,12 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\check_v5_5_dualsense
 powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\check_v5_5_dualsense_reports.ps1 -Seconds 6
 powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\send_v5_5_dualsense_rumble_test.ps1 -RightLight 48 -LeftHeavy 80 -PulseMs 250 -Send
 powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\check_v5_5_dualsense_audio.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\test_v5_5_dualsense_audio_stream.ps1 -Port COM12 -Seconds 3
 ```
 
 English:
 
-Phase 1 passed hardware validation with VID `054c`, PID `0ce6`, stable `0x01 + 63-byte` input at about 250 Hz, and no USB disconnect. Phase 2 reuses the existing Pro2 BLE FD2 parser inside the standalone experiment and maps real Pro2 buttons, sticks, triggers, and motion into the DualSense input report. Phase 2.1 reverses both stick Y axes from hardware feedback and safely approximates ordinary DualSense light/heavy motor output through Pro2 BLE vibration; a controlled test produced non-zero BLE writes with zero errors. Phase 3 adds four USB Audio fallback profiles: `hid_only`, UAC1 2ch, UAC2 2ch, and UAC2 4ch. The goal is to recover the HID baseline first, then verify that Windows can reliably enumerate a DualSense-like HID + audio composite device. The V5.2/V5.0 default firmware and GUI remain unchanged; live haptic raw02 forwarding remains off.
+Phase 1 passed hardware validation with VID `054c`, PID `0ce6`, stable `0x01 + 63-byte` input at about 250 Hz, and no USB disconnect. Phase 2 reuses the existing Pro2 BLE FD2 parser inside the standalone experiment and maps real Pro2 buttons, sticks, triggers, and motion into the DualSense input report. Phase 2.1 reverses both stick Y axes from hardware feedback and safely approximates ordinary DualSense light/heavy motor output through Pro2 BLE vibration; a controlled test produced non-zero BLE writes with zero errors. The Phase 3 descriptor ladder and `hid_audio_uac1_4ch_ds5like` now pass: Windows exposes HID, MEDIA, and an audio render endpoint together, while alt 1 receives continuous 384-byte/ms isochronous OUT. Concurrent HID input remains at 248.8 Hz with zero timeouts. The earlier Code 10 root cause was the TinyUSB custom app driver not being linked into the final ELF, fixed with `WHOLE_ARCHIVE`. The V5.2/V5.0 default firmware and GUI remain unchanged; live haptic raw02 forwarding remains off.
 
 Phase 3 has isolated build profiles: `hid_only`, `hid_audio_uac1_2ch`,
 `hid_audio_uac2_2ch`, and `hid_audio_uac2_4ch`. The old `hid_audio_uac2`
@@ -393,13 +395,11 @@ then validate UAC1 2ch before testing UAC2 2ch and finally UAC2 4ch.
 
 ### V5.5 Descriptor 级 Composite 调试 / Descriptor-Level Composite Debug
 
-当前实机上 UAC1 2ch 与 UAC2 4ch 都停在 Windows `USB Composite Device`
-Code 10，且没有拆出 HID 或 Audio child，因此当前重点是 USB descriptor，
-不是 haptic/raw02 或音频算法。已新增两套无音频 dummy composite、Audio
-Control-only、Audio Streaming alt0-only profile，并从编译后的 ELF 自动生成
-raw hex 与解析表。DS5Dongle 默认最终 descriptor 已确认是
-`00/00/00`、无 IAD、UAC1；它的 `EF/02/01` 与 Audio IAD 只在同时启用 CDC
-serial 时出现。
+实机阶梯已确认 `hid_audio_uac1_2ch` 完整通过：Windows Composite parent、
+HID child、MEDIA function 与音频播放端点均为 `OK`。初始 dummy Code 10
+不是 descriptor 内容错误，而是 TinyUSB 自定义 app driver 的弱回调未被最终
+ELF 覆盖；`WHOLE_ARCHIVE` 已修复该链接问题。DS5Dongle-like UAC1 4ch
+OUT 也已完成枚举、连续传输、停止和二次启动验证。
 
 实机必须逐级测试，任一级失败就停止并抓 USBView：
 
@@ -410,16 +410,17 @@ hid_only
 -> hid_audio_control_only
 -> hid_audio_streaming_alt0_only
 -> hid_audio_uac1_2ch
+-> hid_audio_uac1_4ch_ds5like
 ```
 
-On current hardware, both UAC1 2ch and UAC2 4ch stop at Windows
-`USB Composite Device` Code 10 without HID or Audio children. The active work
-is therefore descriptor enumeration, not haptics, raw02, or audio algorithms.
-New no-audio dummy composite, Audio Control-only, and Audio Streaming alt
-0-only profiles isolate each descriptor layer. Exact raw bytes and parsed
-tables are generated from the compiled ELF. The DS5Dongle default is UAC1 with
-device class `00/00/00` and no IAD; `EF/02/01` plus an Audio IAD appears only
-when its optional CDC serial function is enabled.
+The hardware ladder now confirms complete UAC1 2ch enumeration: the Windows
+composite parent, HID child, MEDIA function, and audio render endpoint are all
+`OK`. The initial dummy-profile Code 10 was a linker issue, not bad descriptor
+content: the TinyUSB custom app-driver callback remained weak until the main
+component was linked with `WHOLE_ARCHIVE`. The DS5Dongle-like four-channel
+UAC1 OUT profile also passes active transport: Windows selects alt 1 and the
+ESP32-S3 receives 3000 consecutive 384-byte isochronous OUT packets in a
+three-second run.
 
 See the [Phase 1 guide](docs/v5_5_phase1_minimal_dualsense_hid_identity.md), [Phase 2 mapping guide](docs/v5_5_phase2_pro2_to_dualsense_input_mapping.md), and [Phase 3 audio endpoint guide](docs/v5_5_phase3_dualsense_audio_endpoint.md).
 

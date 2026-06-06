@@ -8,7 +8,12 @@ function Get-ProfileNameFromSerial {
     param([string]$Serial)
     switch ($Serial) {
         "V55HIDONLY" { return "hid_only" }
+        "V55DUMMY00" { return "hid_composite_dummy_interface_class_00" }
+        "V55DUMMYEF" { return "hid_composite_dummy_interface_class_ef" }
+        "V55ACONLY" { return "hid_audio_control_only" }
+        "V55ASALT0" { return "hid_audio_streaming_alt0_only" }
         "V55UAC1_2CH" { return "hid_audio_uac1_2ch" }
+        "V55UAC1_4CH" { return "hid_audio_uac1_4ch_ds5like" }
         "V55UAC2_2CH" { return "hid_audio_uac2_2ch" }
         "V55UAC2_4CH" { return "hid_audio_uac2_4ch" }
         "V55PHASE3" { return "hid_audio_uac2_4ch_legacy_alias" }
@@ -28,8 +33,9 @@ $audioDevices = @()
 try {
     $audioDevices = @(Get-CimInstance Win32_SoundDevice |
         Where-Object {
-            ($_.Name -match "DualSense|Wireless Controller|054C|0CE6|Sony") -or
-            ($_.PNPDeviceID -match "VID_054C&PID_0CE6")
+            $_.Status -eq "OK" -and
+            (($_.Name -match "DualSense|Wireless Controller|054C|0CE6|Sony") -or
+             ($_.PNPDeviceID -match "VID_054C&PID_0CE6"))
         })
 } catch {
     Write-Output "[V5_5_DS5_AUDIO] cim_sounddevice_error=$($_.Exception.Message)"
@@ -47,11 +53,10 @@ try {
 }
 
 $renderCandidates = @($pnpDevices | Where-Object {
-    $_.Class -match "AudioEndpoint|Media" -or
-    $_.FriendlyName -match "Speaker|Headphones|Wireless Controller|DualSense"
+    $_.Status -eq "OK" -and $_.Class -match "AudioEndpoint|Media"
 })
 $usbCandidates = @($pnpDevices | Where-Object {
-    $_.InstanceId -match "^USB\\VID_054C&PID_0CE6\\"
+    $_.InstanceId -match "^USB\\VID_054C&PID_0CE6\\[^\\]+$"
 })
 $usbBest = $usbCandidates |
     Sort-Object @{ Expression = { if ($_.Status -eq "OK") { 0 } else { 1 } } },
@@ -74,9 +79,19 @@ if ($audioDevices.Count -gt 0) {
 
 $suggestedNextAction = "connect_or_flash_hid_only"
 if ($currentProfile -eq "hid_only") {
-    $suggestedNextAction = "flash_hid_audio_uac1_2ch"
+    $suggestedNextAction = "test_dummy_class_00"
+} elseif ($currentProfile -eq "hid_composite_dummy_interface_class_00") {
+    $suggestedNextAction = if ($endpointFound) { "unexpected_audio_endpoint" } else { "test_dummy_class_ef" }
+} elseif ($currentProfile -eq "hid_composite_dummy_interface_class_ef") {
+    $suggestedNextAction = if ($endpointFound) { "unexpected_audio_endpoint" } else { "test_audio_control_only" }
+} elseif ($currentProfile -eq "hid_audio_control_only") {
+    $suggestedNextAction = if ($endpointFound) { "record_unexpected_control_only_endpoint" } else { "test_streaming_alt0_only" }
+} elseif ($currentProfile -eq "hid_audio_streaming_alt0_only") {
+    $suggestedNextAction = if ($endpointFound) { "record_unexpected_alt0_endpoint" } else { "test_hid_audio_uac1_2ch" }
 } elseif ($currentProfile -eq "hid_audio_uac1_2ch") {
-    $suggestedNextAction = if ($endpointFound) { "flash_hid_audio_uac2_2ch" } else { "descriptor_or_composite_basic_issue" }
+    $suggestedNextAction = if ($endpointFound) { "flash_hid_audio_uac1_4ch_ds5like" } else { "descriptor_or_composite_basic_issue" }
+} elseif ($currentProfile -eq "hid_audio_uac1_4ch_ds5like") {
+    $suggestedNextAction = if ($endpointFound) { "play_test_audio_and_verify_isochronous_output" } else { "fall_back_to_hid_audio_uac1_2ch" }
 } elseif ($currentProfile -eq "hid_audio_uac2_2ch") {
     $suggestedNextAction = if ($endpointFound) { "flash_hid_audio_uac2_4ch" } else { "uac2_descriptor_issue" }
 } elseif ($currentProfile -eq "hid_audio_uac2_4ch" -or $currentProfile -eq "hid_audio_uac2_4ch_legacy_alias") {

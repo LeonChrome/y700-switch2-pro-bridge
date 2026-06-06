@@ -29,7 +29,7 @@ static const char *TAG = "v5.5_uac1";
 static uint8_t s_alt_setting;
 #if DS5_ENABLE_UAC1_AUDIO
 static uint32_t s_packet_count;
-static uint8_t s_audio_out_buffer[DUALSENSE_USB_UAC1_2CH_PACKET_SIZE] TU_ATTR_ALIGNED(4);
+static uint8_t s_audio_out_buffer[DUALSENSE_USB_UAC1_PACKET_SIZE] TU_ATTR_ALIGNED(4);
 
 static const tusb_desc_endpoint_t s_uac1_audio_out_ep = {
     .bLength = sizeof(tusb_desc_endpoint_t),
@@ -40,7 +40,7 @@ static const tusb_desc_endpoint_t s_uac1_audio_out_ep = {
         .sync = (TUSB_ISO_EP_ATT_ADAPTIVE >> 2),
         .usage = (TUSB_ISO_EP_ATT_DATA >> 4),
     },
-    .wMaxPacketSize = DUALSENSE_USB_UAC1_2CH_PACKET_SIZE,
+    .wMaxPacketSize = DUALSENSE_USB_UAC1_PACKET_SIZE,
     .bInterval = 1,
 };
 #endif
@@ -108,6 +108,17 @@ static uint16_t uac1_open(uint8_t rhport,
         if (max_len < descriptor_len) {
             return 0;
         }
+#if DS5_ENABLE_UAC1_AUDIO
+        if (!usbd_edpt_iso_alloc(rhport,
+                                 DUALSENSE_USB_AUDIO_EP_OUT,
+                                 DUALSENSE_USB_UAC1_PACKET_SIZE)) {
+            ESP_LOGW(TAG,
+                     "[DS5_UAC1] iso_alloc=false ep=0x%02x max_packet=%u",
+                     DUALSENSE_USB_AUDIO_EP_OUT,
+                     (unsigned)DUALSENSE_USB_UAC1_PACKET_SIZE);
+            return 0;
+        }
+#endif
         ESP_LOGI(TAG,
                  "[DS5_UAC1] open=true section=audio_streaming desc_len=%u",
                  (unsigned)descriptor_len);
@@ -121,18 +132,26 @@ static uint16_t uac1_open(uint8_t rhport,
 #if DS5_ENABLE_UAC1_AUDIO
 static bool uac1_start_stream(uint8_t rhport)
 {
-    bool opened = usbd_edpt_open(rhport, &s_uac1_audio_out_ep);
-    if (!opened) {
-        ESP_LOGW(TAG, "[DS5_UAC1] open_ep=false ep=0x%02x", DUALSENSE_USB_AUDIO_EP_OUT);
+    bool activated = usbd_edpt_iso_activate(rhport, &s_uac1_audio_out_ep);
+    if (!activated) {
+        ESP_LOGW(TAG,
+                 "[DS5_UAC1] iso_activate=false ep=0x%02x max_packet=%u dma=%s",
+                 DUALSENSE_USB_AUDIO_EP_OUT,
+                 (unsigned)DUALSENSE_USB_UAC1_PACKET_SIZE,
+                 CFG_TUD_DWC2_DMA_ENABLE ? "true" : "false");
         return false;
     }
+    s_packet_count = 0;
     bool armed = usbd_edpt_xfer(rhport,
                                 DUALSENSE_USB_AUDIO_EP_OUT,
                                 s_audio_out_buffer,
                                 sizeof(s_audio_out_buffer));
     ESP_LOGI(TAG,
-             "[DS5_UAC1] streaming=true ep=0x%02x armed=%s",
+             "[DS5_UAC1] streaming=%s ep=0x%02x max_packet=%u dma=%s armed=%s",
+             armed ? "true" : "false",
              DUALSENSE_USB_AUDIO_EP_OUT,
+             (unsigned)DUALSENSE_USB_UAC1_PACKET_SIZE,
+             CFG_TUD_DWC2_DMA_ENABLE ? "true" : "false",
              armed ? "true" : "false");
     return armed;
 }
@@ -173,14 +192,14 @@ static bool uac1_control_xfer_cb(uint8_t rhport,
             return false;
         }
 
-        if (s_alt_setting == DS5_UAC1_ALT_STREAMING && alt == DS5_UAC1_ALT_IDLE) {
-            usbd_edpt_close(rhport, DUALSENSE_USB_AUDIO_EP_OUT);
-        }
-        s_alt_setting = alt;
         if (alt == DS5_UAC1_ALT_STREAMING) {
+            s_alt_setting = alt;
             if (!uac1_start_stream(rhport)) {
+                s_alt_setting = DS5_UAC1_ALT_IDLE;
                 return false;
             }
+        } else {
+            s_alt_setting = DS5_UAC1_ALT_IDLE;
         }
 #else
         return false;
@@ -213,6 +232,10 @@ static bool uac1_xfer_cb(uint8_t rhport,
                      (unsigned long)xferred_bytes,
                      (unsigned long)s_packet_count);
         }
+    }
+
+    if (s_alt_setting != DS5_UAC1_ALT_STREAMING) {
+        return true;
     }
 
     return usbd_edpt_xfer(rhport,

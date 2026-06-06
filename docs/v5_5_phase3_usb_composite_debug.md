@@ -4,29 +4,37 @@ Date: 2026-06-06
 
 ## Current Hardware Result
 
-Both tested audio profiles fail before Windows creates any child:
+The descriptor ladder has now reached a working UAC1 render endpoint:
 
 ```text
+hid_only: parent=OK, hid_child=true
+hid_composite_dummy_interface_class_00: parent=OK, hid_child=true
+hid_composite_dummy_interface_class_ef: parent=OK, hid_child=true
+hid_audio_control_only: parent=OK, hid_child=true, incomplete_audio_function=true
+hid_audio_streaming_alt0_only: parent=OK, hid_child=true, render_endpoint=false
 hid_audio_uac1_2ch:
   serial=V55UAC1_2CH
-  parent=USB Composite Device
-  status=Error
-  problem=Code 10 / CM_PROB_FAILED_START
-  hid_child=false
-  audio_child=false
-
-hid_audio_uac2_4ch:
-  parent=USB Composite Device
-  status=Error
-  problem=Code 10 / CM_PROB_FAILED_START
-  hid_child=false
-  audio_child=false
+  parent=OK
+  hid_child=true
+  media_function=true
+  audio_endpoint=true
+  problem_code=0
 ```
 
-This is a descriptor-level composite enumeration failure, not evidence of a
-UAC1/UAC2 channel algorithm problem. Phase 4 haptics, raw02 live forwarding,
-audio parsing, Pro2 BLE changes, V5.2, and VIIPER are out of scope until a
-composite profile enumerates successfully.
+The first dummy-profile run failed at the Windows composite parent with Code
+10. UART reported `process_set_config ... ASSERT FAILED`. The custom TinyUSB
+application driver was present in `libmain.a`, but
+`usbd_app_driver_get_cb` remained the weak default in the final ELF.
+Linking the `main` component with `WHOLE_ARCHIVE` makes the callback a strong
+symbol and fixes every staged application-driver profile.
+
+The next hardware stage is `hid_audio_uac1_4ch_ds5like`: UAC1, four-channel
+48 kHz signed 16-bit PCM OUT, channel map `0x0033`, endpoint `0x02`, and a
+384-byte maximum packet. It keeps the verified `00/00/00`, no-IAD topology.
+The exact 384-byte packet and profile-local DWC2 slave mode fit the ESP32-S3
+1024-byte FIFO alongside the 64-byte HID IN endpoint. The DS5Dongle reference
+uses 392 bytes, but that one-frame slack does not fit this controller's FIFO
+when TinyUSB DMA metadata is also reserved.
 
 ## DS5Dongle Reference
 
@@ -57,6 +65,7 @@ See `docs/generated/v5_5_ds5dongle_usb_descriptor_reference.md`.
 | `hid_audio_control_only` | `V55ACONLY` | `00/00/00` | no | UAC1 Audio Control + HID |
 | `hid_audio_streaming_alt0_only` | `V55ASALT0` | `00/00/00` | no | Audio Control + AS alt 0 + HID |
 | `hid_audio_uac1_2ch` | `V55UAC1_2CH` | `00/00/00` | no | Full UAC1 render alt 1 and isoch OUT |
+| `hid_audio_uac1_4ch_ds5like` | `V55UAC1_4CH` | `00/00/00` | no | DS5Dongle-like 4ch UAC1 OUT, 384-byte max packet |
 | `hid_audio_uac2_2ch` | `V55UAC2_2CH` | `EF/02/01` | yes | Later UAC2 isolation |
 | `hid_audio_uac2_4ch` | `V55UAC2_4CH` | `EF/02/01` | yes | Later four-channel isolation |
 
@@ -74,6 +83,8 @@ endpoints remain the verified Phase 2.1 shape.
 | both dummy profiles work; `audio_control_only` fails | UAC1 Audio Control header, collection, or class-driver claim is wrong | Compare AC bytes with DS5Dongle |
 | Audio Control works; `streaming_alt0_only` fails | Audio Streaming interface declaration or AC collection reference is wrong | Fix AS alt 0 before adding any endpoint |
 | Streaming alt 0 works; `uac1_2ch` fails | Alt 1, class-specific AS descriptors, isoch endpoint, or packet size is wrong | Compare endpoint and AS descriptor sequence |
+| UAC1 2ch works; UAC1 4ch fails | Four-channel layout, channel map, bandwidth, or packet size is wrong | Keep 2ch baseline and inspect 4ch descriptor/transfer logs |
+| UAC1 4ch works | DS5-like 4ch OUT endpoint is available | Play test audio and verify alt 1 plus isochronous OUT traffic |
 | UAC1 2ch works; UAC2 2ch fails | UAC2-specific descriptor or TinyUSB audio path is wrong | Keep UAC1 as baseline |
 | UAC2 2ch works; UAC2 4ch fails | Four-channel layout, bandwidth, or channel controls are wrong | Inspect channel descriptors and max packet size |
 
@@ -123,6 +134,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\esp32s3\build_v5_5_d
 powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\esp32s3\build_v5_5_dualsense_identity.ps1 -Profile hid_audio_control_only -IdfPath C:\Espressif\v5.3.3\esp-idf
 powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\esp32s3\build_v5_5_dualsense_identity.ps1 -Profile hid_audio_streaming_alt0_only -IdfPath C:\Espressif\v5.3.3\esp-idf
 powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\esp32s3\build_v5_5_dualsense_identity.ps1 -Profile hid_audio_uac1_2ch -IdfPath C:\Espressif\v5.3.3\esp-idf
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\esp32s3\build_v5_5_dualsense_identity.ps1 -Profile hid_audio_uac1_4ch_ds5like -IdfPath C:\Espressif\v5.3.3\esp-idf
 ```
 
 Flash only one profile at a time, in this order:
@@ -134,6 +146,7 @@ hid_only
 -> hid_audio_control_only
 -> hid_audio_streaming_alt0_only
 -> hid_audio_uac1_2ch
+-> hid_audio_uac1_4ch_ds5like
 ```
 
 After each flash, unplug and reconnect native USB, run the checker, and save a
@@ -151,3 +164,12 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\generate_v5_5_usb_de
 The generated files validate `wTotalLength`, actual byte count,
 `bNumInterfaces`, interface continuity, endpoint counts/conflicts, IAD
 coverage, HID report length, and string indices.
+
+## Final Ladder Result
+
+`hid_audio_uac1_4ch_ds5like` passed Windows enumeration and active transfer.
+The automated stream test observed alt 1, `EP 0x02` armed in slave mode, and
+3000 consecutive 384-byte OUT packets during a three-second run. A second
+start reset the count to 1 and stopped at alt 0. During a concurrent six-second
+HID read, input remained at 248.8 Hz with 1494 reports and zero timeouts.
+Phase 3 is therefore complete at the USB descriptor and transport layer.

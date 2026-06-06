@@ -83,6 +83,17 @@ elseif(V5_5_DS5_PROFILE STREQUAL "hid_audio_uac1_2ch")
     list(APPEND main_sources
         "usb_uac1_audio_driver.c"
     )
+elseif(V5_5_DS5_PROFILE STREQUAL "hid_audio_uac1_4ch_ds5like")
+    set(DS5_ENABLE_USB_COMPOSITE 1)
+    set(DS5_ENABLE_USB_AUDIO 1)
+    set(DS5_ENABLE_UAC1_AUDIO 1)
+    set(DS5_AUDIO_CHANNELS 4)
+    set(DS5_HID_INTERFACE_NUMBER 2)
+    set(DS5_INTERFACE_COUNT 3)
+    set(DS5_PROFILE_SERIAL "V55UAC1_4CH")
+    list(APPEND main_sources
+        "usb_uac1_audio_driver.c"
+    )
 elseif(V5_5_DS5_PROFILE STREQUAL "hid_audio_uac2_2ch")
     set(DS5_ENABLE_USB_COMPOSITE 1)
     set(DS5_DEVICE_CLASS_IAD 1)
@@ -126,6 +137,7 @@ idf_component_register(
         pro2_bridge_reuse
         nvs_flash
         esp_timer
+    WHOLE_ARCHIVE
 )
 
 target_compile_definitions(${COMPONENT_LIB} PRIVATE

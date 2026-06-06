@@ -42,6 +42,7 @@ function Get-ProfileNameFromSerial {
         "V55ACONLY" { return "hid_audio_control_only" }
         "V55ASALT0" { return "hid_audio_streaming_alt0_only" }
         "V55UAC1_2CH" { return "hid_audio_uac1_2ch" }
+        "V55UAC1_4CH" { return "hid_audio_uac1_4ch_ds5like" }
         "V55UAC2_2CH" { return "hid_audio_uac2_2ch" }
         "V55UAC2_4CH" { return "hid_audio_uac2_4ch" }
         "V55PHASE3" { return "hid_audio_uac2_4ch_legacy_alias" }
@@ -203,11 +204,17 @@ if ($currentProfile -eq "hid_only") {
     }
 } elseif ($currentProfile -eq "hid_audio_uac1_2ch") {
     $suggestedNextAction = if ($currentHidChildFound -and $currentAudioChildFound) {
-        "optionally_test_hid_audio_uac2_2ch"
+        "test_hid_audio_uac1_4ch_ds5like"
     } elseif ($phaseGuess -eq "composite_parent_code10") {
         "test_dummy_class_00"
     } else {
         "compare_uac1_topology_with_ds5dongle_reference"
+    }
+} elseif ($currentProfile -eq "hid_audio_uac1_4ch_ds5like") {
+    $suggestedNextAction = if ($currentHidChildFound -and $currentAudioChildFound) {
+        "play_test_audio_and_verify_isochronous_output"
+    } else {
+        "fall_back_to_hid_audio_uac1_2ch"
     }
 } elseif ($currentProfile -eq "hid_audio_uac2_2ch") {
     $suggestedNextAction = if ($currentHidChildFound -and $currentAudioChildFound) {

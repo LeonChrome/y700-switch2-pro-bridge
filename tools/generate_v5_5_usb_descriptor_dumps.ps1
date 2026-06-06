@@ -506,6 +506,7 @@ $profiles = @(
     [pscustomobject]@{ Name = "hid_audio_control_only"; Serial = "V55ACONLY"; DeviceClassHint = "00/00/00"; IadExpected = $false; StringCount = 6; SampleRate = 48000 },
     [pscustomobject]@{ Name = "hid_audio_streaming_alt0_only"; Serial = "V55ASALT0"; DeviceClassHint = "00/00/00"; IadExpected = $false; StringCount = 6; SampleRate = 48000 },
     [pscustomobject]@{ Name = "hid_audio_uac1_2ch"; Serial = "V55UAC1_2CH"; DeviceClassHint = "00/00/00"; IadExpected = $false; StringCount = 6; SampleRate = 48000 },
+    [pscustomobject]@{ Name = "hid_audio_uac1_4ch_ds5like"; Serial = "V55UAC1_4CH"; DeviceClassHint = "00/00/00"; IadExpected = $false; StringCount = 6; SampleRate = 48000 },
     [pscustomobject]@{ Name = "hid_audio_uac2_2ch"; Serial = "V55UAC2_2CH"; DeviceClassHint = "EF/02/01"; IadExpected = $true; StringCount = 6; SampleRate = 48000 },
     [pscustomobject]@{ Name = "hid_audio_uac2_4ch"; Serial = "V55UAC2_4CH"; DeviceClassHint = "EF/02/01"; IadExpected = $true; StringCount = 6; SampleRate = 48000 }
 )
@@ -516,6 +517,7 @@ $docGroups = @(
     [pscustomobject]@{ File = "docs/generated/v5_5_usb_descriptor_dump_hid_audio_control_only.md"; Names = @("hid_audio_control_only") },
     [pscustomobject]@{ File = "docs/generated/v5_5_usb_descriptor_dump_hid_audio_streaming_alt0_only.md"; Names = @("hid_audio_streaming_alt0_only") },
     [pscustomobject]@{ File = "docs/generated/v5_5_usb_descriptor_dump_hid_audio_uac1_2ch.md"; Names = @("hid_audio_uac1_2ch") },
+    [pscustomobject]@{ File = "docs/generated/v5_5_usb_descriptor_dump_hid_audio_uac1_4ch_ds5like.md"; Names = @("hid_audio_uac1_4ch_ds5like") },
     [pscustomobject]@{ File = "docs/generated/v5_5_usb_descriptor_dump_hid_audio_uac2_2ch.md"; Names = @("hid_audio_uac2_2ch") },
     [pscustomobject]@{ File = "docs/generated/v5_5_usb_descriptor_dump_hid_audio_uac2_4ch.md"; Names = @("hid_audio_uac2_4ch") }
 )

@@ -9,6 +9,7 @@ param(
         "hid_audio_control_only",
         "hid_audio_streaming_alt0_only",
         "hid_audio_uac1_2ch",
+        "hid_audio_uac1_4ch_ds5like",
         "hid_audio_uac2_2ch",
         "hid_audio_uac2_4ch",
         "hid_audio_uac2",

@@ -23,6 +23,14 @@ hid_audio_uac1_2ch:
   serial=V55UAC1_2CH
   audio=2ch, 48 kHz, signed 16-bit PCM OUT
 
+hid_audio_uac1_4ch_ds5like:
+  HID + DS5Dongle-like UAC1 render
+  serial=V55UAC1_4CH
+  audio=4ch, 48 kHz, signed 16-bit PCM OUT
+  channel_config=0x0033
+  max_packet=384 bytes
+  dwc2_mode=slave
+
 hid_audio_uac2_2ch:
   HID + UAC2 render experiment
   serial=V55UAC2_2CH
@@ -41,35 +49,38 @@ hid_audio_uac2:
 The `hid_audio_uac1_fallback` name is also accepted as a warning alias for
 `hid_audio_uac1_2ch`.
 
-## Hardware Result That Triggered Fallbacks
+## Hardware Result
 
-The first real `V55PHASE3` / old `hid_audio_uac2` hardware run did not
-enumerate successfully:
-
-```text
-phase3_usb_found=true
-phase3_status=Error
-phase3_problem_code=10
-phase3_config_error=CM_PROB_FAILED_START
-phase3_hid_child_found=false
-phase3_audio_child_found=false
-identity_result=composite_error
-audio_endpoint_found=false
-```
-
-Because of that result, Phase 3 now verifies in this order:
+The staged descriptor ladder now passes through full UAC1 2ch:
 
 ```text
-1. hid_only
-2. hid_audio_uac1_2ch
-3. hid_audio_uac2_2ch
-4. hid_audio_uac2_4ch
+hid_only=true
+dummy_class_00=true
+dummy_class_ef=true
+audio_control_claimed=true
+audio_streaming_alt0_claimed=true
+uac1_2ch_parent=true
+uac1_2ch_hid=true
+uac1_2ch_media=true
+uac1_2ch_audio_endpoint=true
 ```
 
-UAC1 2ch is the first real audio fallback. It is meant to prove that Windows
-can enumerate the composite parent, keep the HID child alive, and expose a
-basic render endpoint. It is not intended to reproduce full DualSense haptic
-audio.
+The earlier composite Code 10 was caused by the custom TinyUSB application
+driver callback not being pulled from `libmain.a`. `WHOLE_ARCHIVE` fixes the
+linkage; the final ELF now contains a strong `usbd_app_driver_get_cb`.
+UAC1 2ch proves that Windows can enumerate the parent, keep HID alive, and
+expose a render endpoint. UAC1 4ch is the next DS5Dongle-like hardware stage.
+
+Dynamic playback initially reached alt 1 but failed `usbd_edpt_open(0x02)`.
+The ESP32-S3 DWC2 FIFO calculation showed that the 392-byte reference packet,
+64-byte HID IN endpoint, and DMA metadata do not fit together. The 4ch profile
+therefore uses slave mode and the exact 384 bytes required by 48 frames per
+millisecond. Other profiles retain their existing TinyUSB mode.
+
+The custom driver also follows TinyUSB's DWC2 ISO lifecycle: FIFO allocation
+during configuration, ISO activation on alt 1, and no transfer re-arm after
+alt 0. This allows repeated start/stop cycles without a stale transfer
+continuing after playback ends.
 
 ## Endpoint Shape
 
@@ -88,7 +99,10 @@ addresses remain unchanged from Phase 2/2.1.
 
 ## Audio Processing
 
-UAC1 2ch only keeps the endpoint alive and logs OUT packet activity.
+UAC1 2ch and UAC1 4ch keep the endpoint alive and log OUT packet activity.
+The 4ch profile uses channels 0/1/2/3 as the incoming stream; semantic haptic
+channel processing remains out of scope until enumeration and transfer are
+verified.
 
 UAC2 profiles initialize the haptic-audio dry-run pipeline. For 2ch UAC2,
 channels 0/1 are treated as left/right haptic source. For 4ch UAC2, channels
@@ -106,16 +120,50 @@ Run from the repository root:
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\esp32s3\build_v5_5_dualsense_identity.ps1 -Profile hid_only -IdfPath C:\Espressif\v5.3.3\esp-idf
 powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\esp32s3\build_v5_5_dualsense_identity.ps1 -Profile hid_audio_uac1_2ch -IdfPath C:\Espressif\v5.3.3\esp-idf
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\esp32s3\build_v5_5_dualsense_identity.ps1 -Profile hid_audio_uac1_4ch_ds5like -IdfPath C:\Espressif\v5.3.3\esp-idf
 powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\esp32s3\build_v5_5_dualsense_identity.ps1 -Profile hid_audio_uac2_2ch -IdfPath C:\Espressif\v5.3.3\esp-idf
 powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\esp32s3\build_v5_5_dualsense_identity.ps1 -Profile hid_audio_uac2_4ch -IdfPath C:\Espressif\v5.3.3\esp-idf
 powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\check_v5_5_usb_composite.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\check_v5_5_dualsense_identity.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\check_v5_5_dualsense_audio.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\test_v5_5_dualsense_audio_stream.ps1 -Port COM12 -Seconds 3
 ```
 
 The check scripts print `current_serial`, `current_profile`, and
 `suggested_next_action` so the next flash can follow the fallback sequence
 without guessing from stale Windows device nodes.
+
+The stream test temporarily selects the controller endpoint, plays a
+low-amplitude stereo source through Windows shared mode, captures UART, and
+restores the previous default endpoint. Because the USB endpoint only exposes
+4ch/48 kHz/16-bit, successful 384-byte packets verify the final four-channel
+USB transport even though the portable test source itself is stereo.
+
+## Completed 4ch Transport Result
+
+```text
+profile=hid_audio_uac1_4ch_ds5like
+windows_composite=OK
+windows_hid=OK
+windows_media=OK
+windows_audio_endpoint=OK
+set_interface_1=true
+streaming=true
+ep=0x02
+max_packet=384
+dma=false
+out_packet_len=384
+out_packet_count_3s=3000
+second_start_count_reset=true
+stopped_at_alt_0=true
+hid_concurrent_rate_hz=248.8
+hid_concurrent_timeouts=0
+result=passed
+```
+
+Phase 3 USB enumeration and four-channel transport are complete. Channel
+semantics, haptic feature extraction, and live Pro2 translation remain Phase
+4 work rather than descriptor or endpoint blockers.
 
 ## Success Criteria
 

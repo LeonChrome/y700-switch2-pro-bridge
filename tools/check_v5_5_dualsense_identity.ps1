@@ -18,7 +18,12 @@ function Get-ProfileNameFromSerial {
     param([string]$Serial)
     switch ($Serial) {
         "V55HIDONLY" { return "hid_only" }
+        "V55DUMMY00" { return "hid_composite_dummy_interface_class_00" }
+        "V55DUMMYEF" { return "hid_composite_dummy_interface_class_ef" }
+        "V55ACONLY" { return "hid_audio_control_only" }
+        "V55ASALT0" { return "hid_audio_streaming_alt0_only" }
         "V55UAC1_2CH" { return "hid_audio_uac1_2ch" }
+        "V55UAC1_4CH" { return "hid_audio_uac1_4ch_ds5like" }
         "V55UAC2_2CH" { return "hid_audio_uac2_2ch" }
         "V55UAC2_4CH" { return "hid_audio_uac2_4ch" }
         "V55PHASE3" { return "hid_audio_uac2_4ch_legacy_alias" }
@@ -73,7 +78,7 @@ foreach ($device in $allDevices) {
         Status = if ($device.Status) { [string]$device.Status } else { "Unknown" }
         Class = if ($device.Class) { [string]$device.Class } else { "not_found" }
         IsHidInterface = $device.Class -eq "HIDClass" -and $instanceId -match "^HID\\VID_054C&PID_0CE6"
-        IsUsbDevice = $instanceId -match "^USB\\VID_054C&PID_0CE6"
+        IsUsbDevice = $instanceId -match "^USB\\VID_054C&PID_0CE6\\[^\\]+$"
     }
 }
 
@@ -105,13 +110,14 @@ $audioEndpointFound = $false
 try {
     $audioDevices = @(Get-CimInstance Win32_SoundDevice -ErrorAction Stop |
         Where-Object {
-            ($_.Name -match "DualSense|Wireless Controller|054C|0CE6|Sony") -or
-            ($_.PNPDeviceID -match "VID_054C&PID_0CE6")
+            $_.Status -eq "OK" -and
+            (($_.Name -match "DualSense|Wireless Controller|054C|0CE6|Sony") -or
+             ($_.PNPDeviceID -match "VID_054C&PID_0CE6"))
         })
     $audioPnpDevices = @(Get-PnpDevice -PresentOnly -ErrorAction Stop |
         Where-Object {
-            (($_.Class -match "AudioEndpoint|Media") -or
-             ($_.FriendlyName -match "Speaker|Headphones|Wireless Controller|DualSense")) -and
+            $_.Status -eq "OK" -and
+            ($_.Class -match "AudioEndpoint|Media") -and
             (($_.FriendlyName -match "DualSense|Wireless Controller|054C|0CE6|Sony") -or
              ($_.InstanceId -match "VID_054C&PID_0CE6"))
         })
@@ -122,9 +128,19 @@ try {
 
 $suggestedNextAction = "connect_or_flash_hid_only"
 if ($currentProfile -eq "hid_only") {
-    $suggestedNextAction = if ($hidInterfaceFound) { "flash_hid_audio_uac1_2ch" } else { "fix_hid_regression" }
+    $suggestedNextAction = if ($hidInterfaceFound) { "test_dummy_class_00" } else { "fix_hid_regression" }
+} elseif ($currentProfile -eq "hid_composite_dummy_interface_class_00") {
+    $suggestedNextAction = if ($hidInterfaceFound) { "test_dummy_class_ef" } else { "fix_basic_composite_descriptor" }
+} elseif ($currentProfile -eq "hid_composite_dummy_interface_class_ef") {
+    $suggestedNextAction = if ($hidInterfaceFound) { "test_audio_control_only" } else { "use_class_00_without_iad" }
+} elseif ($currentProfile -eq "hid_audio_control_only") {
+    $suggestedNextAction = if ($hidInterfaceFound) { "test_streaming_alt0_only" } else { "fix_audio_control_descriptor" }
+} elseif ($currentProfile -eq "hid_audio_streaming_alt0_only") {
+    $suggestedNextAction = if ($hidInterfaceFound) { "test_hid_audio_uac1_2ch" } else { "fix_audio_streaming_alt0_descriptor" }
 } elseif ($currentProfile -eq "hid_audio_uac1_2ch") {
-    $suggestedNextAction = if ($hidInterfaceFound -and $audioEndpointFound) { "flash_hid_audio_uac2_2ch" } else { "descriptor_or_composite_basic_issue" }
+    $suggestedNextAction = if ($hidInterfaceFound -and $audioEndpointFound) { "flash_hid_audio_uac1_4ch_ds5like" } else { "descriptor_or_composite_basic_issue" }
+} elseif ($currentProfile -eq "hid_audio_uac1_4ch_ds5like") {
+    $suggestedNextAction = if ($hidInterfaceFound -and $audioEndpointFound) { "play_test_audio_and_verify_isochronous_output" } else { "fall_back_to_hid_audio_uac1_2ch" }
 } elseif ($currentProfile -eq "hid_audio_uac2_2ch") {
     $suggestedNextAction = if ($hidInterfaceFound -and $audioEndpointFound) { "flash_hid_audio_uac2_4ch" } else { "uac2_descriptor_issue" }
 } elseif ($currentProfile -eq "hid_audio_uac2_4ch" -or $currentProfile -eq "hid_audio_uac2_4ch_legacy_alias") {

@@ -241,7 +241,8 @@ void app_main(void)
              "[DS5_IDENTITY] audio=%s ble_input=true rumble_compat=true raw02_forwarding=false",
              DS5_ENABLE_UAC1_CONTROL_ONLY ? "uac1_control_only" :
              (DS5_ENABLE_UAC1_STREAMING_ALT0 ? "uac1_streaming_alt0_only" :
-             (DS5_ENABLE_UAC1_AUDIO ? "uac1_2ch_fallback" :
+             (DS5_ENABLE_UAC1_AUDIO ?
+                  (DS5_AUDIO_CHANNELS == 4 ? "uac1_4ch_ds5like" : "uac1_2ch_fallback") :
              (DS5_ENABLE_UAC2_AUDIO ? "uac2_experimental" : "false"))));
     ESP_LOGI(TAG,
              "[DS5_DESCRIPTOR_STAGE] uac1_control_only=%s uac1_streaming_alt0_only=%s",
