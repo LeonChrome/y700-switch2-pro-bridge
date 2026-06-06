@@ -84,9 +84,9 @@ void dualsense_report_mapper_from_pro2(const switch2_state_t *state,
     }
 
     uint8_t lx = axis12_to_u8(state->lx);
-    uint8_t ly = axis12_to_u8(state->ly);
+    uint8_t ly = (uint8_t)(0xffu - axis12_to_u8(state->ly));
     uint8_t rx = axis12_to_u8(state->rx);
-    uint8_t ry = axis12_to_u8(state->ry);
+    uint8_t ry = (uint8_t)(0xffu - axis12_to_u8(state->ry));
     uint8_t l2 = switch2_state_get_button(state, SWITCH2_BUTTON_ZL) ? 0xff : 0x00;
     uint8_t r2 = switch2_state_get_button(state, SWITCH2_BUTTON_ZR) ? 0xff : 0x00;
     uint8_t hat = map_hat(state);

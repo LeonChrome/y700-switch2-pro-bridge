@@ -11,6 +11,7 @@
 #include "freertos/task.h"
 #include "nvs_flash.h"
 #include "pro2_input_backend.h"
+#include "pro2_rumble_backend.h"
 #include "tinyusb.h"
 #include "tusb.h"
 #include "usb_dualsense_descriptor.h"
@@ -101,13 +102,18 @@ void tud_hid_set_report_cb(uint8_t instance,
     }
 
     s_output_count++;
+    bool rumble_handled = pro2_rumble_backend_handle_dualsense_output(
+        report_id,
+        buffer,
+        bufsize);
     ESP_LOGI(TAG,
-             "[DS5_OUTPUT] report_id=0x%02x effective_report_id=0x%02x type=%u len=%u count=%lu",
+             "[DS5_OUTPUT] report_id=0x%02x effective_report_id=0x%02x type=%u len=%u count=%lu rumble_handled=%s",
              report_id,
              effective_report_id,
              (unsigned)report_type,
              (unsigned)bufsize,
-             (unsigned long)s_output_count);
+             (unsigned long)s_output_count,
+             rumble_handled ? "true" : "false");
 }
 
 static void neutral_report_task(void *arg)
@@ -116,6 +122,7 @@ static void neutral_report_task(void *arg)
     uint8_t report[DUALSENSE_INPUT_PAYLOAD_SIZE];
     int64_t next_input_log_us = 0;
     bool last_connected = false;
+    TickType_t next_wake = xTaskGetTickCount();
     dualsense_report_mapper_init();
 
     while (true) {
@@ -193,7 +200,7 @@ static void neutral_report_task(void *arg)
             next_input_log_us = now_us + 1000000LL;
         }
 
-        vTaskDelay(pdMS_TO_TICKS(4));
+        xTaskDelayUntil(&next_wake, pdMS_TO_TICKS(4));
     }
 }
 
@@ -202,7 +209,8 @@ void app_main(void)
     ESP_LOGI(TAG, "[DS5_IDENTITY] enabled=true mode=dualsense_experimental");
     ESP_LOGI(TAG,
              "[DS5_IDENTITY] vid=0x054c pid=0x0ce6 product=DualSense Wireless Controller");
-    ESP_LOGI(TAG, "[DS5_IDENTITY] audio=false ble_input=true raw02=false");
+    ESP_LOGI(TAG,
+             "[DS5_IDENTITY] audio=false ble_input=true rumble_compat=true raw02=false");
 
     esp_err_t nvs_err = nvs_flash_init();
     if (nvs_err == ESP_ERR_NVS_NO_FREE_PAGES ||
@@ -224,6 +232,7 @@ void app_main(void)
 
     ESP_ERROR_CHECK(tinyusb_driver_install(&tusb_config));
     pro2_input_backend_init();
+    pro2_rumble_backend_init();
     ESP_ERROR_CHECK(xTaskCreate(neutral_report_task,
                                 "ds5_input",
                                 3072,

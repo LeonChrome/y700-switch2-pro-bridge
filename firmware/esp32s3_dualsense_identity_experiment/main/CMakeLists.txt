@@ -5,6 +5,7 @@ idf_component_register(
         "dualsense_report.c"
         "dualsense_report_mapper.c"
         "pro2_input_backend.c"
+        "pro2_rumble_backend.c"
     INCLUDE_DIRS
         "."
     REQUIRES

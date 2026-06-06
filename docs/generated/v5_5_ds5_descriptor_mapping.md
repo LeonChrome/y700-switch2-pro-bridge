@@ -112,7 +112,12 @@ the newest parsed accelerometer/gyroscope sample into the DualSense motion
 fields. Neutral reports continue to carry increasing sequence and timestamp
 values when the Pro2 is disconnected or its input is stale.
 
-Phase 2 does not add USB Audio, haptic translation, or raw02 forwarding.
+Phase 2 does not add USB Audio, haptic audio, or raw02 forwarding.
+
+Phase 2.1 keeps the descriptor unchanged and consumes the existing output
+report `0x02`. Ordinary light/heavy motor intensity is converted into bounded
+Pro2 BLE vibration. DualSense haptic audio and raw02 pass-through remain
+deferred.
 
 ## Deferred
 

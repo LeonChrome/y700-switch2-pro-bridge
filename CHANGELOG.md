@@ -13,6 +13,10 @@
 - Phase 2 已实际刷入并验证 `V55PHASE2`、`0x01 + 63 bytes`、`250.0 Hz`、零 HID 读取超时。
 - 新增实验固件 BLE 常驻重连守护；异步连接失败回到 `idle` 后会自动重试。
 - 新增 `check_v5_5_dualsense_reports.ps1` 和专用 C# HID 读取器，用于自动验证报告形状、频率、计数和映射活动。
+- 根据实机反馈反转 DualSense 映射的左右摇杆 Y 轴；其余键位由用户确认正确。
+- 新增 Phase 2.1 普通 DualSense light/heavy motor 到 Pro2 BLE vibration 的限幅兼容层。
+- 新增一次性低强度 `send_v5_5_dualsense_rumble_test.ps1`；实测 HID `0x02` 解析成功、BLE writes 非零且 errors 为零。
+- 报告循环改为 `xTaskDelayUntil` 绝对节拍，BLE 与震动任务运行时主机实测约 `248.8 Hz`。
 - 新增独立 build/flash 工具和 Windows DualSense identity 检测工具。
 - ESP-IDF 5.3.3 实际 build 已通过；未刷实验固件时 host check 以 blocked/exit 0 结束。
 - 明确 V5.2 Pure Pro2 / VIIPER 路线封存保留，V5.5 不替换、不混入、不修改其默认行为。
@@ -33,6 +37,10 @@
 - Flashed and verified Phase 2 as `V55PHASE2` with `0x01 + 63-byte` input at 250.0 Hz and zero HID read timeouts.
 - Added a persistent experimental BLE reconnect watchdog that retries after asynchronous connection failure returns to `idle`.
 - Added `check_v5_5_dualsense_reports.ps1` and a dedicated C# HID reader for report shape, rate, counter, and mapped-activity validation.
+- Reversed both mapped stick Y axes from hardware feedback; the user confirmed the remaining controls.
+- Added a bounded Phase 2.1 ordinary DualSense light/heavy motor to Pro2 BLE vibration compatibility layer.
+- Added the one-shot low-intensity `send_v5_5_dualsense_rumble_test.ps1`; HID `0x02` parsing passed with non-zero BLE writes and zero errors.
+- Switched the report loop to an absolute `xTaskDelayUntil` cadence; host-observed rate is about 248.8 Hz with BLE and rumble tasks active.
 - Added standalone build/flash tools and a Windows DualSense identity checker.
 - Verified a real ESP-IDF 5.3.3 build; before flashing, the host checker exits zero with a blocked result.
 - Froze and preserved the V5.2 Pure Pro2 / VIIPER route; V5.5 does not replace, merge into, or change its default behavior.

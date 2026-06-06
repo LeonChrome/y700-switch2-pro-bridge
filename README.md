@@ -366,7 +366,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\run_v5_4_hybrid_hapt
 
 中文：
 
-Phase 1 实机验证已通过：Windows 识别 VID `054c` / PID `0ce6`，持续接收 `0x01 + 63 bytes`、约 `250 Hz` 的输入报告，且未发生 USB 断连。Phase 2 在同一个独立实验固件中复用现有 Pro2 BLE FD2 解析器，将真实 Pro2 的按键、摇杆、扳机和 motion 映射到 DualSense 输入报告。Phase 2 已实际刷入并以零超时测得准确 `250.0 Hz`，异步 BLE 连接失败后也会由常驻守护自动重试。现有 V5.2/V5.0 默认桥接固件和 GUI 不变；USB Audio、haptic audio 和 raw02 仍未启用。
+Phase 1 实机验证已通过：Windows 识别 VID `054c` / PID `0ce6`，持续接收 `0x01 + 63 bytes`、约 `250 Hz` 的输入报告，且未发生 USB 断连。Phase 2 在同一个独立实验固件中复用现有 Pro2 BLE FD2 解析器，将真实 Pro2 的按键、摇杆、扳机和 motion 映射到 DualSense 输入报告。Phase 2.1 根据实测反转了两根摇杆 Y 轴，并把 DualSense 普通 light/heavy motor 输出安全近似为 Pro2 BLE vibration；受控测试已得到非零 BLE 写入和零错误。现有 V5.2/V5.0 默认桥接固件和 GUI 不变；USB Audio、haptic audio 和 raw02 仍未启用。
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\esp32s3\build_v5_5_dualsense_identity.ps1 -IdfPath C:\Espressif\v5.3.3\esp-idf
@@ -374,11 +374,12 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\esp32s3\flash_v5_5_d
 powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\check_v5_5_dualsense_identity.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\check_v5_5_dualsense_input.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\check_v5_5_dualsense_reports.ps1 -Seconds 6
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\send_v5_5_dualsense_rumble_test.ps1 -RightLight 48 -LeftHeavy 80 -PulseMs 250 -Send
 ```
 
 English:
 
-Phase 1 passed hardware validation with VID `054c`, PID `0ce6`, stable `0x01 + 63-byte` input at about 250 Hz, and no USB disconnect. Phase 2 reuses the existing Pro2 BLE FD2 parser inside the standalone experiment and maps real Pro2 buttons, sticks, triggers, and motion into the DualSense input report. The Phase 2 image has been flashed and verified at exactly 250.0 Hz with zero host read timeouts, and its BLE reconnect watchdog retries after asynchronous connection failure. The V5.2/V5.0 default firmware and GUI remain unchanged; USB Audio, haptic audio, and raw02 are disabled.
+Phase 1 passed hardware validation with VID `054c`, PID `0ce6`, stable `0x01 + 63-byte` input at about 250 Hz, and no USB disconnect. Phase 2 reuses the existing Pro2 BLE FD2 parser inside the standalone experiment and maps real Pro2 buttons, sticks, triggers, and motion into the DualSense input report. Phase 2.1 reverses both stick Y axes from hardware feedback and safely approximates ordinary DualSense light/heavy motor output through Pro2 BLE vibration; a controlled test produced non-zero BLE writes with zero errors. The V5.2/V5.0 default firmware and GUI remain unchanged; USB Audio, haptic audio, and raw02 are disabled.
 
 See the [Phase 1 guide](docs/v5_5_phase1_minimal_dualsense_hid_identity.md) and [Phase 2 mapping guide](docs/v5_5_phase2_pro2_to_dualsense_input_mapping.md).
 

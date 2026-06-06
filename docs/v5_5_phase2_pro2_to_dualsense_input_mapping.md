@@ -9,14 +9,15 @@ Date: 2026-06-06
 Phase 2 在独立实验固件中连接真实 Switch 2 Pro Controller，把现有 FD2
 BLE 解析结果映射为 PC 侧 DualSense `0x01 + 63 bytes` 输入报告。
 
-本阶段不实现 USB Audio、DualSense haptic、Pro2 raw02 转发，也不修改
-V5.2/V5.0 默认桥接固件或 GUI。
+本阶段不实现 USB Audio、DualSense haptic audio、Pro2 raw02 直通，也不
+修改 V5.2/V5.0 默认桥接固件或 GUI。Phase 2.1 增加普通 DualSense
+双马达强度到 Pro2 BLE vibration 的安全近似转译。
 
 ### 输入映射
 
 | Pro2 输入 | DualSense 输入 |
 | --- | --- |
-| 左/右摇杆 12-bit | LX/LY/RX/RY 8-bit |
+| 左/右摇杆 12-bit | LX/LY/RX/RY 8-bit；两根 Y 轴反向以匹配 DualSense |
 | B / A / Y / X | Cross / Circle / Square / Triangle |
 | D-pad | DualSense 8 向 hat，空闲值 `8` |
 | L / R | L1 / R1 |
@@ -66,32 +67,70 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\check_v5_5_dualsense
 确认真实 Pro2 的按键和摇杆会驱动虚拟 DualSense。主机脚本只验证身份和
 输出人工测试入口，不伪造实时输入通过结果。
 
+### 普通震动验证
+
+DualSense USB output `0x02` 的 ordinary rumble 字段为：
+
+```text
+payload[0] flags
+payload[2] right/light motor
+payload[3] left/heavy motor
+```
+
+Phase 2.1 将 light/heavy 强度映射为固定高/低频 Pro2 BLE vibration
+分量，并发送到两个 Pro2 执行器。最大映射振幅限制为 `640/1023`，单次
+命令看门狗为 250 ms，结束后发送 3 个停止包。这是普通震动兼容层，不是
+DualSense haptic audio 或原生 HD Rumble 2 复刻。
+
+默认 dry-run：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\send_v5_5_dualsense_rumble_test.ps1
+```
+
+发送一次低强度短脉冲：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\send_v5_5_dualsense_rumble_test.ps1 -RightLight 48 -LeftHeavy 80 -PulseMs 250 -Send
+```
+
 ### 当前结果
 
 ```text
+firmware_version=5.5.0-phase2.1
 phase1_hardware_identity=passed
 phase2_build=passed
 phase2_flash=passed
-phase2_binary_size=0x96a00
-phase2_binary_sha256=C1C3BC2659728A9A78F2EC61A5BBF46298029AA8B14C1FC9E8A810B9B92F1BD1
+phase2_binary_size=0x97420
+phase2_binary_sha256=2686346A5D48B9E235FB4A7202B856ACEC978DAFE42FB3004E97A7EED7933FF9
 windows_identity=054C:0CE6/V55PHASE2
 host_input_check=ready_for_manual_input_test
 host_report_id=0x01
 host_payload_length=63
-host_report_rate_hz=250.0
+host_report_rate_hz=248.8
 host_report_timeouts=0
 sequence_counter_incrementing=true
 reconnect_after_timeout=true
-phase2_real_pro2_input=blocked_controller_offline
+phase2_real_pro2_input=true
+mapped_input_activity=true
+buttons_except_axis_direction=user_verified
+left_stick_y_inverted_fix=true
+right_stick_y_inverted_fix=true
+ordinary_rumble_output_parsed=true
+ordinary_rumble_ble_writes=nonzero
+ordinary_rumble_ble_errors=0
+ordinary_rumble_physical_confirmation=pending_user
 audio=false
-haptic=false
+haptic_audio=false
 raw02=false
 v5_2_default_unchanged=true
 ```
 
-本轮测试时已保存的 Pro2 目标没有响应。第一次 30 秒连接超时后，固件
-成功发起第二次连接，证明断线重连守护工作正常。由于真实手柄没有上线，
-本轮不能把 `mapped_input_activity` 标为通过。
+用户实测确认除两根摇杆 Y 轴外其余键位正确。Y 轴修正固件已刷入；自动
+HID 检查确认 `axes_changed=true`、`motion_changed=true` 和
+`mapped_input_activity=true`。低强度震动测试得到
+`right_light=48`、`left_heavy=80`、Pro2 BLE `writes>0`、
+`errors=0`。
 
 恢复正常 V5.2/V5.0 桥接固件：
 
@@ -110,13 +149,16 @@ triggers, system buttons, and the latest parsed gyro/accelerometer sample.
 Sequence counters and timestamps advance at the 4 ms report cadence. Missing
 or stale Pro2 input produces a neutral report without freezing those counters.
 
-Motion remains a raw-like first pass; axis direction, orientation, and scale
-require hardware validation. USB Audio, DualSense haptic translation, and
+Motion remains a raw-like first pass. USB Audio, DualSense haptic audio, and
 Pro2 raw02 forwarding remain disabled. The existing V5.2/V5.0 firmware and GUI
 are unchanged.
 
 The Phase 2 image was flashed and verified as `V55PHASE2`. Windows received
-`0x01 + 63-byte` input at 250.0 Hz with zero timeouts while Steam was running.
+`0x01 + 63-byte` input at about 250 Hz with zero timeouts while Steam was running.
 The reconnect watchdog also started a second connection after the first
-30-second timeout. Real mapped input activity remains blocked only because the
-saved Pro2 controller was offline during this closeout run.
+30-second timeout.
+
+Phase 2.1 reverses both stick Y axes following hardware feedback and adds
+bounded ordinary DualSense rumble compatibility. A controlled `0x02` test was
+parsed and produced non-zero Pro2 BLE writes with zero write errors. This does
+not implement DualSense haptic audio or raw02 pass-through.
