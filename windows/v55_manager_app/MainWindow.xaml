@@ -212,7 +212,7 @@
                                 <Button Style="{StaticResource ButtonLite}" Content="保存" Command="{Binding SaveLogCommand}"/>
                             </WrapPanel>
                         </Grid>
-                        <TextBox Grid.Row="1" Text="{Binding LogText}" FontFamily="Consolas" FontSize="12"
+                        <TextBox Grid.Row="1" Text="{Binding LogText, Mode=OneWay}" FontFamily="Consolas" FontSize="12"
                                  IsReadOnly="True" TextWrapping="NoWrap"
                                  VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto"
                                  Background="#0B1220" Foreground="#DDE7F3" BorderThickness="0"/>
