@@ -9,7 +9,8 @@ param(
     [int]$HighSpeed = 65535,
     [ValidateSet("single", "double", "long")]
     [string]$Pattern = "single",
-    [switch]$LegacyVariants
+    [switch]$LegacyVariants,
+    [string]$PathContains = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -49,13 +50,16 @@ public static class HidHapticProbe {
   const int DIGCF_PRESENT=0x02, DIGCF_DEVICEINTERFACE=0x10;
   const uint GENERIC_READ=0x80000000, GENERIC_WRITE=0x40000000, SHARE=0x03, OPEN_EXISTING=3;
 
-  public static void Run(ushort vid, ushort[] pids, int pulseMs, int gapMs, ushort lowSpeed, ushort highSpeed, string pattern, bool legacyVariants) {
+  public static int Run(ushort vid, ushort[] pids, int pulseMs, int gapMs, ushort lowSpeed, ushort highSpeed, string pattern, bool legacyVariants, string pathContains) {
+    int matched = 0;
     foreach (string path in EnumerateHidPaths()) {
+      if (!String.IsNullOrWhiteSpace(pathContains) && path.IndexOf(pathContains, StringComparison.OrdinalIgnoreCase) < 0) continue;
       using (SafeFileHandle h = CreateFile(path, GENERIC_READ|GENERIC_WRITE, SHARE, IntPtr.Zero, OPEN_EXISTING, 0, IntPtr.Zero)) {
         if (h.IsInvalid) continue;
         HIDD_ATTRIBUTES attr = new HIDD_ATTRIBUTES(); attr.Size = Marshal.SizeOf(typeof(HIDD_ATTRIBUTES));
         if (!HidD_GetAttributes(h, ref attr)) continue;
         if (attr.VendorID != vid || Array.IndexOf(pids, attr.ProductID) < 0) continue;
+        matched++;
 
         HIDP_CAPS caps = GetCaps(h);
         Console.WriteLine("path=" + path);
@@ -82,6 +86,8 @@ public static class HidHapticProbe {
         }
       }
     }
+    Console.WriteLine("[HID_HAPTIC] matched_devices=" + matched);
+    return matched;
   }
 
   static HIDP_CAPS GetCaps(SafeFileHandle h) {
@@ -202,4 +208,8 @@ public static class HidHapticProbe {
 Add-Type $source
 $vidValue = [Convert]::ToUInt16($Vid, 16)
 $pidValues = $Pids | ForEach-Object { [Convert]::ToUInt16($_, 16) }
-[HidHapticProbe]::Run($vidValue, [UInt16[]]$pidValues, $PulseMs, $GapMs, [UInt16]$LowSpeed, [UInt16]$HighSpeed, $Pattern, [bool]$LegacyVariants)
+$matchedDevices = [HidHapticProbe]::Run($vidValue, [UInt16[]]$pidValues, $PulseMs, $GapMs, [UInt16]$LowSpeed, [UInt16]$HighSpeed, $Pattern, [bool]$LegacyVariants, $PathContains)
+if ($matchedDevices -le 0) {
+    Write-Output "[HID_HAPTIC] blocked=no matching HID device"
+    exit 2
+}

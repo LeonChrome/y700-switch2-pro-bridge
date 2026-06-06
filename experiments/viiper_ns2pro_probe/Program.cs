@@ -11,6 +11,14 @@ using var log = new ProbeLog(options.LogPath);
 
 log.Write("[VIIPER] starting");
 log.Write($"[VIIPER] mode={(options.StartServer ? "subprocess" : "server")} api={options.ApiHost}:{options.ApiPort}");
+if (options.MonitorOnly)
+{
+    log.Write($"[NS2PRO_MONITOR] enabled=true seconds={options.DurationSeconds}");
+    if (options.ExitOnNonZero)
+    {
+        log.Write("[NS2PRO_MONITOR] exit_on_nonzero=true");
+    }
+}
 
 Process? server = null;
 try
@@ -69,36 +77,51 @@ try
     log.Write("[NS2PRO] virtual device connected");
 
     using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(options.DurationSeconds));
-    var readTask = ReadFeedbackLoop(ns, log, cts.Token);
+    var readTask = ReadFeedbackLoop(ns, log, cts, options.ExitOnNonZero);
     int frame = 0;
     while (!cts.IsCancellationRequested)
     {
-        byte[] input = BuildInput(frame);
-        await ns.WriteAsync(input, cts.Token);
-        if (frame % 20 == 0)
+        try
         {
-            ushort lx = BinaryPrimitives.ReadUInt16LittleEndian(input.AsSpan(4, 2));
-            ushort ly = BinaryPrimitives.ReadUInt16LittleEndian(input.AsSpan(6, 2));
-            ushort rx = BinaryPrimitives.ReadUInt16LittleEndian(input.AsSpan(8, 2));
-            ushort ry = BinaryPrimitives.ReadUInt16LittleEndian(input.AsSpan(10, 2));
-            short ax = BinaryPrimitives.ReadInt16LittleEndian(input.AsSpan(12, 2));
-            short ay = BinaryPrimitives.ReadInt16LittleEndian(input.AsSpan(14, 2));
-            short az = BinaryPrimitives.ReadInt16LittleEndian(input.AsSpan(16, 2));
-            short gx = BinaryPrimitives.ReadInt16LittleEndian(input.AsSpan(18, 2));
-            short gy = BinaryPrimitives.ReadInt16LittleEndian(input.AsSpan(20, 2));
-            short gz = BinaryPrimitives.ReadInt16LittleEndian(input.AsSpan(22, 2));
-            uint buttons = BinaryPrimitives.ReadUInt32LittleEndian(input.AsSpan(0, 4));
-            log.Write($"[NS2PRO_INPUT] buttons=0x{buttons:x8} lx={lx} ly={ly} rx={rx} ry={ry} gyro=({gx},{gy},{gz}) accel=({ax},{ay},{az})");
+            byte[] input = BuildInput(frame);
+            await ns.WriteAsync(input, cts.Token);
+            if (frame % 20 == 0)
+            {
+                ushort lx = BinaryPrimitives.ReadUInt16LittleEndian(input.AsSpan(4, 2));
+                ushort ly = BinaryPrimitives.ReadUInt16LittleEndian(input.AsSpan(6, 2));
+                ushort rx = BinaryPrimitives.ReadUInt16LittleEndian(input.AsSpan(8, 2));
+                ushort ry = BinaryPrimitives.ReadUInt16LittleEndian(input.AsSpan(10, 2));
+                short ax = BinaryPrimitives.ReadInt16LittleEndian(input.AsSpan(12, 2));
+                short ay = BinaryPrimitives.ReadInt16LittleEndian(input.AsSpan(14, 2));
+                short az = BinaryPrimitives.ReadInt16LittleEndian(input.AsSpan(16, 2));
+                short gx = BinaryPrimitives.ReadInt16LittleEndian(input.AsSpan(18, 2));
+                short gy = BinaryPrimitives.ReadInt16LittleEndian(input.AsSpan(20, 2));
+                short gz = BinaryPrimitives.ReadInt16LittleEndian(input.AsSpan(22, 2));
+                uint buttons = BinaryPrimitives.ReadUInt32LittleEndian(input.AsSpan(0, 4));
+                log.Write($"[NS2PRO_INPUT] buttons=0x{buttons:x8} lx={lx} ly={ly} rx={rx} ry={ry} gyro=({gx},{gy},{gz}) accel=({ax},{ay},{az})");
+            }
+            frame++;
+            await Task.Delay(options.FrameDelayMs, cts.Token);
         }
-        frame++;
-        await Task.Delay(options.FrameDelayMs, cts.Token).ContinueWith(_ => { });
+        catch (OperationCanceledException) when (cts.IsCancellationRequested)
+        {
+            break;
+        }
     }
 
     cts.Cancel();
     await readTask.WaitAsync(TimeSpan.FromSeconds(2)).ContinueWith(_ => { });
+    bool nonzero = log.LeftNonZero || log.RightNonZero;
+    log.Write($"[NS2PRO_OUTPUT] feedback_count={log.OutputFeedbackCount} nonzero_count={log.NonZeroOutputCount}");
+    log.Write($"[NS2PRO_OUTPUT] first_nonzero_flags={log.FirstNonZeroFlags ?? "not_found"} first_nonzero_led={log.FirstNonZeroLed ?? "not_found"} first_nonzero_left={log.FirstNonZeroLeftHex ?? "not_found"} first_nonzero_right={log.FirstNonZeroRightHex ?? "not_found"}");
     log.Write($"[NS2PRO_OUTPUT] left_nonzero={log.LeftNonZero.ToString().ToLowerInvariant()} right_nonzero={log.RightNonZero.ToString().ToLowerInvariant()}");
-    log.Write($"[NS2PRO] result output_feedback={log.OutputFeedbackSeen.ToString().ToLowerInvariant()} nonzero={(log.LeftNonZero || log.RightNonZero).ToString().ToLowerInvariant()}");
-    return log.LeftNonZero || log.RightNonZero ? 0 : 10;
+    log.Write($"[NS2PRO] result output_feedback={log.OutputFeedbackSeen.ToString().ToLowerInvariant()} nonzero={nonzero.ToString().ToLowerInvariant()}");
+    if (options.MonitorOnly)
+    {
+        log.Write("[NS2PRO_MONITOR] completed");
+        return 0;
+    }
+    return nonzero ? 0 : 10;
 }
 catch (OperationCanceledException)
 {
@@ -220,9 +243,10 @@ static byte[] BuildInput(int frame)
     return data;
 }
 
-static async Task ReadFeedbackLoop(NetworkStream stream, ProbeLog log, CancellationToken token)
+static async Task ReadFeedbackLoop(NetworkStream stream, ProbeLog log, CancellationTokenSource cts, bool exitOnNonZero)
 {
     byte[] buf = new byte[OutputSize];
+    CancellationToken token = cts.Token;
     while (!token.IsCancellationRequested)
     {
         int offset = 0;
@@ -248,11 +272,32 @@ static async Task ReadFeedbackLoop(NetworkStream stream, ProbeLog log, Cancellat
         byte led = buf[33];
         bool leftNonZero = left.Any(b => b != 0);
         bool rightNonZero = right.Any(b => b != 0);
+        string leftHex = Convert.ToHexString(left);
+        string rightHex = Convert.ToHexString(right);
         log.OutputFeedbackSeen = true;
+        log.OutputFeedbackCount++;
         log.LeftNonZero |= leftNonZero;
         log.RightNonZero |= rightNonZero;
-        log.Write($"[NS2PRO_OUTPUT] flags=0x{flags:x2} led=0x{led:x2} left_rumble_hex={Convert.ToHexString(left)} right_rumble_hex={Convert.ToHexString(right)}");
+        if (leftNonZero || rightNonZero)
+        {
+            log.NonZeroOutputCount++;
+            if (log.FirstNonZeroLeftHex is null && log.FirstNonZeroRightHex is null)
+            {
+                log.FirstNonZeroFlags = $"0x{flags:x2}";
+                log.FirstNonZeroLed = $"0x{led:x2}";
+                log.FirstNonZeroLeftHex = leftHex;
+                log.FirstNonZeroRightHex = rightHex;
+                log.Write($"[NS2PRO_OUTPUT_FIRST_NONZERO] flags=0x{flags:x2} led=0x{led:x2} left_rumble_hex={leftHex} right_rumble_hex={rightHex}");
+            }
+        }
+        log.Write($"[NS2PRO_OUTPUT] flags=0x{flags:x2} led=0x{led:x2} left_rumble_hex={leftHex} right_rumble_hex={rightHex}");
         log.Write($"[NS2PRO_OUTPUT] left_nonzero={leftNonZero.ToString().ToLowerInvariant()} right_nonzero={rightNonZero.ToString().ToLowerInvariant()}");
+        if (exitOnNonZero && (leftNonZero || rightNonZero))
+        {
+            log.Write("[NS2PRO_OUTPUT] exit_on_nonzero=true");
+            cts.Cancel();
+            return;
+        }
     }
 }
 
@@ -264,6 +309,12 @@ sealed class ProbeLog : IDisposable
     public bool OutputFeedbackSeen { get; set; }
     public bool LeftNonZero { get; set; }
     public bool RightNonZero { get; set; }
+    public int OutputFeedbackCount { get; set; }
+    public int NonZeroOutputCount { get; set; }
+    public string? FirstNonZeroFlags { get; set; }
+    public string? FirstNonZeroLed { get; set; }
+    public string? FirstNonZeroLeftHex { get; set; }
+    public string? FirstNonZeroRightHex { get; set; }
 
     public ProbeLog(string? path)
     {
@@ -297,6 +348,8 @@ sealed class Args
     public int DurationSeconds { get; init; } = 20;
     public int FrameDelayMs { get; init; } = 16;
     public string? LogPath { get; init; }
+    public bool MonitorOnly { get; init; }
+    public bool ExitOnNonZero { get; init; }
 
     public static Args Parse(string[] args)
     {
@@ -318,7 +371,9 @@ sealed class Args
             ViiperPath = GetValue("--viiper", ""),
             DurationSeconds = int.Parse(GetValue("--duration-seconds", "20")),
             FrameDelayMs = int.Parse(GetValue("--frame-delay-ms", "16")),
-            LogPath = GetValue("--log", "")
+            LogPath = GetValue("--log", ""),
+            MonitorOnly = Has("--monitor-only"),
+            ExitOnNonZero = Has("--exit-on-nonzero")
         };
     }
 }

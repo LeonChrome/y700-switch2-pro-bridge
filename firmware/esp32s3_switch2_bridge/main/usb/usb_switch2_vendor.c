@@ -845,6 +845,58 @@ void usb_switch2_vendor_bridge_hid_output_to_ble(const uint8_t *data, uint16_t l
     }
 }
 
+esp_err_t usb_switch2_vendor_send_raw02_payload(const uint8_t *payload, uint16_t len)
+{
+    if (!payload || len != 64) {
+        APP_LOGW(TAG, "[RUMBLE_RAW02] sent=false error=invalid_payload_len len=%u",
+                 (unsigned)len);
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (payload[0] != 0x02) {
+        APP_LOGW(TAG, "[RUMBLE_RAW02] sent=false error=invalid_report_id report_id=0x%02x",
+                 payload[0]);
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (!is_switch2_hid_rumble_report(payload, len)) {
+        APP_LOGW(TAG, "[RUMBLE_RAW02] sent=false error=invalid_rumble_frame first=0x%02x",
+                 payload[1]);
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    bool active = has_non_zero_payload(payload, len, 2) &&
+                  !is_neutral_switch_rumble(payload, len);
+    if (!active) {
+        usb_switch2_vendor_stop_hd_rumble();
+        APP_LOGI(TAG, "[RUMBLE_RAW02] sent=true len=%u neutral=true",
+                 (unsigned)len);
+        return ESP_OK;
+    }
+
+    uint8_t left[5];
+    uint8_t right[5];
+    uint8_t packet[33];
+    encode_ble_vibration_from_switch_frame(payload, len, 2, left);
+    encode_ble_vibration_from_switch_frame(payload, len, 0x12, right);
+    build_pro2_hd_packet(next_hd_packet_id(), left, right, packet);
+
+    esp_err_t err = ble_central_send_rumble(packet, sizeof(packet));
+    portENTER_CRITICAL(&s_hd_lock);
+    if (err == ESP_OK) {
+        s_hd_stream_writes++;
+    } else {
+        s_hd_stream_errors++;
+    }
+    portEXIT_CRITICAL(&s_hd_lock);
+    if (err != ESP_OK) {
+        APP_LOGW(TAG, "[RUMBLE_RAW02] sent=false error=%s", esp_err_to_name(err));
+        return err;
+    }
+
+    hd_stream_update(left, right, hd_hold_us(), "raw02");
+    APP_LOGI(TAG, "[RUMBLE_RAW02] sent=true len=%u", (unsigned)len);
+    return ESP_OK;
+}
+
 static void bridge_bulk_output_to_ble(const uint8_t *data, uint16_t len)
 {
     usb_switch2_vendor_bridge_hid_output_to_ble(data, len);
@@ -920,7 +972,7 @@ static size_t build_manager_control_reply(const uint8_t *cmd, uint16_t cmd_len,
         return 0;
     }
 
-    char command[128];
+    char command[192];
     size_t command_len = cmd_len - SWITCH2_CONTROL_MAGIC_LEN;
     while (command_len > 0 &&
            (cmd[SWITCH2_CONTROL_MAGIC_LEN + command_len - 1] == 0 ||

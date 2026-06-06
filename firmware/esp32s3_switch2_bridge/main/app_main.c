@@ -38,7 +38,7 @@ static esp_err_t send_hid_state_report(const switch2_state_t *state)
 static void control_task(void *arg)
 {
     (void)arg;
-    char line[128];
+    char line[192];
     static char reply[3072];
 
     while (true) {

@@ -29,6 +29,7 @@ Current build behavior:
 - The HID loop sends live BLE state when notify packets are active; otherwise it falls back to the selected test mode.
 - `rumble config` reads runtime haptic tuning; `rumble tune 100 180 20 3` is the verified default.
 - `rumble hdtest` and `rumble hold <ms>` send the verified 33-byte rumble stream to the Pro2 BLE rumble characteristic. Runtime rumble follows Steam/SDL HID OUT updates; voice, headphone audio, microphone audio, and full HD Rumble 2 audio are not implemented.
+- `rumble raw02 <hex>` is the V5.2 Phase 3 experimental raw HD input. It accepts either 64 hex chars (`LeftRumble[16] + RightRumble[16]`) or a 128-char full `0x02` HID OUT payload, validates it, writes one Pro2 BLE rumble packet, and starts the existing short HD stream.
 
 Expected board:
 

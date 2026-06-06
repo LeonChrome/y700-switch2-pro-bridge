@@ -2,6 +2,7 @@
 
 #include <stdbool.h>
 #include <stdint.h>
+#include "esp_err.h"
 
 void usb_switch2_vendor_init(void);
 bool usb_switch2_vendor_mounted(void);
@@ -11,6 +12,7 @@ void usb_switch2_vendor_reset_hid_guard(void);
 void usb_switch2_vendor_arm_hid_guard(void);
 void usb_switch2_vendor_release_hid_guard(void);
 void usb_switch2_vendor_bridge_hid_output_to_ble(const uint8_t *data, uint16_t len);
+esp_err_t usb_switch2_vendor_send_raw02_payload(const uint8_t *payload, uint16_t len);
 void usb_switch2_vendor_start_hd_rumble_self_test(void);
 void usb_switch2_vendor_start_hd_rumble_self_test_ms(uint16_t hold_ms);
 void usb_switch2_vendor_stop_hd_rumble(void);

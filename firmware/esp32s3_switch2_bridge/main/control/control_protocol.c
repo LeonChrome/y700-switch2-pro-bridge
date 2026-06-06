@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include "esp_err.h"
 #include "esp_system.h"
 #include "app_log.h"
 #include "ble_central.h"
@@ -17,6 +18,12 @@
 #include "control_protocol.h"
 
 static const char *TAG = "control";
+
+#define RUMBLE_RAW02_LEFT_RIGHT_HEX_LEN 64
+#define RUMBLE_RAW02_FULL_PAYLOAD_HEX_LEN 128
+#define RUMBLE_RAW02_PAYLOAD_LEN 64
+#define RUMBLE_RAW02_LEFT_OFFSET 1
+#define RUMBLE_RAW02_RIGHT_OFFSET 17
 
 static void trim(char *text)
 {
@@ -57,6 +64,53 @@ static bool parse_long_token(const char **cursor, long *value)
     return true;
 }
 
+static int hex_value(char c)
+{
+    if (c >= '0' && c <= '9') {
+        return c - '0';
+    }
+    if (c >= 'a' && c <= 'f') {
+        return c - 'a' + 10;
+    }
+    if (c >= 'A' && c <= 'F') {
+        return c - 'A' + 10;
+    }
+    return -1;
+}
+
+static bool decode_hex_exact(const char *hex, size_t hex_len, uint8_t *out, size_t out_len)
+{
+    if (!hex || !out || hex_len != out_len * 2 || (hex_len % 2) != 0) {
+        return false;
+    }
+    for (size_t i = 0; i < out_len; i++) {
+        int hi = hex_value(hex[i * 2]);
+        int lo = hex_value(hex[i * 2 + 1]);
+        if (hi < 0 || lo < 0) {
+            return false;
+        }
+        out[i] = (uint8_t)((hi << 4) | lo);
+    }
+    return true;
+}
+
+static void bytes_to_hex(const uint8_t *bytes, size_t len, char *out, size_t out_len)
+{
+    static const char lut[] = "0123456789abcdef";
+    if (!out || out_len == 0) {
+        return;
+    }
+    if (!bytes || out_len < len * 2 + 1) {
+        out[0] = 0;
+        return;
+    }
+    for (size_t i = 0; i < len; i++) {
+        out[i * 2] = lut[(bytes[i] >> 4) & 0x0f];
+        out[i * 2 + 1] = lut[bytes[i] & 0x0f];
+    }
+    out[len * 2] = 0;
+}
+
 static esp_err_t json_ok(char *reply, int reply_len, const char *cmd, const char *extra)
 {
     if (extra && extra[0]) {
@@ -83,7 +137,7 @@ void control_protocol_init(void)
 
 esp_err_t control_protocol_handle_line(const char *line, char *reply, int reply_len)
 {
-    char cmd[96];
+    char cmd[192];
     snprintf(cmd, sizeof(cmd), "%s", line ? line : "");
     trim(cmd);
     APP_LOGI(TAG, "command: %s", cmd);
@@ -556,6 +610,83 @@ esp_err_t control_protocol_handle_line(const char *line, char *reply, int reply_
         char extra[80];
         snprintf(extra, sizeof(extra), "\"rumble\":\"active\",\"mode\":\"hd_stream_hold\",\"hold_ms\":%ld", hold_ms);
         return json_ok(reply, reply_len, "rumble hold", extra);
+    }
+    if (strncmp(cmd, "rumble raw02 ", 13) == 0) {
+        const char *hex = cmd + 13;
+        while (*hex && isspace((unsigned char)*hex)) {
+            hex++;
+        }
+        size_t hex_len = strlen(hex);
+        while (hex_len > 0 && isspace((unsigned char)hex[hex_len - 1])) {
+            hex_len--;
+        }
+
+        if ((hex_len % 2) != 0) {
+            APP_LOGW(TAG, "[RUMBLE_RAW02] sent=false error=odd_hex_len len=%u",
+                     (unsigned)hex_len);
+            return json_error(reply, reply_len, "rumble raw02", "hex must have an even number of characters");
+        }
+
+        uint8_t payload[RUMBLE_RAW02_PAYLOAD_LEN];
+        const char *mode = NULL;
+        if (hex_len == RUMBLE_RAW02_LEFT_RIGHT_HEX_LEN) {
+            uint8_t left_right[32];
+            if (!decode_hex_exact(hex, hex_len, left_right, sizeof(left_right))) {
+                APP_LOGW(TAG, "[RUMBLE_RAW02] sent=false error=non_hex");
+                return json_error(reply, reply_len, "rumble raw02", "hex contains non-hex characters");
+            }
+            memset(payload, 0, sizeof(payload));
+            payload[0] = 0x02;
+            memcpy(payload + RUMBLE_RAW02_LEFT_OFFSET, left_right, 16);
+            memcpy(payload + RUMBLE_RAW02_RIGHT_OFFSET, left_right + 16, 16);
+            mode = "left_right_16";
+        } else if (hex_len == RUMBLE_RAW02_FULL_PAYLOAD_HEX_LEN) {
+            if (!decode_hex_exact(hex, hex_len, payload, sizeof(payload))) {
+                APP_LOGW(TAG, "[RUMBLE_RAW02] sent=false error=non_hex");
+                return json_error(reply, reply_len, "rumble raw02", "hex contains non-hex characters");
+            }
+            if (payload[0] != 0x02) {
+                APP_LOGW(TAG, "[RUMBLE_RAW02] sent=false error=invalid_report_id report_id=0x%02x",
+                         payload[0]);
+                return json_error(reply, reply_len, "rumble raw02", "full payload must start with report_id 0x02");
+            }
+            mode = "full_payload";
+        } else {
+            APP_LOGW(TAG, "[RUMBLE_RAW02] sent=false error=invalid_hex_len len=%u",
+                     (unsigned)hex_len);
+            return json_error(reply, reply_len, "rumble raw02", "usage: rumble raw02 <64 hex left+right or 128 hex full payload>");
+        }
+
+        char left_hex[33];
+        char right_hex[33];
+        char payload_hex[129];
+        bytes_to_hex(payload + RUMBLE_RAW02_LEFT_OFFSET, 16, left_hex, sizeof(left_hex));
+        bytes_to_hex(payload + RUMBLE_RAW02_RIGHT_OFFSET, 16, right_hex, sizeof(right_hex));
+        bytes_to_hex(payload, sizeof(payload), payload_hex, sizeof(payload_hex));
+
+        APP_LOGI(TAG, "[RUMBLE_RAW02] mode=%s", mode);
+        APP_LOGI(TAG, "[RUMBLE_RAW02] left=%s", left_hex);
+        APP_LOGI(TAG, "[RUMBLE_RAW02] right=%s", right_hex);
+        APP_LOGI(TAG, "[RUMBLE_RAW02] payload=%s", payload_hex);
+
+        esp_err_t err = usb_switch2_vendor_send_raw02_payload(payload, sizeof(payload));
+        bool sent = err == ESP_OK;
+        APP_LOGI(TAG, "[RUMBLE_RAW02] sent=%s error=%s",
+                 sent ? "true" : "false",
+                 sent ? "none" : esp_err_to_name(err));
+
+        char extra[360];
+        snprintf(extra, sizeof(extra),
+                 "\"rumble\":\"raw02\",\"mode\":\"%s\",\"left\":\"%s\",\"right\":\"%s\",\"payload\":\"%s\",\"sent\":%s,\"error\":\"%s\"",
+                 mode,
+                 left_hex,
+                 right_hex,
+                 payload_hex,
+                 sent ? "true" : "false",
+                 sent ? "none" : esp_err_to_name(err));
+        return sent ?
+            json_ok(reply, reply_len, "rumble raw02", extra) :
+            json_error(reply, reply_len, "rumble raw02", esp_err_to_name(err));
     }
     if (strcmp(cmd, "rumble stop") == 0) {
         usb_switch2_vendor_stop_hd_rumble();
