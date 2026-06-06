@@ -1,17 +1,15 @@
-# V5.5 USB Audio Descriptor Profiles
+# V5.5 USB Descriptor Profiles
 
 Date: 2026-06-06
 
-Generated from:
+The exact raw bytes and parsed descriptor tables are generated from compiled
+ELF symbols by:
 
-```text
-firmware/esp32s3_dualsense_identity_experiment/main/usb_dualsense_descriptor.c
-firmware/esp32s3_dualsense_identity_experiment/main/usb_dualsense_descriptor.h
-firmware/esp32s3_dualsense_identity_experiment/main/tinyusb_config/tusb_config.h
-firmware/esp32s3_dualsense_identity_experiment/main/CMakeLists.txt
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\generate_v5_5_usb_descriptor_dumps.ps1
 ```
 
-## Common Device Identity
+## Common Identity
 
 ```text
 VID=0x054c
@@ -29,144 +27,61 @@ audio_sample_width=16-bit
 
 ## Profile Summary
 
-| Profile | Serial | Config length | Interfaces | Audio class | Audio channels | Audio OUT endpoint |
-| --- | --- | ---: | ---: | --- | ---: | --- |
-| `hid_only` | `V55HIDONLY` | 41 | 1 | None | 0 | None |
-| `hid_audio_uac1_2ch` | `V55UAC1_2CH` | 140 | 3 | UAC1 | 2 | `0x02` isoch adaptive |
-| `hid_audio_uac2_2ch` | `V55UAC2_2CH` | 167 | 3 | UAC2 | 2 | `0x02` isoch adaptive |
-| `hid_audio_uac2_4ch` | `V55UAC2_4CH` | 175 | 3 | UAC2 | 4 | `0x02` isoch adaptive |
+| Profile | Serial | Config bytes | Interfaces | Device class | IAD | Audio |
+| --- | --- | ---: | ---: | --- | --- | --- |
+| `hid_only` | `V55HIDONLY` | 41 | 1 | `00/00/00` | no | none |
+| `hid_composite_dummy_interface_class_00` | `V55DUMMY00` | 50 | 2 | `00/00/00` | no | none |
+| `hid_composite_dummy_interface_class_ef` | `V55DUMMYEF` | 50 | 2 | `EF/02/01` | no, intentionally | none |
+| `hid_audio_control_only` | `V55ACONLY` | 58 | 2 | `00/00/00` | no | UAC1 control only |
+| `hid_audio_streaming_alt0_only` | `V55ASALT0` | 68 | 3 | `00/00/00` | no | UAC1 control + AS alt 0 |
+| `hid_audio_uac1_2ch` | `V55UAC1_2CH` | 132 | 3 | `00/00/00` | no | UAC1 2ch OUT |
+| `hid_audio_uac2_2ch` | `V55UAC2_2CH` | 177 | 3 | `EF/02/01` | yes | UAC2 2ch OUT |
+| `hid_audio_uac2_4ch` | `V55UAC2_4CH` | 185 | 3 | `EF/02/01` | yes | UAC2 4ch OUT |
 
-`hid_audio_uac2` is a warning alias for `hid_audio_uac2_4ch`.
-`hid_audio_uac1_fallback` is a warning alias for `hid_audio_uac1_2ch`.
+`hid_audio_uac2` remains a warning alias for `hid_audio_uac2_4ch`.
+`hid_audio_uac1_fallback` remains a warning alias for `hid_audio_uac1_2ch`.
 
-## `hid_only`
+## Isolation Design
 
-```text
-serial=V55HIDONLY
-configuration_length=41
-bNumInterfaces=1
-interface 0:
-  class=HID
-  subclass=0
-  protocol=0
-  endpoints=2
-  endpoint 0x81=interrupt IN, max_packet=64, interval=1
-  endpoint 0x01=interrupt OUT, max_packet=64, interval=1
-audio=false
-```
+The dummy profiles preserve the verified Phase 2.1 HID descriptor and add one
+minimal class `0xFF` interface with no endpoints. A small TinyUSB application
+driver claims that interface so SET_CONFIGURATION can complete.
 
-## `hid_audio_uac1_2ch`
+The UAC1 staged profiles deliberately follow the DS5Dongle default device
+class strategy:
 
 ```text
-serial=V55UAC1_2CH
-configuration_length=140
-bNumInterfaces=3
-iad:
-  first_interface=0
-  interface_count=2
-  class=Audio
-  protocol=undefined
-interface 0:
-  class=Audio Control
-  audio_class=UAC1
-  bcdADC=0x0100
-  clock_source=implicit UAC1 fixed 48 kHz format descriptor
-interface 1:
-  class=Audio Streaming OUT
-  alt0=endpoints 0
-  alt1=endpoints 1
-  channels=2
-  sample_rate=48000
-  bits_per_sample=16
-  nominal_payload=192 bytes/ms
-  endpoint 0x02=isochronous adaptive OUT, max_packet=192, interval=1
-interface 2:
-  class=HID
-  endpoint 0x81=interrupt IN, max_packet=64, interval=1
-  endpoint 0x01=interrupt OUT, max_packet=64, interval=1
+device_class=00/00/00
+iad=false
+interface_0=Audio Control
+interface_1=Audio Streaming when enabled
+last_interface=HID
 ```
 
-## `hid_audio_uac2_2ch`
+The full UAC1 profile exposes:
 
 ```text
-serial=V55UAC2_2CH
-configuration_length=167
-bNumInterfaces=3
-iad:
-  first_interface=0
-  interface_count=2
-  class=Audio
-  protocol=UAC2
-interface 0:
-  class=Audio Control
-  audio_class=UAC2
-  bcdADC=0x0200
-  category=desktop_speaker
-  clock_source=internal fixed clock
-  input_terminal=USB streaming
-  feature_unit=master + left + right mute/volume RW
-  output_terminal=headphones
-interface 1:
-  class=Audio Streaming OUT
-  alt0=endpoints 0
-  alt1=endpoints 1
-  channels=2
-  sample_rate=48000
-  bits_per_sample=16
-  nominal_payload=192 bytes/ms
-  endpoint 0x02=isochronous adaptive OUT, max_packet=196, interval=1
-interface 2:
-  class=HID
-  endpoint 0x81=interrupt IN, max_packet=64, interval=1
-  endpoint 0x01=interrupt OUT, max_packet=64, interval=1
+channels=2
+sample_rate=48000
+bits_per_sample=16
+audio_out=0x02 isochronous adaptive
+max_packet=192
 ```
 
-TinyUSB computes UAC2 max packet size with one extra full-speed frame of slack:
-`((48000 / 1000) + 1) * 2 bytes * 2 channels = 196`.
-
-## `hid_audio_uac2_4ch`
-
-```text
-serial=V55UAC2_4CH
-configuration_length=175
-bNumInterfaces=3
-iad:
-  first_interface=0
-  interface_count=2
-  class=Audio
-  protocol=UAC2
-interface 0:
-  class=Audio Control
-  audio_class=UAC2
-  bcdADC=0x0200
-  category=desktop_speaker
-  clock_source=internal fixed clock
-  input_terminal=USB streaming
-  feature_unit=master + ch1 + ch2 + ch3 + ch4 mute/volume RW
-  output_terminal=headphones
-interface 1:
-  class=Audio Streaming OUT
-  alt0=endpoints 0
-  alt1=endpoints 1
-  channels=4
-  sample_rate=48000
-  bits_per_sample=16
-  nominal_payload=384 bytes/ms
-  endpoint 0x02=isochronous adaptive OUT, max_packet=392, interval=1
-interface 2:
-  class=HID
-  endpoint 0x81=interrupt IN, max_packet=64, interval=1
-  endpoint 0x01=interrupt OUT, max_packet=64, interval=1
-```
-
-TinyUSB computes UAC2 max packet size with one extra full-speed frame of slack:
-`((48000 / 1000) + 1) * 2 bytes * 4 channels = 392`.
+UAC2 retains `EF/02/01` plus an Audio IAD because those profiles use TinyUSB's
+UAC2 composite descriptor path. They are not the next hardware test while the
+basic composite stages remain unverified.
 
 ## Verification Order
 
 ```text
-1. Build/flash hid_only and confirm HID input.
-2. Build/flash hid_audio_uac1_2ch and confirm HID child plus audio endpoint.
-3. Build/flash hid_audio_uac2_2ch and confirm UAC2 2ch enumeration.
-4. Build/flash hid_audio_uac2_4ch only after 2ch UAC2 works.
+hid_only
+-> hid_composite_dummy_interface_class_00
+-> hid_composite_dummy_interface_class_ef
+-> hid_audio_control_only
+-> hid_audio_streaming_alt0_only
+-> hid_audio_uac1_2ch
 ```
+
+Do not advance after a failing stage. Capture the failing descriptor with
+USBView and compare it with the corresponding generated dump.

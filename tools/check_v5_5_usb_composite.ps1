@@ -37,11 +37,39 @@ function Get-ProfileNameFromSerial {
     param([string]$Serial)
     switch ($Serial) {
         "V55HIDONLY" { return "hid_only" }
+        "V55DUMMY00" { return "hid_composite_dummy_interface_class_00" }
+        "V55DUMMYEF" { return "hid_composite_dummy_interface_class_ef" }
+        "V55ACONLY" { return "hid_audio_control_only" }
+        "V55ASALT0" { return "hid_audio_streaming_alt0_only" }
         "V55UAC1_2CH" { return "hid_audio_uac1_2ch" }
         "V55UAC2_2CH" { return "hid_audio_uac2_2ch" }
         "V55UAC2_4CH" { return "hid_audio_uac2_4ch" }
         "V55PHASE3" { return "hid_audio_uac2_4ch_legacy_alias" }
         default { return "unknown" }
+    }
+}
+
+function Get-ProfileExpectation {
+    param([string]$Profile)
+    switch ($Profile) {
+        "hid_composite_dummy_interface_class_ef" {
+            return [pscustomobject]@{ DeviceClassHint = "EF/02/01"; IadExpected = $false }
+        }
+        "hid_audio_uac2_2ch" {
+            return [pscustomobject]@{ DeviceClassHint = "EF/02/01"; IadExpected = $true }
+        }
+        "hid_audio_uac2_4ch" {
+            return [pscustomobject]@{ DeviceClassHint = "EF/02/01"; IadExpected = $true }
+        }
+        "hid_audio_uac2_4ch_legacy_alias" {
+            return [pscustomobject]@{ DeviceClassHint = "EF/02/01"; IadExpected = $true }
+        }
+        "unknown" {
+            return [pscustomobject]@{ DeviceClassHint = "unknown"; IadExpected = "unknown" }
+        }
+        default {
+            return [pscustomobject]@{ DeviceClassHint = "00/00/00"; IadExpected = $false }
+        }
     }
 }
 
@@ -81,6 +109,7 @@ $currentUsb = $usbDevices |
     Select-Object -First 1
 $currentSerial = if ($currentUsb) { Get-SerialFromInstanceId -InstanceId ([string]$currentUsb.InstanceId) } else { "not_found" }
 $currentProfile = Get-ProfileNameFromSerial -Serial $currentSerial
+$profileExpectation = Get-ProfileExpectation -Profile $currentProfile
 
 $phase3 = $matching |
     Where-Object { $_.InstanceId -match "^USB\\VID_054C&PID_0CE6\\V55PHASE3$" } |
@@ -111,18 +140,87 @@ $audioChildren = @($matching | Where-Object {
 $phase3HidChildFound = $phase3UsbFound -and $phase3Status -eq "OK" -and $hidChildren.Count -gt 0
 $phase3AudioChildFound = $phase3UsbFound -and $phase3Status -eq "OK" -and $audioChildren.Count -gt 0
 $currentStatus = if ($currentUsb) { [string]$currentUsb.Status } else { "not_found" }
+$currentInstanceId = if ($currentUsb) { [string]$currentUsb.InstanceId } else { "not_found" }
+$currentProblemCode = Convert-Value (Get-DevicePropertyValue `
+    -InstanceId $currentInstanceId `
+    -KeyName "DEVPKEY_Device_ProblemCode")
 $currentHidChildFound = ($currentStatus -eq "OK" -and $hidChildren.Count -gt 0)
 $currentAudioChildFound = ($currentStatus -eq "OK" -and $audioChildren.Count -gt 0)
 
-$suggestedNextAction = "connect_or_flash_hid_only"
+$phaseGuess = "no_usb_device"
+if ($currentUsb) {
+    if ($currentStatus -ne "OK" -and "$currentProblemCode" -eq "10") {
+        $phaseGuess = "composite_parent_code10"
+    } elseif ($currentStatus -ne "OK") {
+        $phaseGuess = "usb_device_only"
+    } elseif ($currentHidChildFound -and $currentAudioChildFound) {
+        $phaseGuess = "hid_audio_ok"
+    } elseif ($currentHidChildFound) {
+        $phaseGuess = "hid_child_ok_audio_missing"
+    } else {
+        $phaseGuess = "usb_device_only"
+    }
+}
+
+$suggestedNextAction = "flash_hid_only_then_reconnect_native_usb"
 if ($currentProfile -eq "hid_only") {
-    $suggestedNextAction = if ($currentHidChildFound) { "flash_hid_audio_uac1_2ch" } else { "fix_hid_regression" }
+    $suggestedNextAction = if ($currentHidChildFound) {
+        "test_dummy_class_00"
+    } else {
+        "capture_usbview_report"
+    }
+} elseif ($currentProfile -eq "hid_composite_dummy_interface_class_00") {
+    $suggestedNextAction = if ($currentHidChildFound) {
+        "test_dummy_class_ef"
+    } elseif ($phaseGuess -eq "composite_parent_code10") {
+        "capture_usbview_report"
+    } else {
+        "fix_interface_order"
+    }
+} elseif ($currentProfile -eq "hid_composite_dummy_interface_class_ef") {
+    $suggestedNextAction = if ($currentHidChildFound) {
+        "test_hid_audio_control_only"
+    } elseif ($phaseGuess -eq "composite_parent_code10") {
+        "compare_ds5dongle_descriptor"
+    } else {
+        "capture_usbview_report"
+    }
+} elseif ($currentProfile -eq "hid_audio_control_only") {
+    $suggestedNextAction = if ($currentHidChildFound) {
+        "test_hid_audio_streaming_alt0_only"
+    } elseif ($phaseGuess -eq "composite_parent_code10") {
+        "compare_ds5dongle_descriptor"
+    } else {
+        "capture_usbview_report"
+    }
+} elseif ($currentProfile -eq "hid_audio_streaming_alt0_only") {
+    $suggestedNextAction = if ($currentHidChildFound) {
+        "test_hid_audio_uac1_2ch"
+    } elseif ($phaseGuess -eq "composite_parent_code10") {
+        "compare_ds5dongle_descriptor"
+    } else {
+        "capture_usbview_report"
+    }
 } elseif ($currentProfile -eq "hid_audio_uac1_2ch") {
-    $suggestedNextAction = if ($currentHidChildFound -and $currentAudioChildFound) { "flash_hid_audio_uac2_2ch" } else { "descriptor_or_composite_basic_issue" }
+    $suggestedNextAction = if ($currentHidChildFound -and $currentAudioChildFound) {
+        "optionally_test_hid_audio_uac2_2ch"
+    } elseif ($phaseGuess -eq "composite_parent_code10") {
+        "test_dummy_class_00"
+    } else {
+        "compare_uac1_topology_with_ds5dongle_reference"
+    }
 } elseif ($currentProfile -eq "hid_audio_uac2_2ch") {
-    $suggestedNextAction = if ($currentHidChildFound -and $currentAudioChildFound) { "flash_hid_audio_uac2_4ch" } else { "uac2_descriptor_issue" }
+    $suggestedNextAction = if ($currentHidChildFound -and $currentAudioChildFound) {
+        "optionally_test_hid_audio_uac2_4ch"
+    } else {
+        "fall_back_to_hid_audio_uac1_2ch"
+    }
 } elseif ($currentProfile -eq "hid_audio_uac2_4ch" -or $currentProfile -eq "hid_audio_uac2_4ch_legacy_alias") {
-    $suggestedNextAction = if ($currentHidChildFound -and $currentAudioChildFound) { "record_phase3_success" } else { "fall_back_to_hid_audio_uac2_2ch_or_uac1_2ch" }
+    $suggestedNextAction = if ($currentHidChildFound -and $currentAudioChildFound) {
+        "record_phase3_success"
+    } else {
+        "fall_back_to_hid_audio_uac2_2ch_or_uac1_2ch"
+    }
 }
 
 $phase1Devices = @($matching | Where-Object { $_.InstanceId -match "V55PHASE1" })
@@ -158,8 +256,12 @@ Write-CompositeLine "stale_phase2_found" $stalePhase2Found
 Write-CompositeLine "current_serial" $currentSerial
 Write-CompositeLine "current_profile" $currentProfile
 Write-CompositeLine "current_status" $currentStatus
+Write-CompositeLine "current_problem_code" $currentProblemCode
+Write-CompositeLine "device_class_hint" $profileExpectation.DeviceClassHint
+Write-CompositeLine "iad_expected" $profileExpectation.IadExpected
 Write-CompositeLine "current_hid_child_found" $currentHidChildFound
 Write-CompositeLine "current_audio_child_found" $currentAudioChildFound
+Write-CompositeLine "phase_guess" $phaseGuess
 Write-CompositeLine "suggested_next_action" $suggestedNextAction
 
 foreach ($device in $matching | Select-Object -First 20) {

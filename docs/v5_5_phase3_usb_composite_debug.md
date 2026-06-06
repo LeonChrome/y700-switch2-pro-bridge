@@ -2,28 +2,82 @@
 
 Date: 2026-06-06
 
-## Hardware Result
+## Current Hardware Result
 
-The first old `V55PHASE3` hardware check narrowed the failure to USB composite
-enumeration:
+Both tested audio profiles fail before Windows creates any child:
 
 ```text
-phase3_usb_found=true
-VID/PID=054C:0CE6
-phase3_status=Error
-phase3_problem_code=10
-phase3_config_error=CM_PROB_FAILED_START
-phase3_hid_child_found=false
-phase3_audio_child_found=false
-likely_cause=composite descriptor or TinyUSB audio configuration
+hid_audio_uac1_2ch:
+  serial=V55UAC1_2CH
+  parent=USB Composite Device
+  status=Error
+  problem=Code 10 / CM_PROB_FAILED_START
+  hid_child=false
+  audio_child=false
+
+hid_audio_uac2_4ch:
+  parent=USB Composite Device
+  status=Error
+  problem=Code 10 / CM_PROB_FAILED_START
+  hid_child=false
+  audio_child=false
 ```
 
-The old `V55PHASE1`, `V55PHASE2`, and `V55PHASE3` entries may be Windows device
-cache entries. They must not be treated as proof that the current flashed
-profile is working. The new Phase 3 profiles use distinct serial strings so the
-diagnostic scripts can identify the active profile more reliably.
+This is a descriptor-level composite enumeration failure, not evidence of a
+UAC1/UAC2 channel algorithm problem. Phase 4 haptics, raw02 live forwarding,
+audio parsing, Pro2 BLE changes, V5.2, and VIIPER are out of scope until a
+composite profile enumerates successfully.
 
-## Diagnostic Tool
+## DS5Dongle Reference
+
+The upstream DS5Dongle default `ENABLE_SERIAL=OFF` descriptor uses:
+
+```text
+device_class=00/00/00
+iad_present=false
+audio=UAC1
+interfaces=4
+interface_order=AudioControl, AudioStreamingOUT, AudioStreamingIN, HID
+wTotalLength=227
+```
+
+Its `EF/02/01` device class and Audio IAD are enabled only when the optional
+CDC serial function is also enabled. This is the reason the revised V5.5 UAC1
+path now tests `00/00/00` without an IAD.
+
+See `docs/generated/v5_5_ds5dongle_usb_descriptor_reference.md`.
+
+## Isolation Profiles
+
+| Profile | Serial | Device class | IAD | Interfaces | Purpose |
+| --- | --- | --- | --- | ---: | --- |
+| `hid_only` | `V55HIDONLY` | `00/00/00` | no | 1 | Known-good Phase 2.1 HID baseline |
+| `hid_composite_dummy_interface_class_00` | `V55DUMMY00` | `00/00/00` | no | Vendor interface + unchanged HID |
+| `hid_composite_dummy_interface_class_ef` | `V55DUMMYEF` | `EF/02/01` | no, intentionally | Isolate device class from all audio/IAD variables |
+| `hid_audio_control_only` | `V55ACONLY` | `00/00/00` | no | UAC1 Audio Control + HID |
+| `hid_audio_streaming_alt0_only` | `V55ASALT0` | `00/00/00` | no | Audio Control + AS alt 0 + HID |
+| `hid_audio_uac1_2ch` | `V55UAC1_2CH` | `00/00/00` | no | Full UAC1 render alt 1 and isoch OUT |
+| `hid_audio_uac2_2ch` | `V55UAC2_2CH` | `EF/02/01` | yes | Later UAC2 isolation |
+| `hid_audio_uac2_4ch` | `V55UAC2_4CH` | `EF/02/01` | yes | Later four-channel isolation |
+
+The dummy interface is class `0xFF`, has no endpoint, and is claimed by a
+minimal TinyUSB application driver. The HID report descriptor and interrupt
+endpoints remain the verified Phase 2.1 shape.
+
+## Decision Matrix
+
+| Result | Conclusion | Next action |
+| --- | --- | --- |
+| `hid_only` OK; both dummy profiles fail | Basic multi-interface configuration, interface claim, ordering, or transfer is wrong | Compare USBView output and compiled dump; do not test audio |
+| dummy `class_00` works; dummy `class_ef` fails | `EF/02/01` without an associated IAD/function is rejected or mishandled | Keep staged UAC1 on `00/00/00`; inspect IAD policy |
+| dummy `class_ef` works; dummy `class_00` fails | Windows/stack behavior depends on composite device class | Capture both device descriptors and child binding |
+| both dummy profiles work; `audio_control_only` fails | UAC1 Audio Control header, collection, or class-driver claim is wrong | Compare AC bytes with DS5Dongle |
+| Audio Control works; `streaming_alt0_only` fails | Audio Streaming interface declaration or AC collection reference is wrong | Fix AS alt 0 before adding any endpoint |
+| Streaming alt 0 works; `uac1_2ch` fails | Alt 1, class-specific AS descriptors, isoch endpoint, or packet size is wrong | Compare endpoint and AS descriptor sequence |
+| UAC1 2ch works; UAC2 2ch fails | UAC2-specific descriptor or TinyUSB audio path is wrong | Keep UAC1 as baseline |
+| UAC2 2ch works; UAC2 4ch fails | Four-channel layout, bandwidth, or channel controls are wrong | Inspect channel descriptors and max packet size |
+
+## Checker
 
 Run from the repository root:
 
@@ -31,119 +85,69 @@ Run from the repository root:
 powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\check_v5_5_usb_composite.ps1
 ```
 
-Important output fields:
+Important fields:
 
 ```text
-[V5_5_USB_COMPOSITE] phase3_usb_found=true/false
-[V5_5_USB_COMPOSITE] phase3_status=Error/OK/Unknown
-[V5_5_USB_COMPOSITE] phase3_problem_code=...
-[V5_5_USB_COMPOSITE] phase3_config_error=...
-[V5_5_USB_COMPOSITE] phase3_hid_child_found=true/false
-[V5_5_USB_COMPOSITE] phase3_audio_child_found=true/false
-[V5_5_USB_COMPOSITE] stale_scan=present_only/included
-[V5_5_USB_COMPOSITE] current_serial=...
-[V5_5_USB_COMPOSITE] current_profile=...
-[V5_5_USB_COMPOSITE] current_hid_child_found=true/false
-[V5_5_USB_COMPOSITE] current_audio_child_found=true/false
-[V5_5_USB_COMPOSITE] suggested_next_action=...
+current_serial
+current_profile
+current_status
+current_problem_code
+device_class_hint
+iad_expected
+current_hid_child_found
+current_audio_child_found
+phase_guess
+suggested_next_action
 ```
 
-The identity checker also separates the parent USB device from the HID child:
+`phase_guess` is one of:
 
 ```text
-[V5_5_DS5_IDENTITY] usb_device_found=true
-[V5_5_DS5_IDENTITY] hid_interface_found=false
-[V5_5_DS5_IDENTITY] composite_status=Error
-[V5_5_DS5_IDENTITY] current_profile=...
-[V5_5_DS5_IDENTITY] suggested_next_action=...
-[V5_5_DS5_IDENTITY] result=composite_error
+no_usb_device
+usb_device_only
+composite_parent_code10
+hid_child_ok_audio_missing
+hid_audio_ok
 ```
 
-By default the composite checker scans present devices only, because hidden
-Windows PnP cache scans can be very slow. Use `-IncludeStale` only when you
-need to inspect old `V55PHASE1` / `V55PHASE2` / `V55PHASE3` cache entries.
+Use `-IncludeStale` only to inspect old Windows PnP cache entries.
 
-## Recovery And Test Order
+## Build And Flash Order
 
-Build and flash `hid_only` first:
+Builds can be prepared without changing the attached board:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\esp32s3\build_v5_5_dualsense_identity.ps1 -Profile hid_only -IdfPath C:\Espressif\v5.3.3\esp-idf
-powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\esp32s3\flash_v5_5_dualsense_identity.ps1 -Profile hid_only -Port COM12 -IdfPath C:\Espressif\v5.3.3\esp-idf -Monitor
-```
-
-Then verify:
-
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\check_v5_5_dualsense_identity.ps1
-powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\check_v5_5_dualsense_reports.ps1 -Seconds 6
-```
-
-Only after `hid_only` is healthy should the audio profiles be tested:
-
-```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\esp32s3\build_v5_5_dualsense_identity.ps1 -Profile hid_composite_dummy_interface_class_00 -IdfPath C:\Espressif\v5.3.3\esp-idf
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\esp32s3\build_v5_5_dualsense_identity.ps1 -Profile hid_composite_dummy_interface_class_ef -IdfPath C:\Espressif\v5.3.3\esp-idf
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\esp32s3\build_v5_5_dualsense_identity.ps1 -Profile hid_audio_control_only -IdfPath C:\Espressif\v5.3.3\esp-idf
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\esp32s3\build_v5_5_dualsense_identity.ps1 -Profile hid_audio_streaming_alt0_only -IdfPath C:\Espressif\v5.3.3\esp-idf
 powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\esp32s3\build_v5_5_dualsense_identity.ps1 -Profile hid_audio_uac1_2ch -IdfPath C:\Espressif\v5.3.3\esp-idf
-powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\esp32s3\flash_v5_5_dualsense_identity.ps1 -Profile hid_audio_uac1_2ch -Port COM12 -IdfPath C:\Espressif\v5.3.3\esp-idf -Monitor
-powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\check_v5_5_usb_composite.ps1
-powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\check_v5_5_dualsense_audio.ps1
 ```
 
-If UAC1 2ch works, continue to `hid_audio_uac2_2ch`. If UAC2 2ch works,
-continue to `hid_audio_uac2_4ch`. The legacy `hid_audio_uac2` name remains as
-a warning alias for `hid_audio_uac2_4ch`.
-
-## Endpoint Map
+Flash only one profile at a time, in this order:
 
 ```text
-hid_only:
-  serial=V55HIDONLY
-  interfaces=1
-  hid_interface=0
-  hid_in=0x81 interrupt
-  hid_out=0x01 interrupt
-  audio_out=none
-
-hid_audio_uac1_2ch:
-  serial=V55UAC1_2CH
-  interfaces=3
-  audio_control_interface=0
-  audio_streaming_out_interface=1
-  hid_interface=2
-  audio_out=0x02 isochronous adaptive, 192 bytes/ms nominal
-  hid_in=0x81 interrupt
-  hid_out=0x01 interrupt
-
-hid_audio_uac2_2ch:
-  serial=V55UAC2_2CH
-  interfaces=3
-  audio_control_interface=0
-  audio_streaming_out_interface=1
-  hid_interface=2
-  audio_out=0x02 isochronous adaptive, 192 bytes/ms nominal
-  hid_in=0x81 interrupt
-  hid_out=0x01 interrupt
-
-hid_audio_uac2_4ch:
-  serial=V55UAC2_4CH
-  interfaces=3
-  audio_control_interface=0
-  audio_streaming_out_interface=1
-  hid_interface=2
-  audio_out=0x02 isochronous adaptive, 384 bytes/ms nominal
-  hid_in=0x81 interrupt
-  hid_out=0x01 interrupt
+hid_only
+-> hid_composite_dummy_interface_class_00
+-> hid_composite_dummy_interface_class_ef
+-> hid_audio_control_only
+-> hid_audio_streaming_alt0_only
+-> hid_audio_uac1_2ch
 ```
 
-HID report ID `0x02` is not a USB endpoint address. It does not conflict with
-audio OUT endpoint `0x02`.
+After each flash, unplug and reconnect native USB, run the checker, and save a
+USBView capture before continuing. Do not proceed to the next profile when the
+current stage fails.
 
-## Current Descriptor Changes
+## Descriptor Dumps
 
-`hid_audio_uac1_2ch` now uses a small custom UAC1 app-class driver because the
-TinyUSB built-in audio class expects UAC2 protocol. It handles UAC1
-GET_INTERFACE / SET_INTERFACE and opens the isochronous OUT endpoint when
-Windows selects alternate setting `1`.
+Regenerate exact raw bytes from compiled ELF symbols:
 
-`hid_audio_uac2_2ch` and `hid_audio_uac2_4ch` keep the TinyUSB UAC2 class path.
-Their descriptor lengths are derived from the same descriptor macros used by
-the configuration descriptor instead of hardcoded values.
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\generate_v5_5_usb_descriptor_dumps.ps1
+```
+
+The generated files validate `wTotalLength`, actual byte count,
+`bNumInterfaces`, interface continuity, endpoint counts/conflicts, IAD
+coverage, HID report length, and string indices.

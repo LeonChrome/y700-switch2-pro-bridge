@@ -2,6 +2,39 @@
 
 ## V5.5 Planning - 2026-06-06
 
+### Descriptor 级 Composite 调试
+
+- 实机确认 `hid_audio_uac1_2ch` 与旧 UAC2 4ch 都在 Windows Composite
+  parent 发生 Code 10，且没有 HID/Audio child，当前问题收敛到 descriptor
+  枚举层。
+- 提取 DS5Dongle 默认最终 USB descriptor：UAC1、device class
+  `00/00/00`、无 IAD、Audio Control + 4ch OUT + 2ch IN + HID。
+- 新增 `hid_composite_dummy_interface_class_00`、
+  `hid_composite_dummy_interface_class_ef`、`hid_audio_control_only` 和
+  `hid_audio_streaming_alt0_only` 隔离 profile。
+- UAC1 2ch 改为 DS5Dongle 默认策略：`00/00/00`、无 IAD；UAC2 profile
+  保留 `EF/02/01` 与 Audio IAD。
+- 新增 ELF descriptor dump 生成器、全部 profile raw hex/parsed tables、
+  USBView 抓取指南、Windows composite phase guess 和决策矩阵。
+- 本轮不推进 Phase 4、haptic feature、raw02 live、Pro2 BLE、V5.2/VIIPER
+  或 GUI。
+
+### Descriptor-Level Composite Debug
+
+- Confirmed that both `hid_audio_uac1_2ch` and the earlier UAC2 4ch profile
+  fail at the Windows composite parent with Code 10 and no HID/Audio children.
+- Extracted the DS5Dongle default final USB descriptor: UAC1, device class
+  `00/00/00`, no IAD, Audio Control, 4ch OUT, 2ch IN, and HID.
+- Added class `00` and class `EF` no-audio dummy composite profiles, Audio
+  Control-only, and Audio Streaming alt 0-only isolation profiles.
+- Changed UAC1 2ch to the DS5Dongle default class/no-IAD strategy while
+  retaining `EF/02/01` plus Audio IAD for UAC2 profiles.
+- Added compiled-ELF descriptor dump generation, raw/parsed profile reports,
+  a USBView capture guide, checker phase guesses, and a hardware decision
+  matrix.
+- Phase 4, haptic feature work, live raw02, Pro2 BLE, V5.2/VIIPER, and GUI
+  changes remain out of scope.
+
 ### 中文
 
 - 新增独立 `firmware/esp32s3_dualsense_identity_experiment` Phase 1 固件，现有 V5.2/V5.0 默认固件完全不变。

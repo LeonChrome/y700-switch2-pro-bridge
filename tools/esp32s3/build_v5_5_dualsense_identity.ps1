@@ -1,6 +1,17 @@
 param(
     [string]$IdfPath,
-    [ValidateSet("hid_only", "hid_audio_uac1_2ch", "hid_audio_uac2_2ch", "hid_audio_uac2_4ch", "hid_audio_uac2", "hid_audio_uac1_fallback")]
+    [ValidateSet(
+        "hid_only",
+        "hid_composite_dummy_interface_class_00",
+        "hid_composite_dummy_interface_class_ef",
+        "hid_audio_control_only",
+        "hid_audio_streaming_alt0_only",
+        "hid_audio_uac1_2ch",
+        "hid_audio_uac2_2ch",
+        "hid_audio_uac2_4ch",
+        "hid_audio_uac2",
+        "hid_audio_uac1_fallback"
+    )]
     [string]$Profile = "hid_audio_uac2_4ch",
     [switch]$Clean
 )

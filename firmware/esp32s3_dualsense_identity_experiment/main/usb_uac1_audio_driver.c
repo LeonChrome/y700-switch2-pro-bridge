@@ -10,15 +10,24 @@
 #ifndef DS5_ENABLE_UAC1_AUDIO
 #define DS5_ENABLE_UAC1_AUDIO 0
 #endif
+#ifndef DS5_ENABLE_UAC1_CONTROL_ONLY
+#define DS5_ENABLE_UAC1_CONTROL_ONLY 0
+#endif
+#ifndef DS5_ENABLE_UAC1_STREAMING_ALT0
+#define DS5_ENABLE_UAC1_STREAMING_ALT0 0
+#endif
 
-#if DS5_ENABLE_UAC1_AUDIO
+#if DS5_ENABLE_UAC1_AUDIO || DS5_ENABLE_UAC1_CONTROL_ONLY || \
+    DS5_ENABLE_UAC1_STREAMING_ALT0
 
+#define DS5_UAC1_AC_INTERFACE 0
 #define DS5_UAC1_AS_INTERFACE 1
 #define DS5_UAC1_ALT_IDLE 0
 #define DS5_UAC1_ALT_STREAMING 1
 
 static const char *TAG = "v5.5_uac1";
 static uint8_t s_alt_setting;
+#if DS5_ENABLE_UAC1_AUDIO
 static uint32_t s_packet_count;
 static uint8_t s_audio_out_buffer[DUALSENSE_USB_UAC1_2CH_PACKET_SIZE] TU_ATTR_ALIGNED(4);
 
@@ -34,11 +43,14 @@ static const tusb_desc_endpoint_t s_uac1_audio_out_ep = {
     .wMaxPacketSize = DUALSENSE_USB_UAC1_2CH_PACKET_SIZE,
     .bInterval = 1,
 };
+#endif
 
 static void uac1_init(void)
 {
     s_alt_setting = DS5_UAC1_ALT_IDLE;
+#if DS5_ENABLE_UAC1_AUDIO
     s_packet_count = 0;
+#endif
 }
 
 static bool uac1_deinit(void)
@@ -50,7 +62,9 @@ static void uac1_reset(uint8_t rhport)
 {
     (void)rhport;
     s_alt_setting = DS5_UAC1_ALT_IDLE;
+#if DS5_ENABLE_UAC1_AUDIO
     s_packet_count = 0;
+#endif
 }
 
 static uint16_t uac1_open(uint8_t rhport,
@@ -58,23 +72,53 @@ static uint16_t uac1_open(uint8_t rhport,
                           uint16_t max_len)
 {
     (void)rhport;
-    if (max_len < DUALSENSE_USB_UAC1_2CH_OPEN_LEN) {
-        return 0;
-    }
     if (itf_desc->bInterfaceClass != TUSB_CLASS_AUDIO ||
-        itf_desc->bInterfaceSubClass != AUDIO_SUBCLASS_CONTROL ||
-        itf_desc->bInterfaceProtocol != AUDIO_INT_PROTOCOL_CODE_UNDEF ||
-        itf_desc->bAlternateSetting != 0) {
+        itf_desc->bInterfaceProtocol != AUDIO_INT_PROTOCOL_CODE_UNDEF) {
         return 0;
     }
 
-    ESP_LOGI(TAG,
-             "[DS5_UAC1] open=true desc_len=%u packet_size=%u",
-             (unsigned)DUALSENSE_USB_UAC1_2CH_OPEN_LEN,
-             (unsigned)DUALSENSE_USB_UAC1_2CH_PACKET_SIZE);
-    return DUALSENSE_USB_UAC1_2CH_OPEN_LEN;
+    if (itf_desc->bInterfaceNumber == DS5_UAC1_AC_INTERFACE &&
+        itf_desc->bInterfaceSubClass == AUDIO_SUBCLASS_CONTROL &&
+        itf_desc->bAlternateSetting == 0) {
+#if DS5_ENABLE_UAC1_CONTROL_ONLY
+        const uint16_t descriptor_len = DUALSENSE_USB_UAC1_CONTROL_ONLY_AC_LEN;
+#elif DS5_ENABLE_UAC1_STREAMING_ALT0
+        const uint16_t descriptor_len = DUALSENSE_USB_UAC1_STREAMING_ALT0_AC_LEN;
+#else
+        const uint16_t descriptor_len = DUALSENSE_USB_UAC1_2CH_AC_LEN;
+#endif
+        if (max_len < descriptor_len) {
+            return 0;
+        }
+        ESP_LOGI(TAG,
+                 "[DS5_UAC1] open=true section=audio_control desc_len=%u",
+                 (unsigned)descriptor_len);
+        return descriptor_len;
+    }
+
+#if DS5_ENABLE_UAC1_STREAMING_ALT0 || DS5_ENABLE_UAC1_AUDIO
+    if (itf_desc->bInterfaceNumber == DS5_UAC1_AS_INTERFACE &&
+        itf_desc->bInterfaceSubClass == AUDIO_SUBCLASS_STREAMING &&
+        itf_desc->bAlternateSetting == 0) {
+#if DS5_ENABLE_UAC1_STREAMING_ALT0
+        const uint16_t descriptor_len = DUALSENSE_USB_UAC1_STREAMING_ALT0_AS_LEN;
+#else
+        const uint16_t descriptor_len = DUALSENSE_USB_UAC1_2CH_AS_LEN;
+#endif
+        if (max_len < descriptor_len) {
+            return 0;
+        }
+        ESP_LOGI(TAG,
+                 "[DS5_UAC1] open=true section=audio_streaming desc_len=%u",
+                 (unsigned)descriptor_len);
+        return descriptor_len;
+    }
+#endif
+
+    return 0;
 }
 
+#if DS5_ENABLE_UAC1_AUDIO
 static bool uac1_start_stream(uint8_t rhport)
 {
     bool opened = usbd_edpt_open(rhport, &s_uac1_audio_out_ep);
@@ -92,6 +136,7 @@ static bool uac1_start_stream(uint8_t rhport)
              armed ? "true" : "false");
     return armed;
 }
+#endif
 
 static bool uac1_control_xfer_cb(uint8_t rhport,
                                  uint8_t stage,
@@ -106,7 +151,8 @@ static bool uac1_control_xfer_cb(uint8_t rhport,
     }
 
     uint8_t itf = tu_u16_low(request->wIndex);
-    if (itf != DS5_UAC1_AS_INTERFACE) {
+    if (itf != DS5_UAC1_AS_INTERFACE ||
+        (!DS5_ENABLE_UAC1_STREAMING_ALT0 && !DS5_ENABLE_UAC1_AUDIO)) {
         return false;
     }
 
@@ -115,7 +161,14 @@ static bool uac1_control_xfer_cb(uint8_t rhport,
     }
 
     if (request->bRequest == TUSB_REQ_SET_INTERFACE) {
+#if DS5_ENABLE_UAC1_STREAMING_ALT0 || DS5_ENABLE_UAC1_AUDIO
         uint8_t alt = tu_u16_low(request->wValue);
+#if DS5_ENABLE_UAC1_STREAMING_ALT0
+        if (alt != DS5_UAC1_ALT_IDLE) {
+            return false;
+        }
+        s_alt_setting = alt;
+#elif DS5_ENABLE_UAC1_AUDIO
         if (alt > DS5_UAC1_ALT_STREAMING) {
             return false;
         }
@@ -129,9 +182,15 @@ static bool uac1_control_xfer_cb(uint8_t rhport,
                 return false;
             }
         }
+#else
+        return false;
+#endif
 
         ESP_LOGI(TAG, "[DS5_UAC1] set_interface=%u", (unsigned)s_alt_setting);
         return tud_control_status(rhport, request);
+#else
+        return false;
+#endif
     }
 
     return false;
@@ -142,6 +201,7 @@ static bool uac1_xfer_cb(uint8_t rhport,
                          xfer_result_t result,
                          uint32_t xferred_bytes)
 {
+#if DS5_ENABLE_UAC1_AUDIO
     if (ep_addr != DUALSENSE_USB_AUDIO_EP_OUT) {
         return false;
     }
@@ -159,6 +219,13 @@ static bool uac1_xfer_cb(uint8_t rhport,
                           DUALSENSE_USB_AUDIO_EP_OUT,
                           s_audio_out_buffer,
                           sizeof(s_audio_out_buffer));
+#else
+    (void)rhport;
+    (void)ep_addr;
+    (void)result;
+    (void)xferred_bytes;
+    return false;
+#endif
 }
 
 static usbd_class_driver_t const s_uac1_driver[] = {{

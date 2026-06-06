@@ -391,6 +391,36 @@ profile name remains as an alias for `hid_audio_uac2_4ch` and prints a warning.
 Use `hid_only` first when recovering from Windows USB Composite Device errors,
 then validate UAC1 2ch before testing UAC2 2ch and finally UAC2 4ch.
 
+### V5.5 Descriptor 级 Composite 调试 / Descriptor-Level Composite Debug
+
+当前实机上 UAC1 2ch 与 UAC2 4ch 都停在 Windows `USB Composite Device`
+Code 10，且没有拆出 HID 或 Audio child，因此当前重点是 USB descriptor，
+不是 haptic/raw02 或音频算法。已新增两套无音频 dummy composite、Audio
+Control-only、Audio Streaming alt0-only profile，并从编译后的 ELF 自动生成
+raw hex 与解析表。DS5Dongle 默认最终 descriptor 已确认是
+`00/00/00`、无 IAD、UAC1；它的 `EF/02/01` 与 Audio IAD 只在同时启用 CDC
+serial 时出现。
+
+实机必须逐级测试，任一级失败就停止并抓 USBView：
+
+```text
+hid_only
+-> hid_composite_dummy_interface_class_00
+-> hid_composite_dummy_interface_class_ef
+-> hid_audio_control_only
+-> hid_audio_streaming_alt0_only
+-> hid_audio_uac1_2ch
+```
+
+On current hardware, both UAC1 2ch and UAC2 4ch stop at Windows
+`USB Composite Device` Code 10 without HID or Audio children. The active work
+is therefore descriptor enumeration, not haptics, raw02, or audio algorithms.
+New no-audio dummy composite, Audio Control-only, and Audio Streaming alt
+0-only profiles isolate each descriptor layer. Exact raw bytes and parsed
+tables are generated from the compiled ELF. The DS5Dongle default is UAC1 with
+device class `00/00/00` and no IAD; `EF/02/01` plus an Audio IAD appears only
+when its optional CDC serial function is enabled.
+
 See the [Phase 1 guide](docs/v5_5_phase1_minimal_dualsense_hid_identity.md), [Phase 2 mapping guide](docs/v5_5_phase2_pro2_to_dualsense_input_mapping.md), and [Phase 3 audio endpoint guide](docs/v5_5_phase3_dualsense_audio_endpoint.md).
 
 ## 文档 / Documentation
@@ -414,10 +444,12 @@ See the [Phase 1 guide](docs/v5_5_phase1_minimal_dualsense_hid_identity.md), [Ph
 - [V5.5 Phase 2 Pro2 到 DualSense 输入映射](docs/v5_5_phase2_pro2_to_dualsense_input_mapping.md)
 - [V5.5 Phase 3 DualSense audio endpoint](docs/v5_5_phase3_dualsense_audio_endpoint.md)
 - [V5.5 Phase 3 USB composite debug](docs/v5_5_phase3_usb_composite_debug.md)
+- [V5.5 Windows USBView capture guide](docs/v5_5_windows_usbview_capture_guide.md)
 - [V5.5 USB audio bandwidth analysis](docs/v5_5_usb_audio_bandwidth_analysis.md)
 - [V5.5 Windows USB cache cleanup](docs/v5_5_windows_usb_cache_cleanup.md)
 - [V5.5 DS5 descriptor 对照](docs/generated/v5_5_ds5_descriptor_mapping.md)
 - [V5.5 USB audio descriptor profiles](docs/generated/v5_5_usb_audio_descriptor_profiles.md)
+- [V5.5 DS5Dongle USB descriptor reference](docs/generated/v5_5_ds5dongle_usb_descriptor_reference.md)
 - [Token 安全卫生](docs/security_token_hygiene.md)
 - [V5.0.0 预览说明 / Preview Notes](RELEASE_NOTES_v5.0.0-preview.md)
 - [V4.0.0 发布说明 / Release Notes](RELEASE_NOTES_v4.0.0.md)

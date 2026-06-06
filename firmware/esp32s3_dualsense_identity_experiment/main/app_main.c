@@ -30,6 +30,12 @@
 #ifndef DS5_ENABLE_UAC1_AUDIO
 #define DS5_ENABLE_UAC1_AUDIO 0
 #endif
+#ifndef DS5_ENABLE_UAC1_CONTROL_ONLY
+#define DS5_ENABLE_UAC1_CONTROL_ONLY 0
+#endif
+#ifndef DS5_ENABLE_UAC1_STREAMING_ALT0
+#define DS5_ENABLE_UAC1_STREAMING_ALT0 0
+#endif
 #ifndef DS5_ENABLE_UAC2_AUDIO
 #define DS5_ENABLE_UAC2_AUDIO 0
 #endif
@@ -233,8 +239,14 @@ void app_main(void)
              "[DS5_IDENTITY] vid=0x054c pid=0x0ce6 product=DualSense Wireless Controller");
     ESP_LOGI(TAG,
              "[DS5_IDENTITY] audio=%s ble_input=true rumble_compat=true raw02_forwarding=false",
-             DS5_ENABLE_UAC1_AUDIO ? "uac1_2ch_fallback" :
-             (DS5_ENABLE_UAC2_AUDIO ? "uac2_experimental" : "false"));
+             DS5_ENABLE_UAC1_CONTROL_ONLY ? "uac1_control_only" :
+             (DS5_ENABLE_UAC1_STREAMING_ALT0 ? "uac1_streaming_alt0_only" :
+             (DS5_ENABLE_UAC1_AUDIO ? "uac1_2ch_fallback" :
+             (DS5_ENABLE_UAC2_AUDIO ? "uac2_experimental" : "false"))));
+    ESP_LOGI(TAG,
+             "[DS5_DESCRIPTOR_STAGE] uac1_control_only=%s uac1_streaming_alt0_only=%s",
+             DS5_ENABLE_UAC1_CONTROL_ONLY ? "true" : "false",
+             DS5_ENABLE_UAC1_STREAMING_ALT0 ? "true" : "false");
     ESP_LOGI(TAG,
              "[DS5_AUDIO_PROFILE] enabled=%s uac1=%s uac2=%s channels=%u sample_rate=48000 bits=16",
              DS5_ENABLE_USB_AUDIO ? "true" : "false",
