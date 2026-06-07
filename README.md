@@ -414,6 +414,8 @@ V5.5 Manager 一页式集成烧录、模式说明、BLE、USB 检查、haptic �
 
 2026-06-07 实机复测：`haptic test live tick` 与 `haptic test live punch` 均返回 `sent=true`，日志显示 `RUMBLE_RAW02 sent=true active=true` 和 `DS5_RUMBLE source=raw02 errors=0`。`both_punch` 音频 pattern 发送到 `Wireless Controller Audio` 后，状态为 `audio_packets=375`、`audio_active=19`、`raw02_live_packets=8`、`raw02_ble_writes=8`、`raw02_ble_errors=0`，证明 DualSense-like 4ch 音频端点可以转成 Pro2 raw02 并写入真实 Pro2 BLE。真实游戏仍取决于游戏是否向该 DualSense-like 音频端点输出 haptic audio。
 
+新版 Manager 增加 `游戏监听模式`：启动后保持 `haptic raw02 on` / `haptic dryrun off`，每秒采样 `status`，日志固定输出 `GAME_MONITOR_SAMPLE`，结束时输出 `GAME_MONITOR_RESULT`。如果真实游戏 5 分钟内没有让 `audio_packets`、`audio_active`、`raw02_live_packets`、`raw02_ble_writes` 增长，则说明该 PC 版本游戏没有把 DualSense haptic audio 输出到 `Wireless Controller Audio`，而不是 raw02/BLE 链路本身断开。监听到时或手动停止都会安全恢复 dry-run/off。
+
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\package_v5_5_manager.ps1
 ```

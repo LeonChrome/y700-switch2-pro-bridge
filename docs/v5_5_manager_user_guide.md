@@ -42,6 +42,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\package_v5_5_manager
 7. 点击 `扫描` 或 `连上次` 连接真实 Pro2。
 8. 先保持 `Dry-run On` 和 `Live Off`。
 9. 点击 `Tick 实震` / `Punch 实震` 做 raw02 live one-shot，或点击 `发送音频实震` 做一次 4ch audio -> raw02 -> BLE 测试。
+10. 测真实游戏时使用 `游戏监听模式`，不要用 `发送音频实震` 代替游戏测试。
 
 ### 开启真实震动
 
@@ -79,6 +80,44 @@ raw02_ble_errors=0
 
 这说明测试音频源已经能驱动 Pro2 raw02。游戏侧是否有明显触觉，取决于游戏是否把 DualSense haptic audio 输出到 `Wireless Controller Audio`。
 
+### 游戏监听模式
+
+`游戏监听模式` 用来区分“游戏没有发 DualSense HD 触觉”和“raw02/BLE 链路有问题”。启动后 Manager 会：
+
+```text
+haptic mode auto
+haptic interval 10
+haptic max 96
+haptic gain 2.0
+haptic transient_gain 1.5
+haptic activity 256
+haptic raw02 on
+haptic dryrun off
+```
+
+随后每秒读取一次 `status` 并写入日志：
+
+```text
+[GAME_MONITOR_SAMPLE] ...
+[GAME_MONITOR_RESULT] conclusion=game_haptic_forwarded
+[GAME_MONITOR_RESULT] conclusion=no_game_haptic_audio_detected
+```
+
+判断方式：
+
+```text
+audio_packets/audio_active 增长，raw02_live/ble_writes 也增长：
+  游戏已经输出 haptic audio，并已转发到 Pro2 BLE。
+
+audio_packets/audio_active 不增长：
+  该 PC 游戏版本没有向 Wireless Controller Audio 输出 DualSense haptic audio。
+
+audio_active 增长但 raw02_live/ble_writes 不增长：
+  游戏触觉输入存在，但 haptic -> raw02 映射或 BLE live forwarding 需要修。
+```
+
+监听到设定秒数会自动恢复 `dry-run on` / `raw02 off`；提前结束请点 `停止监听并关闭 Live`，再保存日志。
+
 ### 故障判断
 
 ```text
@@ -107,6 +146,6 @@ Package from the repository root:
 powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\package_v5_5_manager.ps1
 ```
 
-Run `.\release\v5.5\Y700Switch2V55Manager-aio-v5.5.0.exe`, flash either the DualSense haptic profile or the native Pro2 bridge profile, replug native USB, run the USB checks, connect the real Pro2 over BLE, then use the Tick/Punch one-shot or audio haptic test before enabling live forwarding for games.
+Run `.\release\v5.5\Y700Switch2V55Manager-aio-v5.5.0.exe`, flash either the DualSense haptic profile or the native Pro2 bridge profile from the visual mode cards, replug native USB, run the USB checks, connect the real Pro2 over BLE, then use the Tick/Punch one-shot or audio haptic test before enabling game monitoring.
 
-The 2026-06-07 baseline verified non-zero BLE writes and zero BLE errors for both live raw02 one-shots and the `both_punch` audio pattern. Game haptics still depend on the game sending DualSense haptic audio to `Wireless Controller Audio`.
+The 2026-06-07 baseline verified non-zero BLE writes and zero BLE errors for both live raw02 one-shots and the `both_punch` audio pattern. Use Game Monitor for real games: it keeps live forwarding on for the requested duration, logs `GAME_MONITOR_SAMPLE` every second, emits `GAME_MONITOR_RESULT`, and then restores dry-run/off. Game haptics still depend on the game sending DualSense haptic audio to `Wireless Controller Audio`.

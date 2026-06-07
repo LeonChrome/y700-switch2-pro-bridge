@@ -7,6 +7,7 @@ using System.IO;
 using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.RegularExpressions;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Input;
@@ -19,6 +20,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private readonly Window owner;
     private readonly FirmwareFlasher flasher = new();
     private readonly StringBuilder log = new();
+    private readonly SemaphoreSlim serialLock = new(1, 1);
+    private CancellationTokenSource? gameMonitorCts;
 
     private PortItem? selectedPort;
     private string portStatus = "刷新端口后会优先选择 CH343P / WCH USB Serial。";
@@ -34,7 +37,10 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private string audioIntensity = "48";
     private string audioDurationMs = "600";
     private string audioDeviceName = "Wireless Controller";
+    private string gameMonitorSeconds = "300";
+    private string monitorStatus = "未开始。启动后会保持 Live raw02，并每秒记录游戏是否真的输出 DualSense haptic audio。";
     private bool busy;
+    private bool gameMonitorRunning;
 
     public ObservableCollection<PortItem> Ports { get; } = new();
     public ObservableCollection<string> AudioPatterns { get; } = new(new[]
@@ -56,12 +62,15 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public string AudioIntensity { get => audioIntensity; set { audioIntensity = value; OnPropertyChanged(); } }
     public string AudioDurationMs { get => audioDurationMs; set { audioDurationMs = value; OnPropertyChanged(); } }
     public string AudioDeviceName { get => audioDeviceName; set { audioDeviceName = value; OnPropertyChanged(); } }
+    public string GameMonitorSeconds { get => gameMonitorSeconds; set { gameMonitorSeconds = value; OnPropertyChanged(); } }
+    public string MonitorStatus { get => monitorStatus; set { monitorStatus = value; OnPropertyChanged(); } }
     public bool Busy { get => busy; set { busy = value; OnPropertyChanged(); OnPropertyChanged(nameof(OverallBrush)); } }
+    public bool GameMonitorRunning { get => gameMonitorRunning; set { gameMonitorRunning = value; OnPropertyChanged(); OnPropertyChanged(nameof(OverallBrush)); } }
 
     public string FirmwareSummary => "DualSense 4ch 触觉 / Pro2 原生桥接 / HID-only recovery / 内嵌 esptool";
     public string SafetySummary => "Live 默认关，Dry-run 默认开；Live 开启需确认，BLE 错误会自动关闭。";
     public string LogText => log.ToString();
-    public Brush OverallBrush => Busy ? Brushes.Goldenrod : OverallStatus.Contains("Error", StringComparison.OrdinalIgnoreCase) ? Brushes.IndianRed : Brushes.LimeGreen;
+    public Brush OverallBrush => Busy || GameMonitorRunning ? Brushes.Goldenrod : OverallStatus.Contains("Error", StringComparison.OrdinalIgnoreCase) ? Brushes.IndianRed : Brushes.LimeGreen;
 
     public ICommand RefreshPortsCommand { get; }
     public ICommand FlashHapticCommand { get; }
@@ -87,6 +96,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public ICommand HapticStopCommand { get; }
     public ICommand SafeHapticTestCommand { get; }
     public ICommand SendAudioPatternCommand { get; }
+    public ICommand StartGameMonitorCommand { get; }
+    public ICommand StopGameMonitorCommand { get; }
     public ICommand SendCustomCommand { get; }
     public ICommand ClearLogCommand { get; }
     public ICommand SaveLogCommand { get; }
@@ -118,6 +129,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
         HapticStopCommand = new RelayCommand(async _ => await SendSerialAsync("haptic test live stop", 4, _ => HapticStatus = "已发送 live stop。"));
         SafeHapticTestCommand = new RelayCommand(async _ => await RunSafeHapticTestAsync());
         SendAudioPatternCommand = new RelayCommand(async _ => await SendAudioPatternAsync());
+        StartGameMonitorCommand = new RelayCommand(async _ => await StartGameMonitorAsync());
+        StopGameMonitorCommand = new RelayCommand(async _ => await StopGameMonitorAsync());
         SendCustomCommand = new RelayCommand(async _ => await SendSerialAsync(CustomCommand, 6, _ => { }));
         ClearLogCommand = new RelayCommand(_ => { log.Clear(); OnPropertyChanged(nameof(LogText)); });
         SaveLogCommand = new RelayCommand(_ => SaveLog());
@@ -246,6 +259,148 @@ public sealed class MainViewModel : INotifyPropertyChanged
         }
     }
 
+    private async Task StartGameMonitorAsync()
+    {
+        if (GameMonitorRunning)
+        {
+            MonitorStatus = "游戏监听已经在运行。";
+            return;
+        }
+
+        int seconds = ParseIntOrDefault(GameMonitorSeconds, 300, 10, 900);
+        gameMonitorCts = new CancellationTokenSource();
+        CancellationToken token = gameMonitorCts.Token;
+
+        try
+        {
+            Busy = true;
+            OverallStatus = "Game monitor";
+            MonitorStatus = "正在准备游戏监听：检查 BLE，并开启 Live raw02。";
+
+            string initial = await SendSerialCoreAsync("status", 3);
+            RequireBleConnected(initial);
+
+            await SendSerialCoreAsync("haptic mode auto", 2);
+            await SendSerialCoreAsync("haptic interval 10", 2);
+            await SendSerialCoreAsync("haptic max 96", 2);
+            await SendSerialCoreAsync("haptic gain 2.0", 2);
+            await SendSerialCoreAsync("haptic transient_gain 1.5", 2);
+            await SendSerialCoreAsync("haptic activity 256", 2);
+            await SendSerialCoreAsync("haptic raw02 on", 2);
+            await SendSerialCoreAsync("haptic dryrun off", 2);
+
+            Busy = false;
+            GameMonitorRunning = true;
+            OverallStatus = "Monitoring";
+            NextAction = "现在进入游戏测试；监听期间不要点音频 Pattern / Stop。测试结束后点“停止监听并关闭 Live”。";
+            AppendLog("[GAME_MONITOR_START] seconds=" + seconds +
+                      " live_forwarding=true dry_run=false interval_ms=10 max=96 gain=2.0 transient_gain=1.5 activity_threshold=256");
+
+            await RunGameMonitorLoopAsync(seconds, token);
+            await DisableLiveForwardingAfterMonitorAsync();
+        }
+        catch (OperationCanceledException)
+        {
+            AppendLog("[GAME_MONITOR_CANCELLED]");
+        }
+        catch (Exception ex)
+        {
+            OverallStatus = "Error";
+            MonitorStatus = "游戏监听失败: " + FirstLine(ex.Message);
+            AppendLog("ERROR game monitor: " + ex);
+        }
+        finally
+        {
+            Busy = false;
+            GameMonitorRunning = false;
+            gameMonitorCts?.Dispose();
+            gameMonitorCts = null;
+        }
+    }
+
+    private async Task DisableLiveForwardingAfterMonitorAsync()
+    {
+        await SendSerialCoreAsync("haptic test live stop", 2);
+        await SendSerialCoreAsync("haptic dryrun on", 2);
+        await SendSerialCoreAsync("haptic raw02 off", 2);
+        AppendLog("[GAME_MONITOR_END_SAFE_OFF] live_forwarding=false dry_run=true");
+    }
+
+    private async Task RunGameMonitorLoopAsync(int seconds, CancellationToken token)
+    {
+        string previous = await SendSerialCoreAsync("status", 2);
+        MonitorSnapshot baseline = MonitorSnapshot.FromStatus(previous);
+        MonitorSnapshot last = baseline;
+        int samples = 0;
+        int activeSamples = 0;
+        int writeSamples = 0;
+
+        AppendLog("[GAME_MONITOR_BASELINE] " + baseline.ToLogString());
+
+        for (int elapsed = 1; elapsed <= seconds; elapsed++)
+        {
+            await Task.Delay(1000, token);
+
+            string status = await SendSerialCoreAsync("status", 2);
+            MonitorSnapshot current = MonitorSnapshot.FromStatus(status);
+            MonitorDelta delta = current.DeltaFrom(last);
+            MonitorDelta total = current.DeltaFrom(baseline);
+            samples++;
+            if (delta.AudioActive > 0) activeSamples++;
+            if (delta.BleWrites > 0) writeSamples++;
+
+            string sampleLine =
+                "[GAME_MONITOR_SAMPLE] " +
+                "t=" + elapsed + "s " +
+                current.ToLogString() + " " +
+                "delta=(" + delta.ToLogString() + ") " +
+                "total=(" + total.ToLogString() + ")";
+            AppendLog(sampleLine);
+
+            MonitorStatus =
+                $"监听中 {elapsed}/{seconds}s：audio +{total.AudioPackets}，active +{total.AudioActive}，raw02 +{total.Raw02Live}，BLE writes +{total.BleWrites}，errors={current.BleErrors}";
+            HapticStatus = SummarizeHaptic(status);
+            last = current;
+        }
+
+        MonitorDelta finalDelta = last.DeltaFrom(baseline);
+        bool gameAudioDetected = finalDelta.AudioPackets > 0 && finalDelta.AudioActive > 0;
+        bool liveForwarded = finalDelta.Raw02Live > 0 && finalDelta.BleWrites > 0;
+        string conclusion = gameAudioDetected && liveForwarded
+            ? "game_haptic_forwarded"
+            : gameAudioDetected
+                ? "game_haptic_seen_but_not_forwarded"
+                : "no_game_haptic_audio_detected";
+
+        AppendLog("[GAME_MONITOR_RESULT] conclusion=" + conclusion +
+                  " samples=" + samples +
+                  " active_samples=" + activeSamples +
+                  " write_samples=" + writeSamples +
+                  " " + finalDelta.ToLogString());
+        MonitorStatus = "监听完成：" + conclusion + "；日志已包含 GAME_MONITOR_RESULT。";
+        OverallStatus = conclusion == "game_haptic_forwarded" ? "Monitor OK" : "Needs source";
+    }
+
+    private async Task StopGameMonitorAsync()
+    {
+        gameMonitorCts?.Cancel();
+        try
+        {
+            await SendSerialCoreAsync("haptic test live stop", 2);
+            await SendSerialCoreAsync("haptic dryrun on", 2);
+            await SendSerialCoreAsync("haptic raw02 off", 2);
+            MonitorStatus = "已停止监听，并已安全关闭 Live raw02。";
+            HapticStatus = "Live raw02 已关闭，Dry-run 已开启。";
+            OverallStatus = "Monitor stopped";
+            AppendLog("[GAME_MONITOR_STOP] live_forwarding=false dry_run=true");
+        }
+        catch (Exception ex)
+        {
+            MonitorStatus = "停止监听时串口命令失败: " + FirstLine(ex.Message);
+            AppendLog("WARN game monitor stop: " + ex);
+        }
+    }
+
     private async Task RunAudioSenderAsync(string arguments)
     {
         try
@@ -295,13 +450,21 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     private async Task<string> SendSerialCoreAsync(string command, int readSeconds)
     {
-        if (SelectedPort == null) RefreshPorts();
-        if (SelectedPort == null) throw new InvalidOperationException("没有可用 COM 口。");
-        return await SerialCommandClient.SendAsync(
-            SelectedPort.PortName,
-            command,
-            readSeconds,
-            new Progress<string>(AppendLog));
+        await serialLock.WaitAsync();
+        try
+        {
+            if (SelectedPort == null) RefreshPorts();
+            if (SelectedPort == null) throw new InvalidOperationException("没有可用 COM 口。");
+            return await SerialCommandClient.SendAsync(
+                SelectedPort.PortName,
+                command,
+                readSeconds,
+                new Progress<string>(AppendLog));
+        }
+        finally
+        {
+            serialLock.Release();
+        }
     }
 
     private async Task RunSafeHapticTestAsync()
@@ -543,6 +706,112 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private static string FirstLine(string text)
     {
         return text.Replace("\r", "").Split('\n')[0];
+    }
+
+    private static int ParseIntOrDefault(string text, int fallback, int min, int max)
+    {
+        if (!int.TryParse(text, out int value))
+        {
+            value = fallback;
+        }
+        if (value < min) return min;
+        if (value > max) return max;
+        return value;
+    }
+
+    private sealed class MonitorSnapshot
+    {
+        public long AudioPackets { get; init; }
+        public long AudioActive { get; init; }
+        public long Raw02Live { get; init; }
+        public long BleWrites { get; init; }
+        public long BleErrors { get; init; }
+        public long DroppedRate { get; init; }
+        public long DroppedSilence { get; init; }
+        public string Ble { get; init; } = "";
+        public string Haptic { get; init; } = "";
+        public string LastMode { get; init; } = "";
+        public string Left { get; init; } = "";
+        public string Right { get; init; } = "";
+        public string Error { get; init; } = "";
+
+        public static MonitorSnapshot FromStatus(string status)
+        {
+            return new MonitorSnapshot
+            {
+                AudioPackets = Counter(status, "audio_packets"),
+                AudioActive = Counter(status, "audio_active"),
+                Raw02Live = Counter(status, "raw02_live_packets"),
+                BleWrites = Counter(status, "raw02_ble_writes"),
+                BleErrors = Counter(status, "raw02_ble_errors"),
+                DroppedRate = Counter(status, "raw02_dropped_rate"),
+                DroppedSilence = Counter(status, "raw02_dropped_silence"),
+                Ble = ReadJsonString(status, "ble"),
+                Haptic = ReadJsonString(status, "haptic"),
+                LastMode = ReadJsonString(status, "raw02_last_mode"),
+                Left = ReadJsonString(status, "raw02_left"),
+                Right = ReadJsonString(status, "raw02_right"),
+                Error = ReadJsonString(status, "raw02_error")
+            };
+        }
+
+        public MonitorDelta DeltaFrom(MonitorSnapshot previous)
+        {
+            return new MonitorDelta
+            {
+                AudioPackets = Math.Max(0, AudioPackets - previous.AudioPackets),
+                AudioActive = Math.Max(0, AudioActive - previous.AudioActive),
+                Raw02Live = Math.Max(0, Raw02Live - previous.Raw02Live),
+                BleWrites = Math.Max(0, BleWrites - previous.BleWrites),
+                BleErrors = Math.Max(0, BleErrors - previous.BleErrors),
+                DroppedRate = Math.Max(0, DroppedRate - previous.DroppedRate),
+                DroppedSilence = Math.Max(0, DroppedSilence - previous.DroppedSilence)
+            };
+        }
+
+        public string ToLogString()
+        {
+            return "ble=" + Ble +
+                   " haptic=" + Haptic +
+                   " audio_packets=" + AudioPackets +
+                   " audio_active=" + AudioActive +
+                   " raw02_live=" + Raw02Live +
+                   " ble_writes=" + BleWrites +
+                   " ble_errors=" + BleErrors +
+                   " dropped_rate=" + DroppedRate +
+                   " dropped_silence=" + DroppedSilence +
+                   " last=" + LastMode +
+                   " left=" + ShortHex(Left) +
+                   " right=" + ShortHex(Right) +
+                   " error=" + Error;
+        }
+
+        private static long Counter(string status, string name)
+        {
+            return Math.Max(0, ReadJsonCounter(status, name));
+        }
+    }
+
+    private sealed class MonitorDelta
+    {
+        public long AudioPackets { get; init; }
+        public long AudioActive { get; init; }
+        public long Raw02Live { get; init; }
+        public long BleWrites { get; init; }
+        public long BleErrors { get; init; }
+        public long DroppedRate { get; init; }
+        public long DroppedSilence { get; init; }
+
+        public string ToLogString()
+        {
+            return "audio_packets=+" + AudioPackets +
+                   " audio_active=+" + AudioActive +
+                   " raw02_live=+" + Raw02Live +
+                   " ble_writes=+" + BleWrites +
+                   " ble_errors=+" + BleErrors +
+                   " dropped_rate=+" + DroppedRate +
+                   " dropped_silence=+" + DroppedSilence;
+        }
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
