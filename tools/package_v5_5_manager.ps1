@@ -87,6 +87,47 @@ function Add-FirmwareProfilePayload([string]$Profile, [string]$TargetRoot) {
     }
 }
 
+function Add-Pro2BridgeProfilePayload([string]$TargetRoot) {
+    $profile = "pro2_bridge_v5_5"
+    $buildDir = Join-Path $RepoRoot "firmware\esp32s3_switch2_bridge\build"
+    if (!(Test-Path -LiteralPath $buildDir)) {
+        throw "Missing Pro2 bridge firmware build directory: $buildDir"
+    }
+
+    $profileRoot = Join-Path $TargetRoot $profile
+    New-Item -ItemType Directory -Force -Path (Join-Path $profileRoot "bootloader") | Out-Null
+    New-Item -ItemType Directory -Force -Path (Join-Path $profileRoot "partition_table") | Out-Null
+    Copy-Item -LiteralPath (Join-Path $buildDir "bootloader\bootloader.bin") -Destination (Join-Path $profileRoot "bootloader\bootloader.bin") -Force
+    Copy-Item -LiteralPath (Join-Path $buildDir "partition_table\partition-table.bin") -Destination (Join-Path $profileRoot "partition_table\partition-table.bin") -Force
+    Copy-Item -LiteralPath (Join-Path $buildDir "esp32s3_switch2_bridge.bin") -Destination (Join-Path $profileRoot "esp32s3_switch2_bridge.bin") -Force
+    if (Test-Path -LiteralPath (Join-Path $buildDir "flash_args")) {
+        Copy-Item -LiteralPath (Join-Path $buildDir "flash_args") -Destination (Join-Path $profileRoot "flash_args") -Force
+    }
+
+    $assetDefs = @(
+        @{ offset = "0x0"; path = "$profile/bootloader/bootloader.bin" },
+        @{ offset = "0x8000"; path = "$profile/partition_table/partition-table.bin" },
+        @{ offset = "0x10000"; path = "$profile/esp32s3_switch2_bridge.bin" }
+    )
+
+    $assets = @()
+    foreach ($asset in $assetDefs) {
+        $file = Join-Path $TargetRoot ($asset.path -replace '/', [IO.Path]::DirectorySeparatorChar)
+        $assets += [ordered]@{
+            offset = $asset.offset
+            path = $asset.path
+            sha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $file).Hash.ToLowerInvariant()
+        }
+    }
+
+    return [ordered]@{
+        id = $profile
+        label = "Pro2/Switch2 native bridge"
+        app = "esp32s3_switch2_bridge.bin"
+        assets = $assets
+    }
+}
+
 function Refresh-EmbeddedAssets {
     Write-Step "embedded_assets" "refresh"
     if ($DryRun) { return }
@@ -99,6 +140,7 @@ function Refresh-EmbeddedAssets {
     $profiles = @()
     $profiles += Add-FirmwareProfilePayload "hid_audio_uac1_4ch_ds5like" $firmwareRoot
     $profiles += Add-FirmwareProfilePayload "hid_only" $firmwareRoot
+    $profiles += Add-Pro2BridgeProfilePayload $firmwareRoot
 
     $manifest = [ordered]@{
         packageVersion = "v5.5.0-aio"
@@ -109,7 +151,7 @@ function Refresh-EmbeddedAssets {
         flashSize = "16MB"
         defaultProfile = "hid_audio_uac1_4ch_ds5like"
         profiles = $profiles
-        notes = "V5.5 experimental DualSense-like HID + UAC1 4ch haptic audio to Pro2 raw02 forwarding. Live raw02 defaults off."
+        notes = "V5.5 manager bundle: DualSense-like HID + UAC1 4ch haptic audio to Pro2 raw02 forwarding, Pro2/Switch2 native bridge, and HID-only recovery. Live raw02 defaults off."
     }
     $manifest | ConvertTo-Json -Depth 8 | Set-Content -Encoding UTF8 -Path (Join-Path $firmwareRoot "firmware_manifest.json")
 
@@ -128,6 +170,12 @@ function Refresh-EmbeddedAssets {
 }
 
 if (!$SkipFirmwareBuild) {
+    Write-Step "firmware_build" "pro2_bridge_v5_5"
+    if (!$DryRun) {
+        & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $RepoRoot "tools\esp32s3\build.ps1") -IdfPath $IdfPath
+        if ($LASTEXITCODE -ne 0) { throw "Firmware build failed: pro2_bridge_v5_5" }
+    }
+
     $buildScript = Join-Path $RepoRoot "tools\esp32s3\build_v5_5_dualsense_identity.ps1"
     foreach ($profile in @("hid_audio_uac1_4ch_ds5like", "hid_only")) {
         Write-Step "firmware_build" $profile
@@ -185,8 +233,8 @@ if (!$DryRun) {
         }
     }
     if ($verifyData["result"] -ne "passed" -or
-        $verifyData["profiles"] -ne "hid_audio_uac1_4ch_ds5like,hid_only" -or
-        $verifyData["asset_count"] -ne "6") {
+        $verifyData["profiles"] -ne "hid_audio_uac1_4ch_ds5like,hid_only,pro2_bridge_v5_5" -or
+        $verifyData["asset_count"] -ne "9") {
         throw "Published manager package verification returned unexpected data:`n$verifyDetails"
     }
     Write-Step "package_verify" "passed"

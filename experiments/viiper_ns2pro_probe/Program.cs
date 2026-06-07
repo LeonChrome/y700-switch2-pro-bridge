@@ -228,7 +228,7 @@ static byte[] BuildInput(int frame)
     if ((frame / 45) % 2 == 0) buttons |= 0x00000010; // R
     BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(0, 4), buttons);
 
-    static ushort Stick(double value) => (ushort)Math.Clamp((int)Math.Round(0x0800 + value * 0x0550), 0, 0x0fff);
+    static ushort Stick(double value) => (ushort)Math.Clamp((int)Math.Round(0x0800 + value * 0x07ff), 0, 0x0fff);
     double t = frame / 30.0;
     BinaryPrimitives.WriteUInt16LittleEndian(data.AsSpan(4, 2), Stick(Math.Sin(t)));
     BinaryPrimitives.WriteUInt16LittleEndian(data.AsSpan(6, 2), Stick(Math.Cos(t)));

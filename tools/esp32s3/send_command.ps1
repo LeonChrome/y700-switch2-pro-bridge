@@ -55,6 +55,10 @@ try {
                 Write-Host $chunk -NoNewline
             }
         } catch [TimeoutException] {
+        } catch [System.InvalidOperationException] {
+            Write-Host ""
+            Write-Host "Serial port closed while reading; stopping read loop."
+            break
         }
         Start-Sleep -Milliseconds 100
     }

@@ -249,9 +249,13 @@ static void neutral_report_task(void *arg)
         if (now_us >= next_input_log_us) {
             if (using_pro2) {
                 ESP_LOGI(TAG,
-                         "[DS5_INPUT_MAP] buttons=0x%04x hat=%u lx=%u ly=%u rx=%u ry=%u l2=%u r2=%u updates=%lu age_ms=%lld",
+                         "[DS5_INPUT_MAP] buttons=0x%04x hat=%u raw12=(%u,%u,%u,%u) ds5=(%u,%u,%u,%u) l2=%u r2=%u updates=%lu age_ms=%lld",
                          debug.buttons,
                          debug.hat,
+                         (unsigned)debug.raw_lx,
+                         (unsigned)debug.raw_ly,
+                         (unsigned)debug.raw_rx,
+                         (unsigned)debug.raw_ry,
                          debug.lx,
                          debug.ly,
                          debug.rx,
@@ -289,7 +293,7 @@ void app_main(void)
     ESP_LOGI(TAG,
              "[DS5_IDENTITY] vid=0x054c pid=0x0ce6 product=DualSense Wireless Controller");
     ESP_LOGI(TAG,
-             "[DS5_IDENTITY] audio=%s ble_input=true rumble_compat=true raw02_forwarding=false",
+             "[DS5_IDENTITY] audio=%s ble_input=true rumble_compat=true raw02_forwarding=true",
              DS5_ENABLE_UAC1_CONTROL_ONLY ? "uac1_control_only" :
              (DS5_ENABLE_UAC1_STREAMING_ALT0 ? "uac1_streaming_alt0_only" :
              (DS5_ENABLE_UAC1_AUDIO ?

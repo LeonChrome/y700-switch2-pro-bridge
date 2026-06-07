@@ -139,6 +139,10 @@ void dualsense_report_mapper_from_pro2(const switch2_state_t *state,
 
     if (debug) {
         memset(debug, 0, sizeof(*debug));
+        debug->raw_lx = state->lx;
+        debug->raw_ly = state->ly;
+        debug->raw_rx = state->rx;
+        debug->raw_ry = state->ry;
         debug->lx = lx;
         debug->ly = ly;
         debug->rx = rx;

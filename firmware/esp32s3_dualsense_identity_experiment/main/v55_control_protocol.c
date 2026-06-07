@@ -268,6 +268,21 @@ static esp_err_t handle_haptic_command(const char *cmd, char *reply, int reply_l
         snprintf(extra, sizeof(extra), "\"mode\":\"%s\"", haptic_audio_to_raw02_mode_string(mode));
         return json_ok(reply, reply_len, "haptic mode", extra);
     }
+    if (strncmp(cmd, "haptic test live ", 17) == 0) {
+        char name[24];
+        if (!copy_trimmed_arg(cmd + 17, name, sizeof(name))) {
+            return json_error(reply, reply_len, "haptic test live", "test name is too long");
+        }
+        esp_err_t err = haptic_audio_to_raw02_send_test(name, true);
+        char extra[112];
+        snprintf(extra, sizeof(extra), "\"test\":\"%s\",\"force_live\":true,\"sent\":%s,\"error\":\"%s\"",
+                 name,
+                 err == ESP_OK ? "true" : "false",
+                 err == ESP_OK ? "none" : esp_err_to_name(err));
+        return err == ESP_OK ?
+            json_ok(reply, reply_len, "haptic test live", extra) :
+            json_error(reply, reply_len, "haptic test live", esp_err_to_name(err));
+    }
     if (strncmp(cmd, "haptic test ", 12) == 0) {
         char name[24];
         if (!copy_trimmed_arg(cmd + 12, name, sizeof(name))) {

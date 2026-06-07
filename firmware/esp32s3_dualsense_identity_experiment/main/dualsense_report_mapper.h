@@ -7,6 +7,10 @@
 #include "switch2_state.h"
 
 typedef struct {
+    uint16_t raw_lx;
+    uint16_t raw_ly;
+    uint16_t raw_rx;
+    uint16_t raw_ry;
     uint8_t lx;
     uint8_t ly;
     uint8_t rx;

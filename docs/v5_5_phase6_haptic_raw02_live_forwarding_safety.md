@@ -35,13 +35,14 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\esp32s3\send_command
 powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\esp32s3\send_command.ps1 -Port COM12 -Command "haptic status" -ReadSeconds 3
 powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\esp32s3\send_command.ps1 -Port COM12 -Command "haptic raw02 on" -ReadSeconds 3
 powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\esp32s3\send_command.ps1 -Port COM12 -Command "haptic dryrun off" -ReadSeconds 3
-powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\esp32s3\send_command.ps1 -Port COM12 -Command "haptic test tick" -ReadSeconds 3
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\esp32s3\send_command.ps1 -Port COM12 -Command "haptic test live tick" -ReadSeconds 3
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\esp32s3\send_command.ps1 -Port COM12 -Command "haptic test live punch" -ReadSeconds 3
 ```
 
 停止命令：
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\esp32s3\send_command.ps1 -Port COM12 -Command "haptic test stop" -ReadSeconds 3
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\esp32s3\send_command.ps1 -Port COM12 -Command "haptic test live stop" -ReadSeconds 3
 powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\esp32s3\send_command.ps1 -Port COM12 -Command "haptic dryrun on" -ReadSeconds 3
 powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\esp32s3\send_command.ps1 -Port COM12 -Command "haptic raw02 off" -ReadSeconds 3
 ```
@@ -52,12 +53,21 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\esp32s3\send_command
 ordinary DualSense HID output -> Pro2 BLE vibration=true
 V5.2 raw02 real Pro2 physical vibration=true
 V5.5 haptic audio -> raw02 live path implemented=true
-V5.5 haptic audio live physical vibration=needs_real_board_retest
+V5.5 haptic test live tick=true
+V5.5 haptic test live punch=true
+V5.5 haptic audio live BLE writes=true
+V5.5 haptic audio live physical vibration=transport_verified_user_feel_required
 blocked_by_real_pro2=false
-blocked_by_user_replug_or_game_test=true
+blocked_by_user_replug_or_game_test=false_for_test_pattern_true_for_real_game
 ```
 
-需要真实硬件复测的是最后一段：刷入 V5.5 4ch profile、BLE 连接 Pro2、打开 live、发送 channel 2/3 测试流或打开支持 DualSense haptic audio 的游戏。固件侧已经保留 stop 和错误回退。
+2026-06-07 实机复测已经完成测试 pattern 链路：`haptic test live tick`
+与 `haptic test live punch` 均返回 `sent=true`，日志显示
+`RUMBLE_RAW02 sent=true active=true`、`DS5_RUMBLE source=raw02 errors=0`。
+向 `Wireless Controller Audio` 发送 `both_punch` 后，状态为
+`audio_packets=375`、`audio_active=19`、`raw02_live_packets=8`、
+`raw02_ble_writes=8`、`raw02_ble_errors=0`。真实游戏仍需确认该游戏是否
+实际向 DualSense-like audio endpoint 输出 haptic audio。
 
 ## English
 
@@ -78,3 +88,10 @@ Low, medium, and high tests keep the same frequency pair (`LF=274`, `HF=391`)
 and vary only both amplitudes (`170`, `341`, `512` out of `1023`). The previous
 ad-hoc byte shaping changed frequency while leaving one amplitude nearly fixed,
 so it was not a valid intensity comparison.
+
+The 2026-06-07 retest verified the live path on hardware: live Tick and Punch
+one-shots both produced active raw02 BLE writes with zero errors, and a
+`both_punch` audio pattern sent to `Wireless Controller Audio` produced
+`audio_packets=375`, `audio_active=19`, `raw02_live_packets=8`,
+`raw02_ble_writes=8`, and `raw02_ble_errors=0`. Real games still depend on
+their native DualSense haptic-audio output behavior.

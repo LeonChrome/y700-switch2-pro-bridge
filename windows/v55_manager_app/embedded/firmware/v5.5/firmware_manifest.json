@@ -25,7 +25,7 @@
                                         {
                                             "offset":  "0x10000",
                                             "path":  "hid_audio_uac1_4ch_ds5like/esp32s3_dualsense_identity_experiment.bin",
-                                            "sha256":  "133c6ec2341b6149b52253a4e91aee02e2885b9a37e7f0d830a05e397ad5c9ba"
+                                            "sha256":  "abe09b584bae25912c4206392ea01b3f70f83445ae1983b89bf289ef1dfb8da0"
                                         }
                                     ]
                      },
@@ -47,10 +47,32 @@
                                         {
                                             "offset":  "0x10000",
                                             "path":  "hid_only/esp32s3_dualsense_identity_experiment.bin",
-                                            "sha256":  "3c2457fa69ce6c4a477a93699bc624c848d824d6656e24664ed937238e84becf"
+                                            "sha256":  "594efd75c670bb8d44300fb6291134e817eccfa1a550e57af07c7a984a4dd217"
+                                        }
+                                    ]
+                     },
+                     {
+                         "id":  "pro2_bridge_v5_5",
+                         "label":  "Pro2/Switch2 native bridge",
+                         "app":  "esp32s3_switch2_bridge.bin",
+                         "assets":  [
+                                        {
+                                            "offset":  "0x0",
+                                            "path":  "pro2_bridge_v5_5/bootloader/bootloader.bin",
+                                            "sha256":  "ffc507ca6d7e39799eebdd806e61b57086cbc6db8cdc83aca93088860ff6be6c"
+                                        },
+                                        {
+                                            "offset":  "0x8000",
+                                            "path":  "pro2_bridge_v5_5/partition_table/partition-table.bin",
+                                            "sha256":  "7f00b6c042a89b15b0cac534f82ed988caf29278ff5700b0c511eb1b5bb7c820"
+                                        },
+                                        {
+                                            "offset":  "0x10000",
+                                            "path":  "pro2_bridge_v5_5/esp32s3_switch2_bridge.bin",
+                                            "sha256":  "24861c094c0ce96e6922f95a85a45daa2c69abb2052a49c4dc8a520f27ec9264"
                                         }
                                     ]
                      }
                  ],
-    "notes":  "V5.5 experimental DualSense-like HID + UAC1 4ch haptic audio to Pro2 raw02 forwarding. Live raw02 defaults off."
+    "notes":  "V5.5 manager bundle: DualSense-like HID + UAC1 4ch haptic audio to Pro2 raw02 forwarding, Pro2/Switch2 native bridge, and HID-only recovery. Live raw02 defaults off."
 }

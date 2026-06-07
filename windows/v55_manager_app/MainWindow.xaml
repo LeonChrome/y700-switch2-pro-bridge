@@ -82,12 +82,13 @@
                 <StackPanel>
                     <Border Style="{StaticResource Panel}">
                         <StackPanel>
-                            <TextBlock Style="{StaticResource TitleText}" Text="1. 端口与烧录"/>
-                            <TextBlock Style="{StaticResource HintText}" Text="只接 CH343P Type-C 时刷机；刷完再重插 native USB / OTG 做 HID 和音频枚举。"/>
+                            <TextBlock Style="{StaticResource TitleText}" Text="1. 模式与烧录"/>
+                            <TextBlock Style="{StaticResource HintText}" Text="DualSense 4ch / Pro2 原生 / HID Recovery"/>
                             <ComboBox ItemsSource="{Binding Ports}" SelectedItem="{Binding SelectedPort}" DisplayMemberPath="DisplayName" Margin="0,10,0,6"/>
                             <WrapPanel>
                                 <Button Style="{StaticResource ButtonLite}" Content="刷新端口" Command="{Binding RefreshPortsCommand}"/>
-                                <Button Style="{StaticResource PrimaryButton}" Content="一键刷 V5.5" Command="{Binding FlashHapticCommand}"/>
+                                <Button Style="{StaticResource PrimaryButton}" Content="刷 DualSense 触觉" Command="{Binding FlashHapticCommand}"/>
+                                <Button Style="{StaticResource ButtonLite}" Content="刷 Pro2 原生" Command="{Binding FlashPro2Command}"/>
                                 <Button Style="{StaticResource ButtonLite}" Content="HID 恢复" Command="{Binding FlashHidOnlyCommand}"/>
                             </WrapPanel>
                             <TextBlock Style="{StaticResource HintText}" Text="{Binding PortStatus}" Margin="0,6,0,0"/>
@@ -133,8 +134,8 @@
                                 <Button Style="{StaticResource ButtonLite}" Content="Dry-run 开" Command="{Binding DryRunOnCommand}"/>
                                 <Button Style="{StaticResource ButtonLite}" Content="Live 关" Command="{Binding LiveOffCommand}"/>
                                 <Button Style="{StaticResource PrimaryButton}" Content="Live 开" Command="{Binding LiveOnCommand}"/>
-                                <Button Style="{StaticResource ButtonLite}" Content="Tick" Command="{Binding HapticTickCommand}"/>
-                                <Button Style="{StaticResource ButtonLite}" Content="Punch" Command="{Binding HapticPunchCommand}"/>
+                                <Button Style="{StaticResource ButtonLite}" Content="Tick 实震" Command="{Binding HapticTickCommand}"/>
+                                <Button Style="{StaticResource ButtonLite}" Content="Punch 实震" Command="{Binding HapticPunchCommand}"/>
                                 <Button Style="{StaticResource ButtonLite}" Content="Stop" Command="{Binding HapticStopCommand}"/>
                                 <Button Style="{StaticResource PrimaryButton}" Content="安全实震" Command="{Binding SafeHapticTestCommand}"
                                         ToolTip="低强度测试完整 4ch 音频 -> raw02 -> BLE 链路，结束后自动恢复 Dry-run"/>
@@ -189,7 +190,7 @@
                             <TextBox Grid.Column="1" Text="{Binding AudioIntensity}" Margin="0,0,8,0" ToolTip="0..100"/>
                             <TextBox Grid.Column="2" Text="{Binding AudioDurationMs}" Margin="0,0,8,0" ToolTip="milliseconds"/>
                             <TextBox Grid.Column="3" Text="{Binding AudioDeviceName}" Margin="0,0,8,0" ToolTip="Device name substring"/>
-                            <Button Grid.Column="4" Style="{StaticResource PrimaryButton}" Content="发送音频 Pattern" Command="{Binding SendAudioPatternCommand}"/>
+                            <Button Grid.Column="4" Style="{StaticResource PrimaryButton}" Content="发送音频实震" Command="{Binding SendAudioPatternCommand}"/>
                         </Grid>
                     </StackPanel>
                 </Border>

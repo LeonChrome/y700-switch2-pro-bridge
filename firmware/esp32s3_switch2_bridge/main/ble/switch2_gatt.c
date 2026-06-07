@@ -8,6 +8,7 @@ static const char *TAG = "switch2_gatt";
 
 #define CENTER_12BIT 2048
 #define AXIS_DEADZONE 48
+#define AXIS_FULL_SCALE_RANGE 1600
 #define AXIS_CALIBRATION_SAMPLES 20
 #define FD2_FULL_REPORT_MIN_LEN 60
 #define FD2_FULL_MOTION_OFFSET 48
@@ -93,13 +94,27 @@ static uint16_t unpack12_y(const uint8_t *data, int offset)
 
 static uint16_t recenter_axis(uint16_t value, uint16_t center)
 {
-    int32_t out = CENTER_12BIT + (int32_t)value - (int32_t)center;
-    uint16_t clamped = clamp12(out);
-    int32_t delta = (int32_t)clamped - CENTER_12BIT;
-    if (delta < 0) {
-        delta = -delta;
+    int32_t delta = (int32_t)value - (int32_t)center;
+    bool negative = delta < 0;
+    int32_t magnitude = negative ? -delta : delta;
+    if (magnitude <= AXIS_DEADZONE) {
+        return CENTER_12BIT;
     }
-    return delta <= AXIS_DEADZONE ? CENTER_12BIT : clamped;
+
+    /*
+     * Switch 2 Pro BLE stick endpoints observed in practice do not span the
+     * full 12-bit 0..4095 domain. Expand the calibrated physical throw to the
+     * advertised report range so host-side games see a true full stick.
+     */
+    int32_t usable = AXIS_FULL_SCALE_RANGE - AXIS_DEADZONE;
+    int32_t target = negative ? CENTER_12BIT : (CENTER_12BIT - 1);
+    int32_t scaled = ((magnitude - AXIS_DEADZONE) * target + usable / 2) / usable;
+    if (scaled > target) {
+        scaled = target;
+    }
+
+    int32_t out = negative ? (CENTER_12BIT - scaled) : (CENTER_12BIT + scaled);
+    return clamp12(out);
 }
 
 static void apply_axes(axis_calibration_t *cal,

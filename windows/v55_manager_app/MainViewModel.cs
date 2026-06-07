@@ -58,7 +58,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public string AudioDeviceName { get => audioDeviceName; set { audioDeviceName = value; OnPropertyChanged(); } }
     public bool Busy { get => busy; set { busy = value; OnPropertyChanged(); OnPropertyChanged(nameof(OverallBrush)); } }
 
-    public string FirmwareSummary => "V5.5 experimental / 4ch haptic + HID-only recovery / 内嵌 esptool";
+    public string FirmwareSummary => "DualSense 4ch 触觉 / Pro2 原生桥接 / HID-only recovery / 内嵌 esptool";
     public string SafetySummary => "Live 默认关，Dry-run 默认开；Live 开启需确认，BLE 错误会自动关闭。";
     public string LogText => log.ToString();
     public Brush OverallBrush => Busy ? Brushes.Goldenrod : OverallStatus.Contains("Error", StringComparison.OrdinalIgnoreCase) ? Brushes.IndianRed : Brushes.LimeGreen;
@@ -66,6 +66,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public ICommand RefreshPortsCommand { get; }
     public ICommand FlashHapticCommand { get; }
     public ICommand FlashHidOnlyCommand { get; }
+    public ICommand FlashPro2Command { get; }
     public ICommand CheckUsbCommand { get; }
     public ICommand ListAudioCommand { get; }
     public ICommand OpenJoyCommand { get; }
@@ -96,6 +97,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         RefreshPortsCommand = new RelayCommand(_ => RefreshPorts());
         FlashHapticCommand = new RelayCommand(async _ => await FlashAsync("hid_audio_uac1_4ch_ds5like", FlashMode.Upgrade));
         FlashHidOnlyCommand = new RelayCommand(async _ => await FlashAsync("hid_only", FlashMode.Repair));
+        FlashPro2Command = new RelayCommand(async _ => await FlashAsync("pro2_bridge_v5_5", FlashMode.Upgrade));
         CheckUsbCommand = new RelayCommand(_ => CheckUsb());
         ListAudioCommand = new RelayCommand(async _ => await RunAudioSenderAsync("-ListDevices"));
         OpenJoyCommand = new RelayCommand(_ => StartShell("joy.cpl"));
@@ -111,9 +113,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
         DryRunOnCommand = new RelayCommand(async _ => await SendSerialAsync("haptic dryrun on", 4, _ => HapticStatus = "Dry-run 已开启。"));
         LiveOffCommand = new RelayCommand(async _ => await TurnLiveOffAsync());
         LiveOnCommand = new RelayCommand(async _ => await TurnLiveOnAsync());
-        HapticTickCommand = new RelayCommand(async _ => await SendSerialAsync("haptic test tick", 4, _ => HapticStatus = "已发送短 tick 测试。"));
-        HapticPunchCommand = new RelayCommand(async _ => await SendSerialAsync("haptic test punch", 4, _ => HapticStatus = "已发送 punch 测试。"));
-        HapticStopCommand = new RelayCommand(async _ => await SendSerialAsync("haptic test stop", 4, _ => HapticStatus = "已发送 stop。"));
+        HapticTickCommand = new RelayCommand(async _ => await SendLiveHapticPulseAsync("tick", "Tick"));
+        HapticPunchCommand = new RelayCommand(async _ => await SendLiveHapticPulseAsync("punch", "Punch"));
+        HapticStopCommand = new RelayCommand(async _ => await SendSerialAsync("haptic test live stop", 4, _ => HapticStatus = "已发送 live stop。"));
         SafeHapticTestCommand = new RelayCommand(async _ => await RunSafeHapticTestAsync());
         SendAudioPatternCommand = new RelayCommand(async _ => await SendAudioPatternAsync());
         SendCustomCommand = new RelayCommand(async _ => await SendSerialAsync(CustomCommand, 6, _ => { }));
@@ -189,7 +191,59 @@ public sealed class MainViewModel : INotifyPropertyChanged
     {
         string args = "-DeviceName \"" + AudioDeviceName.Replace("\"", "") + "\" -Pattern " +
                       AudioPattern + " -DurationMs " + AudioDurationMs + " -Intensity " + AudioIntensity;
-        await RunAudioSenderAsync(args);
+        try
+        {
+            Busy = true;
+            OverallStatus = "Audio haptic";
+            string initial = await SendSerialCoreAsync("status", 3);
+            RequireBleConnected(initial);
+
+            await SendSerialCoreAsync("haptic mode auto", 2);
+            await SendSerialCoreAsync("haptic interval 20", 2);
+            await SendSerialCoreAsync("haptic max 64", 2);
+            await SendSerialCoreAsync("haptic raw02 on", 2);
+            await SendSerialCoreAsync("haptic dryrun off", 2);
+
+            string output = await RunAudioSenderCoreAsync(args);
+            AppendLog(output);
+            await Task.Delay(300);
+
+            string status = await SendSerialCoreAsync("status", 3);
+            long active = ReadJsonCounter(status, "audio_active");
+            long livePackets = ReadJsonCounter(status, "raw02_live_packets");
+            long writes = ReadJsonCounter(status, "raw02_ble_writes");
+            long errors = ReadJsonCounter(status, "raw02_ble_errors");
+            string left = ReadJsonString(status, "raw02_left");
+            string right = ReadJsonString(status, "raw02_right");
+
+            AudioStatus = $"音频 Pattern 已发送；active={active}, raw02={livePackets}, BLE writes={writes}, errors={errors}";
+            HapticStatus = $"4ch 音频 -> raw02 -> Pro2：left={ShortHex(left)}, right={ShortHex(right)}";
+            OverallStatus = errors == 0 && writes > 0 ? "Haptic OK" : "Check haptic";
+            NextAction = errors == 0 && writes > 0
+                ? "链路计数已确认；真实游戏还需要游戏确实输出 DualSense 触觉音频。"
+                : "若 BLE 已连接但 writes 没增加，请查看日志中的 raw02_error。";
+        }
+        catch (Exception ex)
+        {
+            OverallStatus = "Error";
+            AudioStatus = "音频实震失败: " + FirstLine(ex.Message);
+            AppendLog("ERROR audio haptic: " + ex);
+        }
+        finally
+        {
+            foreach (string command in new[] { "haptic test live stop", "haptic dryrun on", "haptic raw02 off" })
+            {
+                try
+                {
+                    await SendSerialCoreAsync(command, 2);
+                }
+                catch (Exception cleanupError)
+                {
+                    AppendLog("WARN haptic cleanup: " + cleanupError.Message);
+                }
+            }
+            Busy = false;
+        }
     }
 
     private async Task RunAudioSenderAsync(string arguments)
@@ -197,8 +251,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         try
         {
             Busy = true;
-            FirmwarePackage package = EmbeddedAssets.EnsurePackage();
-            string output = await RunProcessAsync(package.AudioSenderPath, arguments);
+            string output = await RunAudioSenderCoreAsync(arguments);
             AudioStatus = output.Contains("channels=4", StringComparison.OrdinalIgnoreCase)
                 ? "音频工具检测到 4ch 或发送成功。"
                 : "音频工具已运行；如果只看到 channels=2，请确认已刷 V5.5 4ch 并重插 native USB。";
@@ -213,6 +266,12 @@ public sealed class MainViewModel : INotifyPropertyChanged
         {
             Busy = false;
         }
+    }
+
+    private async Task<string> RunAudioSenderCoreAsync(string arguments)
+    {
+        FirmwarePackage package = EmbeddedAssets.EnsurePackage();
+        return await RunProcessAsync(package.AudioSenderPath, arguments);
     }
 
     private async Task SendSerialAsync(string command, int readSeconds, Action<string> after)
@@ -326,6 +385,63 @@ public sealed class MainViewModel : INotifyPropertyChanged
         return matches.Count == 0 ? -1 : long.Parse(matches[^1].Groups[1].Value);
     }
 
+    private static string ReadJsonString(string text, string name)
+    {
+        MatchCollection matches = Regex.Matches(
+            text,
+            "\"" + Regex.Escape(name) + "\"\\s*:\\s*\"([^\"]*)\"",
+            RegexOptions.IgnoreCase);
+        return matches.Count == 0 ? "" : matches[^1].Groups[1].Value;
+    }
+
+    private static string ShortHex(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return "none";
+        return text.Length <= 12 ? text : text[..12] + "...";
+    }
+
+    private static void RequireBleConnected(string statusText)
+    {
+        string ble = ReadJsonString(statusText, "ble");
+        if (!string.Equals(ble, "connected", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException("Pro2 BLE 尚未连接；已拒绝真实震动发送。");
+        }
+    }
+
+    private async Task SendLiveHapticPulseAsync(string testName, string label)
+    {
+        try
+        {
+            Busy = true;
+            OverallStatus = "Haptic pulse";
+            string initial = await SendSerialCoreAsync("status", 3);
+            RequireBleConnected(initial);
+
+            await SendSerialCoreAsync("haptic test live " + testName, 4);
+            await Task.Delay(testName.Equals("punch", StringComparison.OrdinalIgnoreCase) ? 220 : 160);
+            await SendSerialCoreAsync("haptic test live stop", 3);
+
+            string status = await SendSerialCoreAsync("status", 3);
+            long writes = ReadJsonCounter(status, "raw02_ble_writes");
+            long errors = ReadJsonCounter(status, "raw02_ble_errors");
+            string left = ReadJsonString(status, "raw02_left");
+            string right = ReadJsonString(status, "raw02_right");
+            HapticStatus = $"{label} 已实震一次；BLE writes={writes}, errors={errors}, left={ShortHex(left)}, right={ShortHex(right)}";
+            OverallStatus = errors == 0 ? "Haptic OK" : "Check haptic";
+        }
+        catch (Exception ex)
+        {
+            OverallStatus = "Error";
+            HapticStatus = label + " 实震失败: " + FirstLine(ex.Message);
+            AppendLog("ERROR haptic pulse: " + ex);
+        }
+        finally
+        {
+            Busy = false;
+        }
+    }
+
     private async Task TurnLiveOnAsync()
     {
         MessageBoxResult result = MessageBox.Show(owner,
@@ -334,6 +450,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
             MessageBoxButton.OKCancel,
             MessageBoxImage.Warning);
         if (result != MessageBoxResult.OK) return;
+        await SendSerialAsync("haptic mode auto", 3, _ => { });
+        await SendSerialAsync("haptic interval 20", 3, _ => { });
+        await SendSerialAsync("haptic max 64", 3, _ => { });
         await SendSerialAsync("haptic raw02 on", 4, _ => { });
         await SendSerialAsync("haptic dryrun off", 4, _ => HapticStatus = "Live raw02 已开启，Dry-run 已关闭。");
     }
@@ -348,6 +467,20 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private string SummarizeHaptic(string output)
     {
         if (string.IsNullOrWhiteSpace(output)) return "已请求 haptic status，未读取到输出。";
+        string ble = ReadJsonString(output, "ble");
+        string haptic = ReadJsonString(output, "haptic");
+        string mode = ReadJsonString(output, "haptic_mode");
+        string lastMode = ReadJsonString(output, "raw02_last_mode");
+        string left = ReadJsonString(output, "raw02_left");
+        string right = ReadJsonString(output, "raw02_right");
+        long audioActive = ReadJsonCounter(output, "audio_active");
+        long livePackets = ReadJsonCounter(output, "raw02_live_packets");
+        long writes = ReadJsonCounter(output, "raw02_ble_writes");
+        long errors = ReadJsonCounter(output, "raw02_ble_errors");
+        if (!string.IsNullOrWhiteSpace(ble) || writes >= 0)
+        {
+            return $"BLE={ble}, haptic={haptic}, mode={mode}, audio_active={audioActive}, raw02_live={livePackets}, BLE writes={writes}, errors={errors}, last={lastMode}, L={ShortHex(left)}, R={ShortHex(right)}";
+        }
         string compact = output.Replace("\r", " ").Replace("\n", " ");
         return compact.Length > 220 ? compact[..220] + "..." : compact;
     }

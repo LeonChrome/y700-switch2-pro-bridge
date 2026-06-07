@@ -17,7 +17,7 @@ BLE 解析结果映射为 PC 侧 DualSense `0x01 + 63 bytes` 输入报告。
 
 | Pro2 输入 | DualSense 输入 |
 | --- | --- |
-| 左/右摇杆 12-bit | LX/LY/RX/RY 8-bit；两根 Y 轴反向以匹配 DualSense |
+| 左/右摇杆 12-bit | LX/LY/RX/RY 8-bit；中心校准后做端点扩展；两根 Y 轴反向以匹配 DualSense |
 | B / A / Y / X | Cross / Circle / Square / Triangle |
 | D-pad | DualSense 8 向 hat，空闲值 `8` |
 | L / R | L1 / R1 |
@@ -26,6 +26,12 @@ BLE 解析结果映射为 PC 侧 DualSense `0x01 + 63 bytes` 输入报告。
 | L3 / R3 | L3 / R3 |
 | Home / Capture | PS / Touchpad click |
 | FD2 motion | DualSense gyro/accel 字段 |
+
+摇杆端点扩展在共享 BLE 解析层完成：自动中心校准仍保留，中心死区为
+`48` raw units，物理摇杆约 `1600` raw units 的半径会映射到完整
+`0..4095` 12-bit 报告范围。这样 DualSense 8-bit 轴和 Pro2 原生
+Nintendo 12-bit 报告都不会再因为 Pro2 实际物理端点偏小而只到主机侧
+约 80%。
 
 陀螺仪和加速度计当前保持接近 raw 的首版映射，不做平滑、死区或标定。
 Pro2 motion 顺序为 accel X/Y/Z、gyro X/Y/Z；DualSense 字段按
@@ -53,7 +59,7 @@ BLE central 的扫描连接流程。常驻重连守护仅在 BLE 状态回到 `i
 [PRO2_INPUT] reconnect_attempt=1 started=true err=ESP_OK
 [PRO2_INPUT] connected=true state=connected
 [DS5_REPORT] source=pro2 sent=true
-[DS5_INPUT_MAP] buttons=... lx=... gyro=... motion_valid=true
+[DS5_INPUT_MAP] buttons=... raw12=(...) ds5=(...) gyro=... motion_valid=true
 ```
 
 ### Windows 验证
@@ -113,6 +119,7 @@ sequence_counter_incrementing=true
 reconnect_after_timeout=true
 phase2_real_pro2_input=true
 mapped_input_activity=true
+stick_endpoint_expansion=true
 buttons_except_axis_direction=user_verified
 left_stick_y_inverted_fix=true
 right_stick_y_inverted_fix=true
@@ -132,6 +139,11 @@ HID 检查确认 `axes_changed=true`、`motion_changed=true` 和
 `right_light=48`、`left_heavy=80`、Pro2 BLE `writes>0`、
 `errors=0`。
 
+2026-06-07 修复补充：Pro2 BLE 解析层加入摇杆端点扩展，并同步进入
+V5.5 DualSense profile 与 `pro2_bridge_v5_5` 原生桥接 profile。
+静止日志应显示 `raw12=(2048,2048,2048,2048)`、`ds5=(128,127,128,127)`；
+满拨应在主机侧达到完整轴端点。
+
 恢复正常 V5.2/V5.0 桥接固件：
 
 ```powershell
@@ -146,6 +158,10 @@ PC-facing DualSense `0x01 + 63-byte` input report.
 
 It maps sticks, face buttons by physical position, D-pad, shoulders, digital
 triggers, system buttons, and the latest parsed gyro/accelerometer sample.
+Stick values are expanded after calibrated centering in the shared BLE parser:
+a physical throw of about 1600 raw units maps to the full 12-bit report range,
+which fixes the host-visible ~80% full-throw issue in both the DualSense profile
+and the native Pro2 bridge profile.
 Sequence counters and timestamps advance at the 4 ms report cadence. Missing
 or stale Pro2 input produces a neutral report without freezing those counters.
 

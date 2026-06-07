@@ -47,6 +47,7 @@ public partial class App : Application
             FirmwarePackage package = EmbeddedAssets.EnsurePackage();
             FirmwareProfile haptic = package.GetProfile("hid_audio_uac1_4ch_ds5like");
             FirmwareProfile recovery = package.GetProfile("hid_only");
+            FirmwareProfile pro2 = package.GetProfile("pro2_bridge_v5_5");
             int assetCount = package.Manifest.Profiles.Sum(profile => profile.Assets.Count);
             string result = string.Join(Environment.NewLine, new[]
             {
@@ -56,6 +57,7 @@ public partial class App : Application
                 "profiles=" + string.Join(",", package.Manifest.Profiles.Select(profile => profile.Id)),
                 "haptic_assets=" + haptic.Assets.Count,
                 "recovery_assets=" + recovery.Assets.Count,
+                "pro2_assets=" + pro2.Assets.Count,
                 "asset_count=" + assetCount,
                 "esptool=" + package.EsptoolPath
             });
