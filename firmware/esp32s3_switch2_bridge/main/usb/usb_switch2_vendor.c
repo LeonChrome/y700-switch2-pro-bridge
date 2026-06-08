@@ -12,6 +12,7 @@
 #include "device_config.h"
 #include "esp_err.h"
 #include "esp_timer.h"
+#include "normalized_rumble.h"
 #include "tusb.h"
 #include "usb_descriptors.h"
 #include "usb_switch2_vendor.h"
@@ -671,6 +672,27 @@ void usb_switch2_vendor_start_hd_rumble_self_test_ms(uint16_t hold_ms)
     hd_stream_update(left, right, (int64_t)safe_hold_ms * 1000LL, "self-test");
 }
 
+void usb_switch2_vendor_start_normalized_rumble(const normalized_rumble_t *rumble,
+                                                const char *reason)
+{
+    if (!rumble || !normalized_rumble_active(rumble)) {
+        usb_switch2_vendor_stop_hd_rumble();
+        return;
+    }
+
+    uint8_t left[5];
+    uint8_t right[5];
+    uint16_t max_amplitude =
+        (uint16_t)clamp_int((int)(((uint32_t)512u * s_hd_scale_percent + 50u) / 100u),
+                            1,
+                            1023);
+    uint16_t hold_ms = rumble->duration_ms == 0 ? s_hd_hold_ms : rumble->duration_ms;
+    hold_ms = (uint16_t)clamp_int(hold_ms, 50, 1000);
+
+    normalized_rumble_build_pro2_pair(rumble, max_amplitude, left, right);
+    hd_stream_update(left, right, (int64_t)hold_ms * 1000LL, reason ? reason : "normalized");
+}
+
 bool usb_switch2_vendor_hd_rumble_active(void)
 {
     bool active;
@@ -1131,6 +1153,12 @@ bool tud_vendor_control_xfer_cb(uint8_t rhport, uint8_t stage,
                                 tusb_control_request_t const *request)
 {
     if (stage != CONTROL_STAGE_SETUP) {
+        return true;
+    }
+
+    if (device_config_get_mode() == XINPUT_EXPERIMENT_MODE) {
+        (void)rhport;
+        (void)request;
         return true;
     }
 

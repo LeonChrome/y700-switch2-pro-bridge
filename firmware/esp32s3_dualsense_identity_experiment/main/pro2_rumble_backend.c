@@ -9,6 +9,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/portmacro.h"
 #include "freertos/task.h"
+#include "normalized_rumble.h"
 #include "pro2_input_backend.h"
 
 #define DS5_OUTPUT_REPORT_ID 0x02
@@ -31,7 +32,7 @@ static portMUX_TYPE s_lock = portMUX_INITIALIZER_UNLOCKED;
 static bool s_task_started;
 static bool s_active;
 static int64_t s_active_until_us;
-static uint8_t s_vibration[5];
+static normalized_rumble_t s_rumble;
 static uint8_t s_packet_id;
 static uint8_t s_stop_packets_pending;
 static bool s_raw02_active;
@@ -44,34 +45,6 @@ static uint32_t s_updates;
 static uint32_t s_writes;
 static uint32_t s_errors;
 
-static uint16_t scale_amplitude(uint8_t value)
-{
-    return (uint16_t)(((uint32_t)value * PRO2_RUMBLE_MAX_AMPLITUDE + 127u) /
-                      255u);
-}
-
-static void build_vibration(uint8_t right_light, uint8_t left_heavy,
-                            uint8_t out[5])
-{
-    uint16_t low_amp = scale_amplitude(left_heavy);
-    uint16_t high_amp = scale_amplitude(right_light);
-    uint64_t value = 0;
-
-    value |= (uint64_t)0x0e1;
-    value |= (uint64_t)(low_amp & 0x03ff) << 10;
-    value |= (uint64_t)0x1e1 << 20;
-    value |= (uint64_t)(high_amp & 0x03ff) << 30;
-
-    for (size_t i = 0; i < 5; i++) {
-        out[i] = (uint8_t)((value >> (8 * i)) & 0xff);
-    }
-}
-
-static void build_zero_vibration(uint8_t out[5])
-{
-    build_vibration(0, 0, out);
-}
-
 static void write_motor_block(uint8_t *out, uint16_t offset, uint8_t packet_id,
                               const uint8_t vibration[5],
                               const uint8_t zero[5])
@@ -82,15 +55,18 @@ static void write_motor_block(uint8_t *out, uint16_t offset, uint8_t packet_id,
     memcpy(out + offset + 11, zero, 5);
 }
 
-static void build_packet(uint8_t packet_id, const uint8_t vibration[5],
+static void build_packet(uint8_t packet_id, const normalized_rumble_t *rumble,
                          uint8_t out[33])
 {
+    uint8_t left[5];
+    uint8_t right[5];
     uint8_t zero[5];
-    build_zero_vibration(zero);
+    normalized_rumble_build_zero_pro2(zero);
+    normalized_rumble_build_pro2_pair(rumble, PRO2_RUMBLE_MAX_AMPLITUDE, left, right);
     memset(out, 0, 33);
     out[0] = 0x00;
-    write_motor_block(out, 1, packet_id, vibration, zero);
-    write_motor_block(out, 17, packet_id, vibration, zero);
+    write_motor_block(out, 1, packet_id, left, zero);
+    write_motor_block(out, 17, packet_id, right, zero);
 }
 
 
@@ -285,7 +261,7 @@ static void rumble_task(void *arg)
             continue;
         }
 
-        uint8_t vibration[5];
+        normalized_rumble_t rumble;
         uint8_t raw02_left[5];
         uint8_t raw02_right[5];
         bool active;
@@ -302,7 +278,7 @@ static void rumble_task(void *arg)
             s_stop_packets_pending = PRO2_RUMBLE_STOP_PACKETS;
         }
         active = !raw02_active && s_active && now_us <= s_active_until_us;
-        memcpy(vibration, s_vibration, sizeof(vibration));
+        rumble = s_rumble;
         if (s_active && !active) {
             s_active = false;
             s_stop_packets_pending = PRO2_RUMBLE_STOP_PACKETS;
@@ -310,7 +286,7 @@ static void rumble_task(void *arg)
         if (!active && s_stop_packets_pending > 0) {
             s_stop_packets_pending--;
             send_stop = true;
-            build_zero_vibration(vibration);
+            normalized_rumble_reset(&rumble);
         }
         uint8_t packet_id = s_packet_id++ & 0x0f;
         portEXIT_CRITICAL(&s_lock);
@@ -320,7 +296,7 @@ static void rumble_task(void *arg)
             if (raw02_active) {
                 raw02_build_pro2_packet(packet_id, raw02_left, raw02_right, packet);
             } else {
-                build_packet(packet_id, vibration, packet);
+                build_packet(packet_id, &rumble, packet);
             }
             esp_err_t err = ble_central_send_rumble(packet, sizeof(packet));
 
@@ -335,17 +311,26 @@ static void rumble_task(void *arg)
             portEXIT_CRITICAL(&s_lock);
 
             if (err == ESP_OK && (raw02_active || active) && now_us >= next_log_us) {
+                uint8_t preview_left[5];
                 next_log_us = now_us + 500000LL;
+                if (raw02_active) {
+                    memcpy(preview_left, raw02_left, sizeof(preview_left));
+                } else {
+                    normalized_rumble_build_pro2_pair(&rumble,
+                                                      PRO2_RUMBLE_MAX_AMPLITUDE,
+                                                      preview_left,
+                                                      raw02_right);
+                }
                 ESP_LOGI(TAG,
                          "[DS5_RUMBLE] tick=true source=%s writes=%lu errors=%lu data=%02x%02x%02x%02x%02x",
                          raw02_active ? "raw02" : "ordinary",
                          (unsigned long)writes,
                          (unsigned long)errors,
-                         raw02_active ? raw02_left[0] : vibration[0],
-                         raw02_active ? raw02_left[1] : vibration[1],
-                         raw02_active ? raw02_left[2] : vibration[2],
-                         raw02_active ? raw02_left[3] : vibration[3],
-                         raw02_active ? raw02_left[4] : vibration[4]);
+                         preview_left[0],
+                         preview_left[1],
+                         preview_left[2],
+                         preview_left[3],
+                         preview_left[4]);
             } else if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) {
                 ESP_LOGW(TAG,
                          "[DS5_RUMBLE] tick=false error=%s active=%s stop=%s",
@@ -361,7 +346,7 @@ static void rumble_task(void *arg)
 
 void pro2_rumble_backend_init(void)
 {
-    build_zero_vibration(s_vibration);
+    normalized_rumble_reset(&s_rumble);
     if (!s_task_started) {
         BaseType_t created = xTaskCreate(rumble_task,
                                          "ds5_rumble",
@@ -373,7 +358,7 @@ void pro2_rumble_backend_init(void)
         s_task_started = true;
     }
     ESP_LOGI(TAG,
-             "[DS5_RUMBLE] initialized=true mode=ordinary_compat max_amp=%u hold_ms=%u",
+             "[DS5_RUMBLE] initialized=true mode=ordinary_compat normalized=true max_amp=%u hold_ms=%u",
              PRO2_RUMBLE_MAX_AMPLITUDE,
              PRO2_RUMBLE_HOLD_MS);
 }
@@ -429,16 +414,19 @@ bool pro2_rumble_backend_handle_dualsense_output(
     s_updates++;
     updates = s_updates;
     if (active) {
-        build_vibration(right_light, left_heavy, s_vibration);
+        normalized_rumble_from_dualsense_motors(right_light,
+                                                left_heavy,
+                                                PRO2_RUMBLE_HOLD_MS,
+                                                &s_rumble);
         s_active_until_us =
-            now_us + (int64_t)PRO2_RUMBLE_HOLD_MS * 1000LL;
+            now_us + (int64_t)s_rumble.duration_ms * 1000LL;
         s_active = true;
         s_stop_packets_pending = 0;
     } else {
         s_active = false;
         s_active_until_us = 0;
         s_stop_packets_pending = PRO2_RUMBLE_STOP_PACKETS;
-        build_zero_vibration(s_vibration);
+        normalized_rumble_reset(&s_rumble);
     }
     portEXIT_CRITICAL(&s_lock);
 

@@ -1,5 +1,8 @@
 param(
-    [string]$IdfPath
+    [string]$IdfPath,
+    [string]$BuildDir = "",
+    [ValidateSet("", "GENERIC_HID_MODE", "NINTENDO_EXPERIMENT_MODE", "XINPUT_EXPERIMENT_MODE")]
+    [string]$DeviceDefaultMode = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -35,17 +38,31 @@ if (!(Get-Command idf.py -ErrorAction SilentlyContinue)) {
     throw "idf.py not found. Open an ESP-IDF PowerShell or pass -IdfPath <path-to-esp-idf>."
 }
 
-function Invoke-IdfCommand {
-    param([string]$Command)
-    Invoke-Expression $Command
+function Invoke-IdfBuild {
+    $args = @()
+    if ($BuildDir) {
+        $resolvedBuildDir = if ([System.IO.Path]::IsPathRooted($BuildDir)) {
+            $BuildDir
+        } else {
+            Join-Path $Root $BuildDir
+        }
+        $args += @("-B", $resolvedBuildDir)
+    }
+    if ($DeviceDefaultMode) {
+        $args += "-DDEVICE_DEFAULT_MODE=$DeviceDefaultMode"
+    }
+    $args += "build"
+
+    Write-Host ("idf.py " + ($args -join " "))
+    & idf.py @args
     if ($LASTEXITCODE -ne 0) {
-        throw "Command failed: $Command"
+        throw "Command failed: idf.py " + ($args -join " ")
     }
 }
 
 Push-Location $Firmware
 try {
-    Invoke-IdfCommand "idf.py build"
+    Invoke-IdfBuild
 } finally {
     Pop-Location
 }

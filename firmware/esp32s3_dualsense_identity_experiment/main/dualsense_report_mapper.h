@@ -27,6 +27,10 @@ typedef struct {
 void dualsense_report_mapper_init(void);
 void dualsense_report_mapper_neutral(
     uint8_t report[DUALSENSE_INPUT_PAYLOAD_SIZE]);
+void dualsense_report_mapper_from_internal(
+    const internal_gamepad_state_t *state,
+    uint8_t report[DUALSENSE_INPUT_PAYLOAD_SIZE],
+    dualsense_input_debug_t *debug);
 void dualsense_report_mapper_from_pro2(const switch2_state_t *state,
                                        uint8_t report[DUALSENSE_INPUT_PAYLOAD_SIZE],
                                        dualsense_input_debug_t *debug);

@@ -6,7 +6,8 @@
 
 typedef enum {
     GENERIC_HID_MODE = 0,
-    NINTENDO_EXPERIMENT_MODE = 1
+    NINTENDO_EXPERIMENT_MODE = 1,
+    XINPUT_EXPERIMENT_MODE = 2
 } device_mode_t;
 
 typedef enum {

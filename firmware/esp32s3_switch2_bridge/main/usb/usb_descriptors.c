@@ -6,14 +6,22 @@
 #define EPNUM_HID 0x81
 #define EPNUM_VENDOR_OUT 0x02
 #define EPNUM_VENDOR_IN 0x82
+#define EPNUM_XINPUT_IN 0x81
+#define EPNUM_XINPUT_OUT 0x02
 #define ITF_NUM_HID 0
 #define ITF_NUM_VENDOR USB_SWITCH2_VENDOR_INTERFACE
+#define ITF_NUM_XINPUT 0
 #define ITF_NUM_TOTAL_GENERIC 1
 #define ITF_NUM_TOTAL_NINTENDO 2
+#define ITF_NUM_TOTAL_XINPUT 1
 #define CONFIG_TOTAL_LEN_GENERIC (TUD_CONFIG_DESC_LEN + TUD_HID_DESC_LEN)
 #define CONFIG_TOTAL_LEN_NINTENDO (TUD_CONFIG_DESC_LEN + TUD_HID_INOUT_DESC_LEN + TUD_VENDOR_DESC_LEN)
+#define CONFIG_TOTAL_LEN_XINPUT 0x30
 #define HID_POLL_INTERVAL_MS 1
 #define VENDOR_BULK_PACKET_SIZE 64
+#define XINPUT_PACKET_SIZE 32
+#define XINPUT_IN_INTERVAL_MS 4
+#define XINPUT_OUT_INTERVAL_MS 8
 #define CONFIG_ATTR_NINTENDO 0
 #define CONFIG_POWER_MA_NINTENDO 500
 
@@ -87,6 +95,23 @@ static const tusb_desc_device_t desc_device_nintendo = {
     .bNumConfigurations = 0x01,
 };
 
+static const tusb_desc_device_t desc_device_xinput = {
+    .bLength = sizeof(tusb_desc_device_t),
+    .bDescriptorType = TUSB_DESC_DEVICE,
+    .bcdUSB = 0x0200,
+    .bDeviceClass = 0xff,
+    .bDeviceSubClass = 0xff,
+    .bDeviceProtocol = 0xff,
+    .bMaxPacketSize0 = CFG_TUD_ENDPOINT0_SIZE,
+    .idVendor = USB_VID_XINPUT_EXPERIMENT,
+    .idProduct = USB_PID_XINPUT_EXPERIMENT,
+    .bcdDevice = 0x0572,
+    .iManufacturer = STRID_MANUFACTURER,
+    .iProduct = STRID_PRODUCT,
+    .iSerialNumber = STRID_SERIAL,
+    .bNumConfigurations = 0x01,
+};
+
 static const uint8_t desc_configuration_generic[] = {
     TUD_CONFIG_DESCRIPTOR(1, ITF_NUM_TOTAL_GENERIC, 0, CONFIG_TOTAL_LEN_GENERIC, 0, 100),
     TUD_HID_DESCRIPTOR(ITF_NUM_HID, 0, HID_ITF_PROTOCOL_NONE, sizeof(desc_hid_report_generic), EPNUM_HID, sizeof(bridge_hid_gamepad_report_t) + 1, HID_POLL_INTERVAL_MS),
@@ -96,6 +121,15 @@ static const uint8_t desc_configuration_nintendo[] = {
     TUD_CONFIG_DESCRIPTOR(1, ITF_NUM_TOTAL_NINTENDO, STRID_CONFIG, CONFIG_TOTAL_LEN_NINTENDO, CONFIG_ATTR_NINTENDO, CONFIG_POWER_MA_NINTENDO),
     TUD_HID_Y700_INOUT_DESCRIPTOR(ITF_NUM_HID, STRID_HID_INTERFACE, HID_ITF_PROTOCOL_NONE, sizeof(desc_hid_report_nintendo_experiment), EPNUM_HID, EPNUM_HID_OUT, NINTENDO_REPORT_SIZE, HID_POLL_INTERVAL_MS),
     TUD_VENDOR_INOUT_DESCRIPTOR(ITF_NUM_VENDOR, STRID_VENDOR_INTERFACE, EPNUM_VENDOR_IN, EPNUM_VENDOR_OUT, VENDOR_BULK_PACKET_SIZE),
+};
+
+static const uint8_t desc_configuration_xinput[] = {
+    TUD_CONFIG_DESCRIPTOR(1, ITF_NUM_TOTAL_XINPUT, 0, CONFIG_TOTAL_LEN_XINPUT, 0, 500),
+    9, TUSB_DESC_INTERFACE, ITF_NUM_XINPUT, 0, 2, TUSB_CLASS_VENDOR_SPECIFIC, 0x5d, 0x01, 0,
+    0x10, 0x21, 0x10, 0x01, 0x01, 0x24, 0x81, 0x14,
+    0x03, 0x00, 0x03, 0x13, 0x02, 0x00, 0x03, 0x00,
+    7, TUSB_DESC_ENDPOINT, EPNUM_XINPUT_IN, TUSB_XFER_INTERRUPT, U16_TO_U8S_LE(XINPUT_PACKET_SIZE), XINPUT_IN_INTERVAL_MS,
+    7, TUSB_DESC_ENDPOINT, EPNUM_XINPUT_OUT, TUSB_XFER_INTERRUPT, U16_TO_U8S_LE(XINPUT_PACKET_SIZE), XINPUT_OUT_INTERVAL_MS,
 };
 
 static const char *string_desc_generic[] = {
@@ -116,31 +150,71 @@ static const char *string_desc_nintendo[] = {
     "Nintendo Switch 2 bulk",
 };
 
+static const char *string_desc_xinput[] = {
+    "",
+    "GENERIC",
+    "XINPUT CONTROLLER",
+    "1.0",
+};
+
 uint16_t usb_descriptors_current_vid(void)
 {
-    return device_config_get_mode() == NINTENDO_EXPERIMENT_MODE ? USB_VID_NINTENDO_EXPERIMENT : USB_VID_GENERIC;
+    switch (device_config_get_mode()) {
+    case NINTENDO_EXPERIMENT_MODE:
+        return USB_VID_NINTENDO_EXPERIMENT;
+    case XINPUT_EXPERIMENT_MODE:
+        return USB_VID_XINPUT_EXPERIMENT;
+    default:
+        return USB_VID_GENERIC;
+    }
 }
 
 uint16_t usb_descriptors_current_pid(void)
 {
-    return device_config_get_mode() == NINTENDO_EXPERIMENT_MODE ? USB_PID_NINTENDO_EXPERIMENT : USB_PID_GENERIC;
+    switch (device_config_get_mode()) {
+    case NINTENDO_EXPERIMENT_MODE:
+        return USB_PID_NINTENDO_EXPERIMENT;
+    case XINPUT_EXPERIMENT_MODE:
+        return USB_PID_XINPUT_EXPERIMENT;
+    default:
+        return USB_PID_GENERIC;
+    }
 }
 
 const char *usb_descriptors_current_product(void)
 {
-    return device_config_get_mode() == NINTENDO_EXPERIMENT_MODE ?
-        "Nintendo Switch Pro Controller" : "ESP32-S3 Generic HID Gamepad";
+    switch (device_config_get_mode()) {
+    case NINTENDO_EXPERIMENT_MODE:
+        return "Nintendo Switch Pro Controller";
+    case XINPUT_EXPERIMENT_MODE:
+        return "XINPUT CONTROLLER";
+    default:
+        return "ESP32-S3 Generic HID Gamepad";
+    }
 }
 
 const char *usb_descriptors_current_manufacturer(void)
 {
-    return device_config_get_mode() == NINTENDO_EXPERIMENT_MODE ? "Nintendo Co., Ltd." : "LeonChrome";
+    switch (device_config_get_mode()) {
+    case NINTENDO_EXPERIMENT_MODE:
+        return "Nintendo Co., Ltd.";
+    case XINPUT_EXPERIMENT_MODE:
+        return "GENERIC";
+    default:
+        return "LeonChrome";
+    }
 }
 
 const tusb_desc_device_t *usb_descriptors_current_device(void)
 {
-    return device_config_get_mode() == NINTENDO_EXPERIMENT_MODE ?
-        &desc_device_nintendo : &desc_device_generic;
+    switch (device_config_get_mode()) {
+    case NINTENDO_EXPERIMENT_MODE:
+        return &desc_device_nintendo;
+    case XINPUT_EXPERIMENT_MODE:
+        return &desc_device_xinput;
+    default:
+        return &desc_device_generic;
+    }
 }
 
 uint8_t const *tud_hid_descriptor_report_cb(uint8_t instance)
@@ -152,14 +226,26 @@ uint8_t const *tud_hid_descriptor_report_cb(uint8_t instance)
 
 const uint8_t *usb_descriptors_current_configuration(void)
 {
-    return device_config_get_mode() == NINTENDO_EXPERIMENT_MODE ?
-        desc_configuration_nintendo : desc_configuration_generic;
+    switch (device_config_get_mode()) {
+    case NINTENDO_EXPERIMENT_MODE:
+        return desc_configuration_nintendo;
+    case XINPUT_EXPERIMENT_MODE:
+        return desc_configuration_xinput;
+    default:
+        return desc_configuration_generic;
+    }
 }
 
 const char **usb_descriptors_current_strings(void)
 {
-    return device_config_get_mode() == NINTENDO_EXPERIMENT_MODE ?
-        string_desc_nintendo : string_desc_generic;
+    switch (device_config_get_mode()) {
+    case NINTENDO_EXPERIMENT_MODE:
+        return string_desc_nintendo;
+    case XINPUT_EXPERIMENT_MODE:
+        return string_desc_xinput;
+    default:
+        return string_desc_generic;
+    }
 }
 
 int usb_descriptors_current_string_count(void)

@@ -23,7 +23,11 @@ typedef enum {
 } report_mapper_motion_usb_test_t;
 
 void report_mapper_state_to_generic_report(const switch2_state_t *state, bridge_hid_gamepad_report_t *report);
+void report_mapper_internal_to_generic_report(const internal_gamepad_state_t *state,
+                                              bridge_hid_gamepad_report_t *report);
 void report_mapper_state_to_nintendo_report(const switch2_state_t *state, uint8_t report[NINTENDO_REPORT_SIZE]);
+void report_mapper_internal_to_nintendo_report(const internal_gamepad_state_t *state,
+                                               uint8_t report[NINTENDO_REPORT_SIZE]);
 void report_mapper_set_nintendo_motion_passthrough(bool enabled);
 bool report_mapper_get_nintendo_motion_passthrough(void);
 bool report_mapper_set_nintendo_motion_offset(uint8_t offset);

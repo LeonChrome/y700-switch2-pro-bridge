@@ -342,47 +342,63 @@ static int8_t axis12_to_i8(uint16_t value)
     return (int8_t)scaled;
 }
 
-static uint8_t map_hat(const switch2_state_t *state)
+static uint8_t map_hat_internal(const internal_gamepad_state_t *state)
 {
-    if (switch2_state_get_button(state, SWITCH2_BUTTON_DUP)) {
+    if (internal_gamepad_state_get_button(state, INTERNAL_GAMEPAD_BUTTON_DPAD_UP)) {
         return 1;
     }
-    if (switch2_state_get_button(state, SWITCH2_BUTTON_DRIGHT)) {
+    if (internal_gamepad_state_get_button(state, INTERNAL_GAMEPAD_BUTTON_DPAD_RIGHT)) {
         return 3;
     }
-    if (switch2_state_get_button(state, SWITCH2_BUTTON_DDOWN)) {
+    if (internal_gamepad_state_get_button(state, INTERNAL_GAMEPAD_BUTTON_DPAD_DOWN)) {
         return 5;
     }
-    if (switch2_state_get_button(state, SWITCH2_BUTTON_DLEFT)) {
+    if (internal_gamepad_state_get_button(state, INTERNAL_GAMEPAD_BUTTON_DPAD_LEFT)) {
         return 7;
     }
     return 0;
 }
 
-void report_mapper_state_to_generic_report(const switch2_state_t *state, bridge_hid_gamepad_report_t *report)
+void report_mapper_internal_to_generic_report(const internal_gamepad_state_t *state,
+                                              bridge_hid_gamepad_report_t *report)
 {
     hid_report_make_neutral(report);
-    report->hat = map_hat(state);
+    if (!state) {
+        return;
+    }
+    internal_gamepad_state_t snapped = *state;
+    internal_gamepad_state_apply_center_snap(&snapped);
+    state = &snapped;
+
+    report->hat = map_hat_internal(state);
     report->x = axis12_to_i8(state->lx);
     report->y = axis12_to_i8(state->ly);
     report->z = axis12_to_i8(state->rx);
     report->rz = axis12_to_i8(state->ry);
 
-    if (switch2_state_get_button(state, SWITCH2_BUTTON_A)) report->buttons |= 0x0001;
-    if (switch2_state_get_button(state, SWITCH2_BUTTON_B)) report->buttons |= 0x0002;
-    if (switch2_state_get_button(state, SWITCH2_BUTTON_X)) report->buttons |= 0x0004;
-    if (switch2_state_get_button(state, SWITCH2_BUTTON_Y)) report->buttons |= 0x0008;
-    if (switch2_state_get_button(state, SWITCH2_BUTTON_L)) report->buttons |= 0x0010;
-    if (switch2_state_get_button(state, SWITCH2_BUTTON_R)) report->buttons |= 0x0020;
-    if (switch2_state_get_button(state, SWITCH2_BUTTON_ZL)) report->buttons |= 0x0040;
-    if (switch2_state_get_button(state, SWITCH2_BUTTON_ZR)) report->buttons |= 0x0080;
-    if (switch2_state_get_button(state, SWITCH2_BUTTON_MINUS)) report->buttons |= 0x0100;
-    if (switch2_state_get_button(state, SWITCH2_BUTTON_PLUS)) report->buttons |= 0x0200;
-    if (switch2_state_get_button(state, SWITCH2_BUTTON_LSTICK)) report->buttons |= 0x0400;
-    if (switch2_state_get_button(state, SWITCH2_BUTTON_RSTICK)) report->buttons |= 0x0800;
-    if (switch2_state_get_button(state, SWITCH2_BUTTON_C)) report->buttons |= 0x1000;
-    if (switch2_state_get_button(state, SWITCH2_BUTTON_GL)) report->buttons |= 0x2000;
-    if (switch2_state_get_button(state, SWITCH2_BUTTON_GR)) report->buttons |= 0x4000;
+    if (internal_gamepad_state_get_button(state, INTERNAL_GAMEPAD_BUTTON_SOUTH)) report->buttons |= 0x0001;
+    if (internal_gamepad_state_get_button(state, INTERNAL_GAMEPAD_BUTTON_EAST)) report->buttons |= 0x0002;
+    if (internal_gamepad_state_get_button(state, INTERNAL_GAMEPAD_BUTTON_WEST)) report->buttons |= 0x0004;
+    if (internal_gamepad_state_get_button(state, INTERNAL_GAMEPAD_BUTTON_NORTH)) report->buttons |= 0x0008;
+    if (internal_gamepad_state_get_button(state, INTERNAL_GAMEPAD_BUTTON_L1)) report->buttons |= 0x0010;
+    if (internal_gamepad_state_get_button(state, INTERNAL_GAMEPAD_BUTTON_R1)) report->buttons |= 0x0020;
+    if (internal_gamepad_state_get_button(state, INTERNAL_GAMEPAD_BUTTON_L2)) report->buttons |= 0x0040;
+    if (internal_gamepad_state_get_button(state, INTERNAL_GAMEPAD_BUTTON_R2)) report->buttons |= 0x0080;
+    if (internal_gamepad_state_get_button(state, INTERNAL_GAMEPAD_BUTTON_BACK)) report->buttons |= 0x0100;
+    if (internal_gamepad_state_get_button(state, INTERNAL_GAMEPAD_BUTTON_START)) report->buttons |= 0x0200;
+    if (internal_gamepad_state_get_button(state, INTERNAL_GAMEPAD_BUTTON_LSTICK)) report->buttons |= 0x0400;
+    if (internal_gamepad_state_get_button(state, INTERNAL_GAMEPAD_BUTTON_RSTICK)) report->buttons |= 0x0800;
+    if (internal_gamepad_state_get_button(state, INTERNAL_GAMEPAD_BUTTON_AUX)) report->buttons |= 0x1000;
+    if (internal_gamepad_state_get_button(state, INTERNAL_GAMEPAD_BUTTON_PADDLE_LEFT)) report->buttons |= 0x2000;
+    if (internal_gamepad_state_get_button(state, INTERNAL_GAMEPAD_BUTTON_PADDLE_RIGHT)) report->buttons |= 0x4000;
+}
+
+void report_mapper_state_to_generic_report(const switch2_state_t *state,
+                                           bridge_hid_gamepad_report_t *report)
+{
+    internal_gamepad_state_t internal;
+    switch2_state_to_internal(state, &internal);
+    report_mapper_internal_to_generic_report(&internal, report);
 }
 
 static void pack12_pair(uint8_t *out, int offset, uint16_t x, uint16_t y)
@@ -392,35 +408,43 @@ static void pack12_pair(uint8_t *out, int offset, uint16_t x, uint16_t y)
     out[offset + 2] = (uint8_t)((y >> 4) & 0xff);
 }
 
-void report_mapper_state_to_nintendo_report(const switch2_state_t *state, uint8_t report[NINTENDO_REPORT_SIZE])
+void report_mapper_internal_to_nintendo_report(const internal_gamepad_state_t *state,
+                                               uint8_t report[NINTENDO_REPORT_SIZE])
 {
     hid_report_make_nintendo_neutral(report);
+    if (!state) {
+        return;
+    }
+    internal_gamepad_state_t snapped = *state;
+    internal_gamepad_state_apply_center_snap(&snapped);
+    state = &snapped;
+
     report[1] = s_nintendo_input_seq++;
 
-    if (switch2_state_get_button(state, SWITCH2_BUTTON_Y)) report[5] |= 0x01;
-    if (switch2_state_get_button(state, SWITCH2_BUTTON_X)) report[5] |= 0x02;
-    if (switch2_state_get_button(state, SWITCH2_BUTTON_B)) report[5] |= 0x04;
-    if (switch2_state_get_button(state, SWITCH2_BUTTON_A)) report[5] |= 0x08;
-    if (switch2_state_get_button(state, SWITCH2_BUTTON_R)) report[5] |= 0x40;
-    if (switch2_state_get_button(state, SWITCH2_BUTTON_ZR)) report[5] |= 0x80;
+    if (internal_gamepad_state_get_button(state, INTERNAL_GAMEPAD_BUTTON_WEST)) report[5] |= 0x01;
+    if (internal_gamepad_state_get_button(state, INTERNAL_GAMEPAD_BUTTON_NORTH)) report[5] |= 0x02;
+    if (internal_gamepad_state_get_button(state, INTERNAL_GAMEPAD_BUTTON_SOUTH)) report[5] |= 0x04;
+    if (internal_gamepad_state_get_button(state, INTERNAL_GAMEPAD_BUTTON_EAST)) report[5] |= 0x08;
+    if (internal_gamepad_state_get_button(state, INTERNAL_GAMEPAD_BUTTON_R1)) report[5] |= 0x40;
+    if (internal_gamepad_state_get_button(state, INTERNAL_GAMEPAD_BUTTON_R2)) report[5] |= 0x80;
 
-    if (switch2_state_get_button(state, SWITCH2_BUTTON_MINUS)) report[6] |= 0x01;
-    if (switch2_state_get_button(state, SWITCH2_BUTTON_PLUS)) report[6] |= 0x02;
-    if (switch2_state_get_button(state, SWITCH2_BUTTON_RSTICK)) report[6] |= 0x04;
-    if (switch2_state_get_button(state, SWITCH2_BUTTON_LSTICK)) report[6] |= 0x08;
-    if (switch2_state_get_button(state, SWITCH2_BUTTON_HOME)) report[6] |= 0x10;
-    if (switch2_state_get_button(state, SWITCH2_BUTTON_CAPTURE)) report[6] |= 0x20;
-    if (switch2_state_get_button(state, SWITCH2_BUTTON_C)) report[6] |= 0x40;
+    if (internal_gamepad_state_get_button(state, INTERNAL_GAMEPAD_BUTTON_BACK)) report[6] |= 0x01;
+    if (internal_gamepad_state_get_button(state, INTERNAL_GAMEPAD_BUTTON_START)) report[6] |= 0x02;
+    if (internal_gamepad_state_get_button(state, INTERNAL_GAMEPAD_BUTTON_RSTICK)) report[6] |= 0x04;
+    if (internal_gamepad_state_get_button(state, INTERNAL_GAMEPAD_BUTTON_LSTICK)) report[6] |= 0x08;
+    if (internal_gamepad_state_get_button(state, INTERNAL_GAMEPAD_BUTTON_HOME)) report[6] |= 0x10;
+    if (internal_gamepad_state_get_button(state, INTERNAL_GAMEPAD_BUTTON_CAPTURE)) report[6] |= 0x20;
+    if (internal_gamepad_state_get_button(state, INTERNAL_GAMEPAD_BUTTON_AUX)) report[6] |= 0x40;
 
-    if (switch2_state_get_button(state, SWITCH2_BUTTON_DDOWN)) report[7] |= 0x01;
-    if (switch2_state_get_button(state, SWITCH2_BUTTON_DUP)) report[7] |= 0x02;
-    if (switch2_state_get_button(state, SWITCH2_BUTTON_DRIGHT)) report[7] |= 0x04;
-    if (switch2_state_get_button(state, SWITCH2_BUTTON_DLEFT)) report[7] |= 0x08;
-    if (switch2_state_get_button(state, SWITCH2_BUTTON_L)) report[7] |= 0x40;
-    if (switch2_state_get_button(state, SWITCH2_BUTTON_ZL)) report[7] |= 0x80;
+    if (internal_gamepad_state_get_button(state, INTERNAL_GAMEPAD_BUTTON_DPAD_DOWN)) report[7] |= 0x01;
+    if (internal_gamepad_state_get_button(state, INTERNAL_GAMEPAD_BUTTON_DPAD_UP)) report[7] |= 0x02;
+    if (internal_gamepad_state_get_button(state, INTERNAL_GAMEPAD_BUTTON_DPAD_RIGHT)) report[7] |= 0x04;
+    if (internal_gamepad_state_get_button(state, INTERNAL_GAMEPAD_BUTTON_DPAD_LEFT)) report[7] |= 0x08;
+    if (internal_gamepad_state_get_button(state, INTERNAL_GAMEPAD_BUTTON_L1)) report[7] |= 0x40;
+    if (internal_gamepad_state_get_button(state, INTERNAL_GAMEPAD_BUTTON_L2)) report[7] |= 0x80;
 
-    if (switch2_state_get_button(state, SWITCH2_BUTTON_GR)) report[8] |= 0x01;
-    if (switch2_state_get_button(state, SWITCH2_BUTTON_GL)) report[8] |= 0x02;
+    if (internal_gamepad_state_get_button(state, INTERNAL_GAMEPAD_BUTTON_PADDLE_RIGHT)) report[8] |= 0x01;
+    if (internal_gamepad_state_get_button(state, INTERNAL_GAMEPAD_BUTTON_PADDLE_LEFT)) report[8] |= 0x02;
 
     pack12_pair(report, 11, state->lx, state->ly);
     pack12_pair(report, 14, state->rx, state->ry);
@@ -429,7 +453,31 @@ void report_mapper_state_to_nintendo_report(const switch2_state_t *state, uint8_
 
     if (motion_sample_fits() && s_motion_usb_test != REPORT_MAPPER_MOTION_USB_TEST_OFF) {
         make_motion_usb_test(report + s_nintendo_motion_offset);
-    } else if (motion_sample_fits() && s_nintendo_motion_passthrough && state->motion_valid) {
-        write_filtered_motion_sample(report + s_nintendo_motion_offset, state->motion);
+    } else if (motion_sample_fits() && s_nintendo_motion_passthrough &&
+               (state->accel_valid || state->gyro_valid)) {
+        uint8_t sample[SWITCH2_MOTION_SAMPLE_SIZE] = {0};
+        uint8_t block[SWITCH2_MOTION_BLOCK_SIZE] = {0};
+        if (state->accel_valid) {
+            write_i16_le(sample + 0, state->accel[0]);
+            write_i16_le(sample + 2, state->accel[1]);
+            write_i16_le(sample + 4, state->accel[2]);
+        }
+        if (state->gyro_valid) {
+            write_i16_le(sample + 6, state->gyro[0]);
+            write_i16_le(sample + 8, state->gyro[1]);
+            write_i16_le(sample + 10, state->gyro[2]);
+        }
+        for (uint8_t offset = 0; offset < SWITCH2_MOTION_BLOCK_SIZE; offset += SWITCH2_MOTION_SAMPLE_SIZE) {
+            memcpy(block + offset, sample, sizeof(sample));
+        }
+        write_filtered_motion_sample(report + s_nintendo_motion_offset, block);
     }
+}
+
+void report_mapper_state_to_nintendo_report(const switch2_state_t *state,
+                                            uint8_t report[NINTENDO_REPORT_SIZE])
+{
+    internal_gamepad_state_t internal;
+    switch2_state_to_internal(state, &internal);
+    report_mapper_internal_to_nintendo_report(&internal, report);
 }

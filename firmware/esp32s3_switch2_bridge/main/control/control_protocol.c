@@ -179,7 +179,7 @@ esp_err_t control_protocol_handle_line(const char *line, char *reply, int reply_
     trim(cmd);
     APP_LOGI(TAG, "command: %s", cmd);
 
-    if (strcmp(cmd, "status") == 0) {
+    if (strcmp(cmd, "status") == 0 || strcmp(cmd, "status lite") == 0) {
         uint32_t live_updates = 0;
         int64_t live_age_us = 0;
         uint16_t rumble_scale_percent = 0;
@@ -303,6 +303,13 @@ esp_err_t control_protocol_handle_line(const char *line, char *reply, int reply_
             return json_error(reply, reply_len, "mode", "failed to save nintendo mode");
         }
         return json_ok(reply, reply_len, "mode", "\"mode\":\"nintendo\",\"saved\":true,\"experimental\":true,\"reboot_required\":true,\"note\":\"run reboot, then replug native USB if needed\"");
+    }
+    if (strcmp(cmd, "mode xinput") == 0 || strcmp(cmd, "mode xbox") == 0) {
+        esp_err_t err = device_config_save_mode(XINPUT_EXPERIMENT_MODE);
+        if (err != ESP_OK) {
+            return json_error(reply, reply_len, "mode", "failed to save xinput mode");
+        }
+        return json_ok(reply, reply_len, "mode", "\"mode\":\"xinput\",\"saved\":true,\"experimental\":true,\"reboot_required\":true,\"note\":\"run reboot, then replug native USB if needed\"");
     }
     if (strcmp(cmd, "start") == 0) {
         device_config_set_bridge_running(true);

@@ -50,6 +50,17 @@ static void reset_controls_preserving_motion(switch2_state_t *state)
     }
 }
 
+static int16_t read_i16_le(const uint8_t *src)
+{
+    return (int16_t)((uint16_t)src[0] | ((uint16_t)src[1] << 8));
+}
+
+static void write_i16_le(uint8_t *dst, int16_t value)
+{
+    dst[0] = (uint8_t)((uint16_t)value & 0xff);
+    dst[1] = (uint8_t)(((uint16_t)value >> 8) & 0xff);
+}
+
 void switch2_state_set_button(switch2_state_t *state, switch2_button_t button, bool pressed)
 {
     if (button >= SWITCH2_BUTTON_COUNT) {
@@ -251,4 +262,145 @@ void switch2_state_update_from_fd2_buttons(switch2_state_t *state, uint32_t butt
     switch2_state_set_button(state, SWITCH2_BUTTON_ZL, (buttons & 0x00800000) != 0);
     switch2_state_set_button(state, SWITCH2_BUTTON_GR, (buttons & 0x01000000) != 0);
     switch2_state_set_button(state, SWITCH2_BUTTON_GL, (buttons & 0x02000000) != 0);
+}
+
+void switch2_state_to_internal(const switch2_state_t *src,
+                               internal_gamepad_state_t *dst)
+{
+    internal_gamepad_state_reset(dst);
+    if (!src || !dst) {
+        return;
+    }
+
+    dst->connection = INTERNAL_GAMEPAD_CONNECTION_CONNECTED;
+    dst->lx = internal_gamepad_state_clamp_axis(src->lx);
+    dst->ly = internal_gamepad_state_clamp_axis(src->ly);
+    dst->rx = internal_gamepad_state_clamp_axis(src->rx);
+    dst->ry = internal_gamepad_state_clamp_axis(src->ry);
+    internal_gamepad_state_apply_center_snap(dst);
+    dst->l2 = switch2_state_get_button(src, SWITCH2_BUTTON_ZL) ? INTERNAL_GAMEPAD_TRIGGER_MAX : 0;
+    dst->r2 = switch2_state_get_button(src, SWITCH2_BUTTON_ZR) ? INTERNAL_GAMEPAD_TRIGGER_MAX : 0;
+
+    internal_gamepad_state_set_button(dst, INTERNAL_GAMEPAD_BUTTON_SOUTH,
+                                      switch2_state_get_button(src, SWITCH2_BUTTON_B));
+    internal_gamepad_state_set_button(dst, INTERNAL_GAMEPAD_BUTTON_EAST,
+                                      switch2_state_get_button(src, SWITCH2_BUTTON_A));
+    internal_gamepad_state_set_button(dst, INTERNAL_GAMEPAD_BUTTON_WEST,
+                                      switch2_state_get_button(src, SWITCH2_BUTTON_Y));
+    internal_gamepad_state_set_button(dst, INTERNAL_GAMEPAD_BUTTON_NORTH,
+                                      switch2_state_get_button(src, SWITCH2_BUTTON_X));
+    internal_gamepad_state_set_button(dst, INTERNAL_GAMEPAD_BUTTON_L1,
+                                      switch2_state_get_button(src, SWITCH2_BUTTON_L));
+    internal_gamepad_state_set_button(dst, INTERNAL_GAMEPAD_BUTTON_R1,
+                                      switch2_state_get_button(src, SWITCH2_BUTTON_R));
+    internal_gamepad_state_set_button(dst, INTERNAL_GAMEPAD_BUTTON_L2,
+                                      switch2_state_get_button(src, SWITCH2_BUTTON_ZL));
+    internal_gamepad_state_set_button(dst, INTERNAL_GAMEPAD_BUTTON_R2,
+                                      switch2_state_get_button(src, SWITCH2_BUTTON_ZR));
+    internal_gamepad_state_set_button(dst, INTERNAL_GAMEPAD_BUTTON_BACK,
+                                      switch2_state_get_button(src, SWITCH2_BUTTON_MINUS));
+    internal_gamepad_state_set_button(dst, INTERNAL_GAMEPAD_BUTTON_START,
+                                      switch2_state_get_button(src, SWITCH2_BUTTON_PLUS));
+    internal_gamepad_state_set_button(dst, INTERNAL_GAMEPAD_BUTTON_LSTICK,
+                                      switch2_state_get_button(src, SWITCH2_BUTTON_LSTICK));
+    internal_gamepad_state_set_button(dst, INTERNAL_GAMEPAD_BUTTON_RSTICK,
+                                      switch2_state_get_button(src, SWITCH2_BUTTON_RSTICK));
+    internal_gamepad_state_set_button(dst, INTERNAL_GAMEPAD_BUTTON_DPAD_DOWN,
+                                      switch2_state_get_button(src, SWITCH2_BUTTON_DDOWN));
+    internal_gamepad_state_set_button(dst, INTERNAL_GAMEPAD_BUTTON_DPAD_RIGHT,
+                                      switch2_state_get_button(src, SWITCH2_BUTTON_DRIGHT));
+    internal_gamepad_state_set_button(dst, INTERNAL_GAMEPAD_BUTTON_DPAD_LEFT,
+                                      switch2_state_get_button(src, SWITCH2_BUTTON_DLEFT));
+    internal_gamepad_state_set_button(dst, INTERNAL_GAMEPAD_BUTTON_DPAD_UP,
+                                      switch2_state_get_button(src, SWITCH2_BUTTON_DUP));
+    internal_gamepad_state_set_button(dst, INTERNAL_GAMEPAD_BUTTON_HOME,
+                                      switch2_state_get_button(src, SWITCH2_BUTTON_HOME));
+    internal_gamepad_state_set_button(dst, INTERNAL_GAMEPAD_BUTTON_CAPTURE,
+                                      switch2_state_get_button(src, SWITCH2_BUTTON_CAPTURE));
+    internal_gamepad_state_set_button(dst, INTERNAL_GAMEPAD_BUTTON_PADDLE_RIGHT,
+                                      switch2_state_get_button(src, SWITCH2_BUTTON_GR));
+    internal_gamepad_state_set_button(dst, INTERNAL_GAMEPAD_BUTTON_PADDLE_LEFT,
+                                      switch2_state_get_button(src, SWITCH2_BUTTON_GL));
+    internal_gamepad_state_set_button(dst, INTERNAL_GAMEPAD_BUTTON_AUX,
+                                      switch2_state_get_button(src, SWITCH2_BUTTON_C));
+
+    if (src->motion_valid) {
+        const uint8_t *latest = src->motion + (SWITCH2_MOTION_BLOCK_SIZE - SWITCH2_MOTION_SAMPLE_SIZE);
+        dst->accel_valid = true;
+        dst->gyro_valid = true;
+        dst->accel[0] = read_i16_le(latest + 0);
+        dst->accel[1] = read_i16_le(latest + 2);
+        dst->accel[2] = read_i16_le(latest + 4);
+        dst->gyro[0] = read_i16_le(latest + 6);
+        dst->gyro[1] = read_i16_le(latest + 8);
+        dst->gyro[2] = read_i16_le(latest + 10);
+    }
+}
+
+void switch2_state_from_internal(const internal_gamepad_state_t *src,
+                                 switch2_state_t *dst)
+{
+    switch2_state_reset(dst);
+    if (!src || !dst) {
+        return;
+    }
+
+    dst->lx = internal_gamepad_state_snap_axis_center(src->lx);
+    dst->ly = internal_gamepad_state_snap_axis_center(src->ly);
+    dst->rx = internal_gamepad_state_snap_axis_center(src->rx);
+    dst->ry = internal_gamepad_state_snap_axis_center(src->ry);
+
+    switch2_state_set_button(dst, SWITCH2_BUTTON_B,
+                             internal_gamepad_state_get_button(src, INTERNAL_GAMEPAD_BUTTON_SOUTH));
+    switch2_state_set_button(dst, SWITCH2_BUTTON_A,
+                             internal_gamepad_state_get_button(src, INTERNAL_GAMEPAD_BUTTON_EAST));
+    switch2_state_set_button(dst, SWITCH2_BUTTON_Y,
+                             internal_gamepad_state_get_button(src, INTERNAL_GAMEPAD_BUTTON_WEST));
+    switch2_state_set_button(dst, SWITCH2_BUTTON_X,
+                             internal_gamepad_state_get_button(src, INTERNAL_GAMEPAD_BUTTON_NORTH));
+    switch2_state_set_button(dst, SWITCH2_BUTTON_L,
+                             internal_gamepad_state_get_button(src, INTERNAL_GAMEPAD_BUTTON_L1));
+    switch2_state_set_button(dst, SWITCH2_BUTTON_R,
+                             internal_gamepad_state_get_button(src, INTERNAL_GAMEPAD_BUTTON_R1));
+    switch2_state_set_button(dst, SWITCH2_BUTTON_ZL,
+                             internal_gamepad_state_get_button(src, INTERNAL_GAMEPAD_BUTTON_L2) || src->l2 > 0);
+    switch2_state_set_button(dst, SWITCH2_BUTTON_ZR,
+                             internal_gamepad_state_get_button(src, INTERNAL_GAMEPAD_BUTTON_R2) || src->r2 > 0);
+    switch2_state_set_button(dst, SWITCH2_BUTTON_MINUS,
+                             internal_gamepad_state_get_button(src, INTERNAL_GAMEPAD_BUTTON_BACK));
+    switch2_state_set_button(dst, SWITCH2_BUTTON_PLUS,
+                             internal_gamepad_state_get_button(src, INTERNAL_GAMEPAD_BUTTON_START));
+    switch2_state_set_button(dst, SWITCH2_BUTTON_LSTICK,
+                             internal_gamepad_state_get_button(src, INTERNAL_GAMEPAD_BUTTON_LSTICK));
+    switch2_state_set_button(dst, SWITCH2_BUTTON_RSTICK,
+                             internal_gamepad_state_get_button(src, INTERNAL_GAMEPAD_BUTTON_RSTICK));
+    switch2_state_set_button(dst, SWITCH2_BUTTON_DDOWN,
+                             internal_gamepad_state_get_button(src, INTERNAL_GAMEPAD_BUTTON_DPAD_DOWN));
+    switch2_state_set_button(dst, SWITCH2_BUTTON_DRIGHT,
+                             internal_gamepad_state_get_button(src, INTERNAL_GAMEPAD_BUTTON_DPAD_RIGHT));
+    switch2_state_set_button(dst, SWITCH2_BUTTON_DLEFT,
+                             internal_gamepad_state_get_button(src, INTERNAL_GAMEPAD_BUTTON_DPAD_LEFT));
+    switch2_state_set_button(dst, SWITCH2_BUTTON_DUP,
+                             internal_gamepad_state_get_button(src, INTERNAL_GAMEPAD_BUTTON_DPAD_UP));
+    switch2_state_set_button(dst, SWITCH2_BUTTON_HOME,
+                             internal_gamepad_state_get_button(src, INTERNAL_GAMEPAD_BUTTON_HOME));
+    switch2_state_set_button(dst, SWITCH2_BUTTON_CAPTURE,
+                             internal_gamepad_state_get_button(src, INTERNAL_GAMEPAD_BUTTON_CAPTURE));
+    switch2_state_set_button(dst, SWITCH2_BUTTON_GR,
+                             internal_gamepad_state_get_button(src, INTERNAL_GAMEPAD_BUTTON_PADDLE_RIGHT));
+    switch2_state_set_button(dst, SWITCH2_BUTTON_GL,
+                             internal_gamepad_state_get_button(src, INTERNAL_GAMEPAD_BUTTON_PADDLE_LEFT));
+    switch2_state_set_button(dst, SWITCH2_BUTTON_C,
+                             internal_gamepad_state_get_button(src, INTERNAL_GAMEPAD_BUTTON_AUX));
+
+    if (src->accel_valid || src->gyro_valid) {
+        uint8_t sample[SWITCH2_MOTION_SAMPLE_SIZE] = {0};
+        write_i16_le(sample + 0, src->accel_valid ? src->accel[0] : 0);
+        write_i16_le(sample + 2, src->accel_valid ? src->accel[1] : 0);
+        write_i16_le(sample + 4, src->accel_valid ? src->accel[2] : 0);
+        write_i16_le(sample + 6, src->gyro_valid ? src->gyro[0] : 0);
+        write_i16_le(sample + 8, src->gyro_valid ? src->gyro[1] : 0);
+        write_i16_le(sample + 10, src->gyro_valid ? src->gyro[2] : 0);
+        switch2_state_set_motion_sample(dst, sample, sizeof(sample));
+    }
 }

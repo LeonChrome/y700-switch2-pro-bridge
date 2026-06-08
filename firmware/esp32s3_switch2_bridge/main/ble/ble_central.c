@@ -1598,6 +1598,16 @@ static esp_err_t ble_central_start_scan_internal(bool auto_connect)
         return ESP_ERR_INVALID_STATE;
     }
 
+    if (s_connected || s_state == BLE_STATE_CONNECTED) {
+        APP_LOGW(TAG, "BLE scan ignored while connected; disconnect first");
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    if (s_state == BLE_STATE_CONNECTING || ble_gap_conn_active()) {
+        APP_LOGW(TAG, "BLE scan ignored while a connection attempt is in progress");
+        return ESP_ERR_INVALID_STATE;
+    }
+
     if (ble_gap_disc_active()) {
         int cancel_rc = ble_gap_disc_cancel();
         if (cancel_rc != 0) {
@@ -1658,6 +1668,11 @@ esp_err_t ble_central_connect(const char *address_or_name)
 
 esp_err_t ble_central_reconnect_saved_or_scan(void)
 {
+    if (s_connected || s_state == BLE_STATE_CONNECTED) {
+        APP_LOGI(TAG, "BLE reconnect skipped; already connected");
+        return ESP_OK;
+    }
+
     const char *saved_target = device_config_get_ble_target();
     if (saved_target && saved_target[0]) {
         APP_LOGI(TAG, "BLE reconnect using saved target=%s", saved_target);

@@ -7,9 +7,10 @@
 static const char *TAG = "switch2_gatt";
 
 #define CENTER_12BIT 2048
-#define AXIS_DEADZONE 48
+#define AXIS_DEADZONE INTERNAL_GAMEPAD_AXIS_CENTER_DEADBAND
 #define AXIS_FULL_SCALE_RANGE 1600
 #define AXIS_CALIBRATION_SAMPLES 20
+#define AXIS_CENTER_LEARN_MAX_DELTA 256
 #define FD2_FULL_REPORT_MIN_LEN 60
 #define FD2_FULL_MOTION_OFFSET 48
 #define MOTION_NOTIFY_MAX_OFFSET 51
@@ -41,6 +42,25 @@ static axis_calibration_t s_legacy_axis = {
 };
 static uint8_t s_motion_source_offset = FD2_FULL_MOTION_OFFSET;
 static bool s_motion_full_only = true;
+
+static void axis_calibration_reset(axis_calibration_t *cal)
+{
+    if (!cal) {
+        return;
+    }
+    memset(cal, 0, sizeof(*cal));
+    cal->center_lx = CENTER_12BIT;
+    cal->center_ly = CENTER_12BIT;
+    cal->center_rx = CENTER_12BIT;
+    cal->center_ry = CENTER_12BIT;
+}
+
+void switch2_gatt_reset_axis_calibration(void)
+{
+    axis_calibration_reset(&s_fd2_axis);
+    axis_calibration_reset(&s_legacy_axis);
+    APP_LOGI(TAG, "axis calibration reset");
+}
 
 bool switch2_gatt_set_motion_source_offset(uint8_t offset)
 {
@@ -92,6 +112,26 @@ static uint16_t unpack12_y(const uint8_t *data, int offset)
     return clamp12((((int32_t)data[offset + 1] >> 4) & 0x0f) | ((int32_t)data[offset + 2] << 4));
 }
 
+static bool axis_near_factory_center(uint16_t value)
+{
+    int32_t delta = (int32_t)value - CENTER_12BIT;
+    if (delta < 0) {
+        delta = -delta;
+    }
+    return delta <= AXIS_CENTER_LEARN_MAX_DELTA;
+}
+
+static bool axes_look_centered(uint16_t lx,
+                               uint16_t ly,
+                               uint16_t rx,
+                               uint16_t ry)
+{
+    return axis_near_factory_center(lx) &&
+           axis_near_factory_center(ly) &&
+           axis_near_factory_center(rx) &&
+           axis_near_factory_center(ry);
+}
+
 static uint16_t recenter_axis(uint16_t value, uint16_t center)
 {
     int32_t delta = (int32_t)value - (int32_t)center;
@@ -125,7 +165,9 @@ static void apply_axes(axis_calibration_t *cal,
                        uint16_t rx,
                        uint16_t ry)
 {
-    if (!cal->calibrated && state->buttons == 0) {
+    if (!cal->calibrated &&
+        state->buttons == 0 &&
+        axes_look_centered(lx, ly, rx, ry)) {
         cal->sum_lx += lx;
         cal->sum_ly += ly;
         cal->sum_rx += rx;
@@ -144,6 +186,12 @@ static void apply_axes(axis_calibration_t *cal,
                      (unsigned)cal->center_rx,
                      (unsigned)cal->center_ry);
         }
+    } else if (!cal->calibrated) {
+        cal->sample_count = 0;
+        cal->sum_lx = 0;
+        cal->sum_ly = 0;
+        cal->sum_rx = 0;
+        cal->sum_ry = 0;
     }
 
     if (!cal->calibrated) {

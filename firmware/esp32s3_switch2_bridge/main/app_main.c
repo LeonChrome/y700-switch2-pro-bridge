@@ -13,10 +13,12 @@
 #include "control_protocol.h"
 #include "device_config.h"
 #include "hid_report.h"
+#include "internal_gamepad_state.h"
 #include "report_mapper.h"
 #include "report_rate_stats.h"
 #include "switch2_state.h"
 #include "usb_hid_device.h"
+#include "usb_xinput_device.h"
 
 static const char *TAG = "app";
 
@@ -24,16 +26,31 @@ static const char *TAG = "app";
 #define AUTO_A_TOGGLE_US 500000LL
 #define CONTROL_LINE_MAX 192
 
-static esp_err_t send_hid_state_report(const switch2_state_t *state)
+static bool usb_current_mode_ready(void)
 {
+    if (device_config_get_mode() == XINPUT_EXPERIMENT_MODE) {
+        return usb_xinput_device_ready();
+    }
+    return usb_hid_device_ready();
+}
+
+static esp_err_t send_usb_state_report(const switch2_state_t *state)
+{
+    internal_gamepad_state_t internal;
+    switch2_state_to_internal(state, &internal);
+
     if (device_config_get_mode() == NINTENDO_EXPERIMENT_MODE) {
         uint8_t nintendo_report[NINTENDO_REPORT_SIZE];
-        report_mapper_state_to_nintendo_report(state, nintendo_report);
+        report_mapper_internal_to_nintendo_report(&internal, nintendo_report);
         return usb_hid_device_send_nintendo_report(nintendo_report);
     }
 
+    if (device_config_get_mode() == XINPUT_EXPERIMENT_MODE) {
+        return usb_xinput_device_send_report(&internal);
+    }
+
     bridge_hid_gamepad_report_t report;
-    report_mapper_state_to_generic_report(state, &report);
+    report_mapper_internal_to_generic_report(&internal, &report);
     return usb_hid_device_send_generic_report(&report);
 }
 
@@ -127,20 +144,27 @@ static void hid_report_task(void *arg)
         int64_t live_age_us = 0;
         hid_test_mode_t test_mode = device_config_get_hid_test_mode();
 
+        usb_xinput_device_poll_out();
+
         if (!device_config_bridge_running()) {
             switch2_state_reset(&state);
 
-            if (usb_hid_device_ready()) {
-                esp_err_t err = send_hid_state_report(&state);
+            if (usb_current_mode_ready()) {
+                esp_err_t err = send_usb_state_report(&state);
                 if (err == ESP_OK && now_us >= next_log_us) {
-                    APP_LOGI(TAG, "HID stopped; neutral report sent");
+                    APP_LOGI(TAG, "USB stopped; neutral report sent mode=%s",
+                             device_mode_to_string(device_config_get_mode()));
                     next_log_us = now_us + 1000000LL;
                 } else if (err != ESP_OK && now_us >= next_log_us) {
-                    APP_LOGW(TAG, "HID stopped; neutral report failed err=%d", (int)err);
+                    APP_LOGW(TAG, "USB stopped; neutral report failed mode=%s err=%d",
+                             device_mode_to_string(device_config_get_mode()),
+                             (int)err);
                     next_log_us = now_us + 1000000LL;
                 }
             } else if (now_us >= next_log_us) {
-                APP_LOGI(TAG, "HID stopped; USB not ready state=%s", usb_hid_device_state_string());
+                APP_LOGI(TAG, "USB stopped; USB not ready state=%s mode=%s",
+                         usb_hid_device_state_string(),
+                         device_mode_to_string(device_config_get_mode()));
                 next_log_us = now_us + 1000000LL;
             }
             vTaskDelay(pdMS_TO_TICKS(delay_ms));
@@ -156,8 +180,8 @@ static void hid_report_task(void *arg)
             a_pressed = make_test_state(&state, &pressed, now_us);
         }
 
-        if (usb_hid_device_ready()) {
-            esp_err_t err = send_hid_state_report(&state);
+        if (usb_current_mode_ready()) {
+            esp_err_t err = send_usb_state_report(&state);
             if (err == ESP_OK && now_us >= next_log_us) {
                 APP_LOGI(TAG, "report loop usb_mode=%s source=%s rate_hz=%u live_updates=%lu live_age_ms=%lld test_mode=%s test_a=%s",
                          device_mode_to_string(device_config_get_mode()),
@@ -225,6 +249,7 @@ void app_main(void)
     device_config_init();
     switch2_state_init();
     report_rate_stats_init();
+    usb_xinput_device_init();
 
     ESP_ERROR_CHECK(usb_hid_device_init());
     control_protocol_init();

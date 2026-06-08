@@ -15,7 +15,7 @@ static const char *TAG = "v5.5_pro2";
 static void reconnect_watchdog_task(void *arg)
 {
     (void)arg;
-    vTaskDelay(pdMS_TO_TICKS(2500));
+    vTaskDelay(pdMS_TO_TICKS(500));
 
     uint32_t attempt = 0;
     while (true) {
@@ -30,7 +30,7 @@ static void reconnect_watchdog_task(void *arg)
                      esp_err_to_name(err));
         }
 
-        vTaskDelay(pdMS_TO_TICKS(5000));
+        vTaskDelay(pdMS_TO_TICKS(1500));
     }
 }
 
@@ -40,6 +40,13 @@ void pro2_input_backend_init(void)
     device_config_init();
     switch2_state_init();
     ble_central_init();
+    if (device_config_get_ble_autoconnect()) {
+        esp_err_t err = ble_central_reconnect_saved_or_scan();
+        ESP_LOGI(TAG,
+                 "[PRO2_INPUT] initial_reconnect started=%s err=%s",
+                 err == ESP_OK ? "true" : "false",
+                 esp_err_to_name(err));
+    }
 
     BaseType_t created = xTaskCreate(reconnect_watchdog_task,
                                      "pro2_reconnect",

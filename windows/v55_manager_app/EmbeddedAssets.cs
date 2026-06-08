@@ -10,8 +10,8 @@ namespace Y700Switch2V55Manager;
 
 public static class EmbeddedAssets
 {
-    public const string BundledPackageVersion = "v5.5.0-aio";
-    public const string BundledFirmwareVersion = "5.5.0-experimental";
+    public const string BundledPackageVersion = "v5.8.2-aio";
+    public const string BundledFirmwareVersion = "5.8.2-manager";
     private static readonly JsonSerializerOptions ManifestJsonOptions = new()
     {
         PropertyNameCaseInsensitive = true
@@ -19,35 +19,35 @@ public static class EmbeddedAssets
 
     public static string RootDirectory =>
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "Y700Switch2V55Manager", "embedded", BundledPackageVersion);
+            "PRO2WirelessReceiverControlBoard", "embedded", BundledPackageVersion);
 
     public static FirmwarePackage EnsurePackage()
     {
-        string firmwareRoot = Path.Combine(RootDirectory, "firmware", "v5.5");
+        string firmwareRoot = Path.Combine(RootDirectory, "firmware", "v5.8");
         string toolsRoot = Path.Combine(RootDirectory, "tools");
-        ExtractPrefix("embedded/firmware/v5.5/", firmwareRoot);
+        ExtractPrefix("embedded/firmware/v5.8/", firmwareRoot);
         ExtractPrefix("embedded/tools/", toolsRoot);
 
         string manifestPath = Path.Combine(firmwareRoot, "firmware_manifest.json");
         if (!File.Exists(manifestPath))
         {
-            throw new FileNotFoundException("Bundled V5.5 firmware manifest was not extracted.", manifestPath);
+            throw new FileNotFoundException("Bundled V5.8 firmware manifest was not extracted.", manifestPath);
         }
 
         FirmwareManifest manifest = JsonSerializer.Deserialize<FirmwareManifest>(
                 File.ReadAllText(manifestPath),
                 ManifestJsonOptions)
-            ?? throw new InvalidOperationException("Bundled V5.5 firmware manifest is invalid.");
+            ?? throw new InvalidOperationException("Bundled V5.8 firmware manifest is invalid.");
         if (manifest.Profiles is not { Count: > 0 })
         {
-            throw new InvalidOperationException("Bundled V5.5 firmware manifest contains no profiles.");
+            throw new InvalidOperationException("Bundled V5.8 firmware manifest contains no profiles.");
         }
 
         foreach (FirmwareProfile profile in manifest.Profiles)
         {
             if (string.IsNullOrWhiteSpace(profile.Id) || profile.Assets is not { Count: > 0 })
             {
-                throw new InvalidOperationException("Bundled V5.5 firmware manifest contains an incomplete profile.");
+                throw new InvalidOperationException("Bundled V5.8 firmware manifest contains an incomplete profile.");
             }
             foreach (FirmwareAsset asset in profile.Assets)
             {
@@ -76,7 +76,13 @@ public static class EmbeddedAssets
             throw new FileNotFoundException("Bundled haptic audio sender is missing.", audioSender);
         }
 
-        return new FirmwarePackage(manifest, firmwareRoot, toolsRoot, esptool, audioSender);
+        string xinputProbe = Path.Combine(toolsRoot, "SteamXInputRumbleProbe.exe");
+        if (!File.Exists(xinputProbe))
+        {
+            throw new FileNotFoundException("Bundled XInput rumble probe is missing.", xinputProbe);
+        }
+
+        return new FirmwarePackage(manifest, firmwareRoot, toolsRoot, esptool, audioSender, xinputProbe);
     }
 
     private static void ExtractPrefix(string resourcePrefix, string destinationRoot)
@@ -122,7 +128,8 @@ public sealed record FirmwarePackage(
     string FirmwareRoot,
     string ToolsRoot,
     string EsptoolPath,
-    string AudioSenderPath)
+    string AudioSenderPath,
+    string XInputProbePath)
 {
     public FirmwareProfile GetProfile(string id)
     {

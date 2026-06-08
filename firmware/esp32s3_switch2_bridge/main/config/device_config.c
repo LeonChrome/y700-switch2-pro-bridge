@@ -14,8 +14,11 @@ static const char *NVS_KEY_BLE_TARGET = "ble_target";
 #define MIN_REPORT_RATE_HZ 20
 #define MAX_REPORT_RATE_HZ 1000
 #define BLE_TARGET_MAX_LEN 40
+#ifndef DEVICE_DEFAULT_MODE
+#define DEVICE_DEFAULT_MODE NINTENDO_EXPERIMENT_MODE
+#endif
 
-static device_mode_t s_mode = NINTENDO_EXPERIMENT_MODE;
+static device_mode_t s_mode = DEVICE_DEFAULT_MODE;
 static bool s_bridge_running = true;
 static hid_test_mode_t s_hid_test_mode = HID_TEST_NEUTRAL;
 static uint16_t s_report_rate_hz = DEFAULT_REPORT_RATE_HZ;
@@ -35,7 +38,7 @@ static uint16_t sanitize_report_rate_hz(uint16_t rate_hz)
 
 void device_config_init(void)
 {
-    s_mode = NINTENDO_EXPERIMENT_MODE;
+    s_mode = DEVICE_DEFAULT_MODE;
     s_bridge_running = true;
     s_hid_test_mode = HID_TEST_NEUTRAL;
     s_report_rate_hz = DEFAULT_REPORT_RATE_HZ;
@@ -45,17 +48,21 @@ void device_config_init(void)
     nvs_handle_t handle;
     esp_err_t err = nvs_open(NVS_NAMESPACE, NVS_READONLY, &handle);
     if (err == ESP_OK) {
-        uint8_t stored_mode = NINTENDO_EXPERIMENT_MODE;
+        uint8_t stored_mode = (uint8_t)DEVICE_DEFAULT_MODE;
         err = nvs_get_u8(handle, NVS_KEY_MODE, &stored_mode);
 
-        if (err == ESP_OK && stored_mode <= NINTENDO_EXPERIMENT_MODE) {
+        if (err == ESP_OK && stored_mode <= XINPUT_EXPERIMENT_MODE) {
             s_mode = (device_mode_t)stored_mode;
         } else if (err == ESP_ERR_NVS_NOT_FOUND) {
-            APP_LOGI(TAG, "no persisted mode; defaulting to nintendo");
+            APP_LOGI(TAG, "no persisted mode; defaulting to %s", device_mode_to_string(s_mode));
         } else if (err != ESP_OK) {
-            APP_LOGW(TAG, "failed to read persisted mode err=%d; defaulting to nintendo", (int)err);
+            APP_LOGW(TAG, "failed to read persisted mode err=%d; defaulting to %s",
+                     (int)err,
+                     device_mode_to_string(s_mode));
         } else {
-            APP_LOGW(TAG, "invalid persisted mode=%u; defaulting to nintendo", (unsigned)stored_mode);
+            APP_LOGW(TAG, "invalid persisted mode=%u; defaulting to %s",
+                     (unsigned)stored_mode,
+                     device_mode_to_string(s_mode));
         }
 
         uint16_t stored_rate = DEFAULT_REPORT_RATE_HZ;
@@ -93,9 +100,11 @@ void device_config_init(void)
         }
         nvs_close(handle);
     } else if (err == ESP_ERR_NVS_NOT_FOUND) {
-        APP_LOGI(TAG, "config namespace not found; defaulting to nintendo");
+        APP_LOGI(TAG, "config namespace not found; defaulting to %s", device_mode_to_string(s_mode));
     } else {
-        APP_LOGW(TAG, "failed to open config namespace err=%d; defaulting to nintendo", (int)err);
+        APP_LOGW(TAG, "failed to open config namespace err=%d; defaulting to %s",
+                 (int)err,
+                 device_mode_to_string(s_mode));
     }
 
     APP_LOGI(TAG, "device mode loaded: %s report_rate_hz=%u ble_auto=%s ble_target=%s",
@@ -117,7 +126,9 @@ void device_config_set_mode(device_mode_t mode)
 
 esp_err_t device_config_save_mode(device_mode_t mode)
 {
-    if (mode != GENERIC_HID_MODE && mode != NINTENDO_EXPERIMENT_MODE) {
+    if (mode != GENERIC_HID_MODE &&
+        mode != NINTENDO_EXPERIMENT_MODE &&
+        mode != XINPUT_EXPERIMENT_MODE) {
         return ESP_ERR_INVALID_ARG;
     }
 
@@ -150,6 +161,8 @@ const char *device_mode_to_string(device_mode_t mode)
         return "generic";
     case NINTENDO_EXPERIMENT_MODE:
         return "nintendo";
+    case XINPUT_EXPERIMENT_MODE:
+        return "xinput";
     default:
         return "unknown";
     }

@@ -14,7 +14,7 @@ public partial class App : Application
     {
         DispatcherUnhandledException += OnDispatcherUnhandledException;
         AppDomain.CurrentDomain.UnhandledException += (_, e) =>
-            WriteCrashLog(e.ExceptionObject as Exception ?? new Exception("Unknown unhandled exception."));
+            WriteCrashLog(e.ExceptionObject as Exception ?? new Exception("未知未处理异常。"));
         TaskScheduler.UnobservedTaskException += (_, e) =>
         {
             WriteCrashLog(e.Exception);
@@ -48,6 +48,7 @@ public partial class App : Application
             FirmwareProfile haptic = package.GetProfile("hid_audio_uac1_4ch_ds5like");
             FirmwareProfile recovery = package.GetProfile("hid_only");
             FirmwareProfile pro2 = package.GetProfile("pro2_bridge_v5_5");
+            FirmwareProfile xinput = package.GetProfile("xinput_bridge_v5_8");
             int assetCount = package.Manifest.Profiles.Sum(profile => profile.Assets.Count);
             string result = string.Join(Environment.NewLine, new[]
             {
@@ -58,8 +59,10 @@ public partial class App : Application
                 "haptic_assets=" + haptic.Assets.Count,
                 "recovery_assets=" + recovery.Assets.Count,
                 "pro2_assets=" + pro2.Assets.Count,
+                "xinput_assets=" + xinput.Assets.Count,
                 "asset_count=" + assetCount,
-                "esptool=" + package.EsptoolPath
+                "esptool=" + package.EsptoolPath,
+                "xinput_probe=" + package.XInputProbePath
             });
             WriteVerificationResult(outputPath, result);
             Shutdown(0);
@@ -87,8 +90,8 @@ public partial class App : Application
     {
         string path = WriteCrashLog(e.Exception);
         MessageBox.Show(
-            "V5.5 Manager 启动或运行时发生错误。\n\n" + e.Exception.Message + "\n\n诊断日志：\n" + path,
-            "Y700 Switch2 V5.5 Manager",
+            "PRO2 手柄无线接收器控制板在启动或运行时发生错误。\n\n" + e.Exception.Message + "\n\n诊断日志：\n" + path,
+            "PRO2 手柄无线接收器控制板",
             MessageBoxButton.OK,
             MessageBoxImage.Error);
         e.Handled = true;
@@ -101,12 +104,12 @@ public partial class App : Application
         {
             string root = Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                "Y700Switch2V55Manager",
+                "PRO2WirelessReceiverControlBoard",
                 "logs");
             Directory.CreateDirectory(root);
             string path = Path.Combine(root, "crash_" + DateTime.Now.ToString("yyyyMMdd_HHmmss") + ".log");
             var text = new StringBuilder()
-                .AppendLine("Y700 Switch2 V5.5 Manager crash")
+                .AppendLine("PRO2 手柄无线接收器控制板崩溃日志")
                 .AppendLine("time=" + DateTime.Now.ToString("O"))
                 .AppendLine("version=" + typeof(App).Assembly.GetName().Version)
                 .AppendLine()

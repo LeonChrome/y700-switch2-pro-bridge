@@ -177,6 +177,35 @@ bool haptic_audio_to_raw02_parse_mode(const char *text, haptic_raw02_mode_t *out
     return true;
 }
 
+const char *haptic_audio_to_raw02_source_string(haptic_raw02_source_t source)
+{
+    switch (source) {
+    case HAPTIC_RAW02_SOURCE_HD_ONLY:
+        return "hd_only";
+    case HAPTIC_RAW02_SOURCE_PCM:
+        return "pcm";
+    default:
+        return "hd_only";
+    }
+}
+
+bool haptic_audio_to_raw02_parse_source(const char *text, haptic_raw02_source_t *out_source)
+{
+    if (!text || !out_source) {
+        return false;
+    }
+    if (strcmp(text, "hd") == 0 || strcmp(text, "hd_only") == 0 ||
+        strcmp(text, "strict") == 0) {
+        *out_source = HAPTIC_RAW02_SOURCE_HD_ONLY;
+    } else if (strcmp(text, "pcm") == 0 || strcmp(text, "audio") == 0 ||
+               strcmp(text, "legacy") == 0) {
+        *out_source = HAPTIC_RAW02_SOURCE_PCM;
+    } else {
+        return false;
+    }
+    return true;
+}
+
 void haptic_audio_to_raw02_defaults(void)
 {
     portENTER_CRITICAL(&s_lock);
@@ -191,6 +220,7 @@ void haptic_audio_to_raw02_defaults(void)
     s_status.silence_timeout_ms = RAW02_DEFAULT_SILENCE_TIMEOUT_MS;
     s_status.activity_threshold = RAW02_DEFAULT_ACTIVITY_THRESHOLD;
     s_status.mode = HAPTIC_RAW02_MODE_AUTO;
+    s_status.source = HAPTIC_RAW02_SOURCE_HD_ONLY;
     snprintf(s_status.last_mode, sizeof(s_status.last_mode), "%s", "auto");
     snprintf(s_status.last_error, sizeof(s_status.last_error), "%s", "none");
     portEXIT_CRITICAL(&s_lock);
@@ -204,7 +234,7 @@ void haptic_audio_to_raw02_init(void)
 {
     haptic_audio_to_raw02_defaults();
     ESP_LOGI(TAG,
-             "[HAPTIC_TO_RAW02] dry_run=true live_forwarding=false max_intensity=%u min_interval_ms=%u",
+             "[HAPTIC_TO_RAW02] dry_run=true live_forwarding=false source=hd_only max_intensity=%u min_interval_ms=%u",
              RAW02_DEFAULT_MAX_INTENSITY,
              RAW02_DEFAULT_MIN_INTERVAL_MS);
 }
@@ -339,6 +369,9 @@ void haptic_audio_to_raw02_process_features(
     } else {
         s_status.silence_packets++;
     }
+    if (features->hd_candidate) {
+        s_status.hd_candidate_packets++;
+    }
     config = s_status;
     portEXIT_CRITICAL(&s_lock);
 
@@ -364,6 +397,26 @@ void haptic_audio_to_raw02_process_features(
                 portEXIT_CRITICAL(&s_lock);
             }
             remember_last(side, side, "silence", err == ESP_OK ? "none" : esp_err_to_name(err));
+            s_stop_sent = true;
+        }
+        return;
+    }
+
+    if (config.source == HAPTIC_RAW02_SOURCE_HD_ONLY && !features->hd_candidate) {
+        portENTER_CRITICAL(&s_lock);
+        s_status.dropped_pcm++;
+        portEXIT_CRITICAL(&s_lock);
+        uint8_t blocked_side[HAPTIC_RAW02_SIDE_BYTES];
+        build_side(0, HAPTIC_RAW02_MODE_SILENCE, blocked_side);
+        remember_last(blocked_side, blocked_side, "pcm_blocked", "ordinary_pcm_not_hd");
+        if (!s_stop_sent && s_last_activity_us > 0 &&
+            now_us - s_last_activity_us >= (int64_t)config.silence_timeout_ms * 1000LL) {
+            uint8_t side[HAPTIC_RAW02_SIDE_BYTES];
+            uint8_t payload[HAPTIC_RAW02_PAYLOAD_BYTES];
+            build_side(0, HAPTIC_RAW02_MODE_SILENCE, side);
+            build_payload(side, side, payload);
+            esp_err_t err = maybe_send_payload(payload, &config, true);
+            remember_last(side, side, "pcm_blocked", err == ESP_OK ? "ordinary_pcm_not_hd" : esp_err_to_name(err));
             s_stop_sent = true;
         }
         return;
@@ -430,9 +483,11 @@ void haptic_audio_to_raw02_process_features(
         bytes_to_hex(left, HAPTIC_RAW02_SIDE_BYTES, left_hex, sizeof(left_hex));
         bytes_to_hex(right, HAPTIC_RAW02_SIDE_BYTES, right_hex, sizeof(right_hex));
         ESP_LOGI(TAG,
-                 "[HAPTIC_TO_RAW02] dry_run=%s live_forwarding=%s mode=%s intensity_l=%u intensity_r=%u left=%s right=%s raw02_packets_dry=%lu raw02_packets_live=%lu error=%s",
+                 "[HAPTIC_TO_RAW02] dry_run=%s live_forwarding=%s source=%s hd_candidate=%s mode=%s intensity_l=%u intensity_r=%u left=%s right=%s raw02_packets_dry=%lu raw02_packets_live=%lu dropped_pcm=%lu error=%s",
                  config.dry_run ? "true" : "false",
                  config.live_forwarding ? "true" : "false",
+                 haptic_audio_to_raw02_source_string(config.source),
+                 features->hd_candidate ? "true" : "false",
                  haptic_audio_to_raw02_mode_string(mode),
                  intensity_l,
                  intensity_r,
@@ -440,6 +495,7 @@ void haptic_audio_to_raw02_process_features(
                  right_hex,
                  (unsigned long)s_status.raw02_dry_packets,
                  (unsigned long)s_status.raw02_live_packets,
+                 (unsigned long)s_status.dropped_pcm,
                  error);
     }
 }
@@ -558,6 +614,13 @@ void haptic_audio_to_raw02_set_mode(haptic_raw02_mode_t mode)
     portEXIT_CRITICAL(&s_lock);
 }
 
+void haptic_audio_to_raw02_set_source(haptic_raw02_source_t source)
+{
+    portENTER_CRITICAL(&s_lock);
+    s_status.source = source;
+    portEXIT_CRITICAL(&s_lock);
+}
+
 static esp_err_t send_named_payload(const char *name,
                                     bool force_live,
                                     bool stop_only)
@@ -571,16 +634,16 @@ static esp_err_t send_named_payload(const char *name,
     portEXIT_CRITICAL(&s_lock);
 
     haptic_raw02_mode_t mode = HAPTIC_RAW02_MODE_TICK;
-    uint8_t intensity = 32;
+    uint8_t intensity = config.max_intensity > 18 ? 18 : config.max_intensity;
     if (name && strcmp(name, "punch") == 0) {
         mode = HAPTIC_RAW02_MODE_PUNCH;
-        intensity = config.max_intensity > 64 ? 64 : config.max_intensity;
+        intensity = config.max_intensity;
     } else if (name && strcmp(name, "texture") == 0) {
         mode = HAPTIC_RAW02_MODE_TEXTURE;
-        intensity = 40;
+        intensity = config.max_intensity > 36 ? 36 : config.max_intensity;
     } else if (name && strcmp(name, "continuous") == 0) {
         mode = HAPTIC_RAW02_MODE_CONTINUOUS;
-        intensity = 48;
+        intensity = config.max_intensity > 52 ? 52 : config.max_intensity;
     } else if (name && strcmp(name, "stop") == 0) {
         mode = HAPTIC_RAW02_MODE_SILENCE;
         intensity = 0;
@@ -610,8 +673,10 @@ static esp_err_t send_named_payload(const char *name,
     }
     remember_last(left, right, haptic_audio_to_raw02_mode_string(mode), err == ESP_OK ? "none" : esp_err_to_name(err));
     ESP_LOGI(TAG,
-             "[HAPTIC_TO_RAW02] test=%s dry_run=%s live_forwarding=%s sent=%s error=%s",
+             "[HAPTIC_TO_RAW02] test=%s mode=%s intensity=%u dry_run=%s live_forwarding=%s sent=%s error=%s",
              name ? name : "tick",
+             haptic_audio_to_raw02_mode_string(mode),
+             intensity,
              config.dry_run ? "true" : "false",
              config.live_forwarding ? "true" : "false",
              err == ESP_OK ? "true" : "false",

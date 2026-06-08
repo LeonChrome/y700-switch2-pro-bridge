@@ -3,6 +3,8 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include "internal_gamepad_state.h"
+
 #define SWITCH2_MOTION_SAMPLE_SIZE 12
 #define SWITCH2_MOTION_BLOCK_SIZE 36
 
@@ -61,3 +63,7 @@ void switch2_state_set_motion_raw(switch2_state_t *state, const uint8_t *data, u
 void switch2_state_set_motion_sample(switch2_state_t *state, const uint8_t *data, uint8_t len);
 void switch2_state_update_from_legacy_bytes(switch2_state_t *state, uint8_t b2, uint8_t b3, uint8_t b4);
 void switch2_state_update_from_fd2_buttons(switch2_state_t *state, uint32_t buttons);
+void switch2_state_to_internal(const switch2_state_t *src,
+                               internal_gamepad_state_t *dst);
+void switch2_state_from_internal(const internal_gamepad_state_t *src,
+                                 switch2_state_t *dst);

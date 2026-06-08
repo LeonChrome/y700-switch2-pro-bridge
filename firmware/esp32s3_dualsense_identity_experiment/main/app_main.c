@@ -52,7 +52,8 @@ static volatile bool s_suspended;
 static uint32_t s_report_count;
 static uint32_t s_output_count;
 
-#define PRO2_INPUT_STALE_US 1000000LL
+#define PRO2_INPUT_STALE_US 200000LL
+#define PRO2_INPUT_WARMUP_UPDATES 4
 #define V55_CONTROL_LINE_MAX 192
 
 void tud_mount_cb(void)
@@ -154,7 +155,7 @@ static void control_task(void *arg)
     uint8_t rx[64];
     size_t line_len = 0;
     bool overflow = false;
-    static char reply[3072];
+    static char reply[4096];
 
     while (true) {
         int rx_len = read(STDIN_FILENO, rx, sizeof(rx));
@@ -200,6 +201,8 @@ static void neutral_report_task(void *arg)
     uint8_t report[DUALSENSE_INPUT_PAYLOAD_SIZE];
     int64_t next_input_log_us = 0;
     bool last_connected = false;
+    uint32_t stable_update_count = 0;
+    uint32_t last_seen_updates = 0;
     TickType_t next_wake = xTaskGetTickCount();
     dualsense_report_mapper_init();
 
@@ -209,8 +212,18 @@ static void neutral_report_task(void *arg)
         uint32_t updates = 0;
         int64_t age_us = INT64_MAX;
         bool live = pro2_input_backend_get_live(&state, &updates, &age_us);
-        bool using_pro2 = live && age_us <= PRO2_INPUT_STALE_US;
         bool connected = strcmp(pro2_input_backend_state(), "connected") == 0;
+        bool live_recent = live && connected && age_us <= PRO2_INPUT_STALE_US;
+        if (!live_recent) {
+            stable_update_count = 0;
+            last_seen_updates = updates;
+        } else if (updates != last_seen_updates) {
+            last_seen_updates = updates;
+            if (stable_update_count < PRO2_INPUT_WARMUP_UPDATES) {
+                stable_update_count++;
+            }
+        }
+        bool using_pro2 = live_recent && stable_update_count >= PRO2_INPUT_WARMUP_UPDATES;
         dualsense_input_debug_t debug;
 
         if (connected != last_connected) {
@@ -275,9 +288,13 @@ static void neutral_report_task(void *arg)
                          debug.motion_valid ? "true" : "false");
             } else {
                 ESP_LOGI(TAG,
-                         "[DS5_INPUT] source=neutral reason=%s ble_state=%s",
-                         connected ? "stale_pro2_input" : "no_pro2",
-                         pro2_input_backend_state());
+                         "[DS5_INPUT] source=neutral reason=%s ble_state=%s updates=%lu age_ms=%lld warmup=%lu/%u",
+                         connected ? (live_recent ? "warming_pro2_input" : "stale_pro2_input") : "no_pro2",
+                         pro2_input_backend_state(),
+                         (unsigned long)updates,
+                         (long long)(age_us == INT64_MAX ? -1 : age_us / 1000),
+                         (unsigned long)stable_update_count,
+                         (unsigned)PRO2_INPUT_WARMUP_UPDATES);
             }
             next_input_log_us = now_us + 1000000LL;
         }
@@ -339,12 +356,12 @@ void app_main(void)
                                 "v55_control",
                                 6144,
                                 NULL,
-                                6,
+                                4,
                                 NULL) == pdPASS ? ESP_OK : ESP_FAIL);
     ESP_ERROR_CHECK(xTaskCreate(neutral_report_task,
                                 "ds5_input",
                                 3072,
                                 NULL,
-                                5,
+                                6,
                                 NULL) == pdPASS ? ESP_OK : ESP_FAIL);
 }

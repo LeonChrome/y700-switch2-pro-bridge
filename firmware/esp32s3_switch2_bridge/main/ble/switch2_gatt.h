@@ -19,3 +19,4 @@ bool switch2_gatt_set_motion_source_offset(uint8_t offset);
 uint8_t switch2_gatt_get_motion_source_offset(void);
 void switch2_gatt_set_motion_full_only(bool enabled);
 bool switch2_gatt_get_motion_full_only(void);
+void switch2_gatt_reset_axis_calibration(void);

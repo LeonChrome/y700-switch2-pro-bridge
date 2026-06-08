@@ -5,9 +5,12 @@ idf_component_register(
         "usb/hid_report.c"
         "usb/usb_hid_device.c"
         "usb/usb_switch2_vendor.c"
+        "usb/usb_xinput_device.c"
         "ble/ble_central.c"
         "ble/switch2_gatt.c"
         "bridge/switch2_state.c"
+        "bridge/internal_gamepad_state.c"
+        "bridge/normalized_rumble.c"
         "bridge/report_mapper.c"
         "bridge/report_rate_stats.c"
         "control/control_protocol.c"
@@ -28,3 +31,7 @@ idf_component_register(
         esp_timer
         driver
 )
+
+if(DEFINED DEVICE_DEFAULT_MODE AND NOT "${DEVICE_DEFAULT_MODE}" STREQUAL "")
+    target_compile_definitions(${COMPONENT_LIB} PRIVATE DEVICE_DEFAULT_MODE=${DEVICE_DEFAULT_MODE})
+endif()

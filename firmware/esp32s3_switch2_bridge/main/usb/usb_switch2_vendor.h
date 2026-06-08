@@ -3,6 +3,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include "esp_err.h"
+#include "normalized_rumble.h"
 
 void usb_switch2_vendor_init(void);
 bool usb_switch2_vendor_mounted(void);
@@ -15,6 +16,8 @@ void usb_switch2_vendor_bridge_hid_output_to_ble(const uint8_t *data, uint16_t l
 esp_err_t usb_switch2_vendor_send_raw02_payload(const uint8_t *payload, uint16_t len);
 void usb_switch2_vendor_start_hd_rumble_self_test(void);
 void usb_switch2_vendor_start_hd_rumble_self_test_ms(uint16_t hold_ms);
+void usb_switch2_vendor_start_normalized_rumble(const normalized_rumble_t *rumble,
+                                                const char *reason);
 void usb_switch2_vendor_stop_hd_rumble(void);
 bool usb_switch2_vendor_hd_rumble_active(void);
 uint32_t usb_switch2_vendor_hd_rumble_update_count(void);

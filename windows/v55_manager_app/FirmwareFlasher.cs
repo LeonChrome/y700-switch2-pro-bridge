@@ -25,7 +25,7 @@ public sealed class FirmwareFlasher
     {
         if (string.IsNullOrWhiteSpace(port))
         {
-            throw new InvalidOperationException("请先选择 CH343P COM 口。");
+            throw new InvalidOperationException("请先选择 CH343P 对应的 COM 串口。");
         }
 
         FirmwarePackage package = EmbeddedAssets.EnsurePackage();
@@ -33,7 +33,7 @@ public sealed class FirmwareFlasher
         int firstBaud = mode == FlashMode.Repair ? 115200 : 460800;
         bool firstNoStub = mode == FlashMode.Repair;
 
-        progress.Report("内嵌固件: " + package.Manifest.FirmwareVersion + " / " + profile.Label);
+        progress.Report("内置固件: " + package.Manifest.FirmwareVersion + " / " + profile.Label);
         progress.Report("工具: " + package.EsptoolPath);
         progress.Report("目标: " + port + ", baud " + firstBaud);
 
@@ -52,7 +52,7 @@ public sealed class FirmwareFlasher
 
         if (!chipOutput.Contains("ESP32-S3", StringComparison.OrdinalIgnoreCase))
         {
-            throw new InvalidOperationException("所选端口没有识别为 ESP32-S3，已拒绝刷入。");
+            throw new InvalidOperationException("所选串口没有识别为 ESP32-S3，已拒绝刷入。");
         }
 
         if (mode == FlashMode.EraseAndFlash)
@@ -72,7 +72,7 @@ public sealed class FirmwareFlasher
             await WriteFlashAsync(package, profile, port, 115200, true, progress, cancellationToken);
         }
 
-        progress.Report("刷入完成。请重插 native USB / OTG，然后点击“快速检查”。");
+        progress.Report("刷入完成。请重新插拔原生 USB / OTG，然后点击“USB 检查”。");
     }
 
     private static async Task WriteFlashAsync(
@@ -84,7 +84,7 @@ public sealed class FirmwareFlasher
         IProgress<string> progress,
         CancellationToken cancellationToken)
     {
-        List<string> args = CommonArgs(port, baud, noStub, "write_flash");
+        var args = CommonArgs(port, baud, noStub, "write_flash");
         args.Add("--flash_mode");
         args.Add(package.Manifest.FlashMode);
         args.Add("--flash_freq");
@@ -102,7 +102,11 @@ public sealed class FirmwareFlasher
     private static List<string> CommonArgs(string port, int baud, bool noStub, string command)
     {
         var args = new List<string> { "--chip", "esp32s3" };
-        if (noStub) args.Add("--no-stub");
+        if (noStub)
+        {
+            args.Add("--no-stub");
+        }
+
         args.AddRange(new[]
         {
             "-p", port,
@@ -128,14 +132,21 @@ public sealed class FirmwareFlasher
             RedirectStandardError = true,
             CreateNoWindow = true
         };
-        foreach (string arg in args) psi.ArgumentList.Add(arg);
+        foreach (string arg in args)
+        {
+            psi.ArgumentList.Add(arg);
+        }
 
         progress.Report("esptool " + string.Join(" ", args));
         using var process = new Process { StartInfo = psi, EnableRaisingEvents = true };
         process.OutputDataReceived += (_, e) => Capture(e.Data, lines, progress);
         process.ErrorDataReceived += (_, e) => Capture(e.Data, lines, progress);
 
-        if (!process.Start()) throw new InvalidOperationException("无法启动 esptool。");
+        if (!process.Start())
+        {
+            throw new InvalidOperationException("无法启动 esptool。");
+        }
+
         process.BeginOutputReadLine();
         process.BeginErrorReadLine();
 
@@ -143,7 +154,10 @@ public sealed class FirmwareFlasher
         {
             try
             {
-                if (!process.HasExited) process.Kill(entireProcessTree: true);
+                if (!process.HasExited)
+                {
+                    process.Kill(entireProcessTree: true);
+                }
             }
             catch
             {
@@ -156,13 +170,21 @@ public sealed class FirmwareFlasher
         {
             throw new InvalidOperationException("esptool 失败，exit=" + process.ExitCode + Environment.NewLine + combined);
         }
+
         return combined;
     }
 
     private static void Capture(string? line, List<string> lines, IProgress<string> progress)
     {
-        if (string.IsNullOrWhiteSpace(line)) return;
-        lock (lines) lines.Add(line);
+        if (string.IsNullOrWhiteSpace(line))
+        {
+            return;
+        }
+
+        lock (lines)
+        {
+            lines.Add(line);
+        }
         progress.Report(line);
     }
 }

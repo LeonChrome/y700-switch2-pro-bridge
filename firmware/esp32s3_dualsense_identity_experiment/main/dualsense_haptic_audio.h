@@ -14,6 +14,12 @@
 #endif
 #define DUALSENSE_HAPTIC_AUDIO_BYTES_PER_SAMPLE 2
 
+typedef enum {
+    DUALSENSE_HAPTIC_AUDIO_PARSER_REAR = 0,
+    DUALSENSE_HAPTIC_AUDIO_PARSER_FRONT = 1,
+    DUALSENSE_HAPTIC_AUDIO_PARSER_STRONGEST = 2,
+} dualsense_haptic_audio_parser_t;
+
 typedef struct {
     uint32_t packet_count;
     uint32_t active_packet_count;
@@ -23,19 +29,31 @@ typedef struct {
     uint16_t last_packet_len;
     uint16_t rms_l;
     uint16_t rms_r;
+    uint16_t front_rms_l;
+    uint16_t front_rms_r;
     uint16_t peak_l;
     uint16_t peak_r;
+    uint16_t front_peak_l;
+    uint16_t front_peak_r;
     uint16_t mean_abs_l;
     uint16_t mean_abs_r;
+    uint16_t front_mean_abs_l;
+    uint16_t front_mean_abs_r;
     uint16_t envelope_l;
     uint16_t envelope_r;
+    uint16_t front_envelope_l;
+    uint16_t front_envelope_r;
     uint16_t transient_l;
     uint16_t transient_r;
     bool activity;
     bool transient;
+    bool hd_candidate;
+    bool pcm_like;
     bool streaming;
     uint8_t alt_setting;
     uint8_t source_channels;
+    uint8_t parser_mode;
+    bool selected_front_pair;
 } dualsense_haptic_audio_features_t;
 
 void dualsense_haptic_audio_init(void);
@@ -45,3 +63,7 @@ void dualsense_haptic_audio_process_packet(const uint8_t *data,
                                            uint8_t channels,
                                            int64_t now_us);
 bool dualsense_haptic_audio_snapshot(dualsense_haptic_audio_features_t *out);
+const char *dualsense_haptic_audio_parser_string(dualsense_haptic_audio_parser_t mode);
+bool dualsense_haptic_audio_parse_parser(const char *text,
+                                         dualsense_haptic_audio_parser_t *out);
+void dualsense_haptic_audio_set_parser(dualsense_haptic_audio_parser_t mode);
