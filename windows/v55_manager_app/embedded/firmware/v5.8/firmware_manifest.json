@@ -1,6 +1,6 @@
 ﻿{
-    "packageVersion":  "v5.8.2-aio",
-    "firmwareVersion":  "5.8.2-manager",
+    "packageVersion":  "v5.8.3-aio",
+    "firmwareVersion":  "5.8.3-manager",
     "target":  "esp32s3",
     "flashMode":  "dio",
     "flashFreq":  "80m",

@@ -10,8 +10,9 @@ namespace Y700Switch2V55Manager;
 
 public static class EmbeddedAssets
 {
-    public const string BundledPackageVersion = "v5.8.2-aio";
-    public const string BundledFirmwareVersion = "5.8.2-manager";
+    public const string BundledPackageVersion = "v5.8.3-aio";
+    public const string BundledFirmwareVersion = "5.8.3-manager";
+    private static readonly object ExtractLock = new();
     private static readonly JsonSerializerOptions ManifestJsonOptions = new()
     {
         PropertyNameCaseInsensitive = true
@@ -87,38 +88,86 @@ public static class EmbeddedAssets
 
     private static void ExtractPrefix(string resourcePrefix, string destinationRoot)
     {
-        Directory.CreateDirectory(destinationRoot);
-        Assembly assembly = Assembly.GetExecutingAssembly();
-        foreach (string resourceName in assembly.GetManifestResourceNames())
+        lock (ExtractLock)
         {
-            string normalized = resourceName.Replace('\\', '/');
-            if (!normalized.StartsWith(resourcePrefix, StringComparison.OrdinalIgnoreCase))
+            Directory.CreateDirectory(destinationRoot);
+            Assembly assembly = Assembly.GetExecutingAssembly();
+            foreach (string resourceName in assembly.GetManifestResourceNames())
             {
-                continue;
-            }
+                string normalized = resourceName.Replace('\\', '/');
+                if (!normalized.StartsWith(resourcePrefix, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
 
-            string relative = normalized[resourcePrefix.Length..];
-            if (string.IsNullOrWhiteSpace(relative))
-            {
-                continue;
-            }
+                string relative = normalized[resourcePrefix.Length..];
+                if (string.IsNullOrWhiteSpace(relative))
+                {
+                    continue;
+                }
 
-            string destination = Path.Combine(destinationRoot, relative.Replace('/', Path.DirectorySeparatorChar));
-            string fullDestination = Path.GetFullPath(destination);
-            string fullRoot = Path.GetFullPath(destinationRoot);
-            if (!fullDestination.StartsWith(fullRoot, StringComparison.OrdinalIgnoreCase))
-            {
-                throw new InvalidOperationException("Unsafe embedded resource path: " + relative);
-            }
+                string destination = Path.Combine(destinationRoot, relative.Replace('/', Path.DirectorySeparatorChar));
+                string fullDestination = Path.GetFullPath(destination);
+                string fullRoot = Path.GetFullPath(destinationRoot);
+                if (!fullDestination.StartsWith(fullRoot, StringComparison.OrdinalIgnoreCase))
+                {
+                    throw new InvalidOperationException("Unsafe embedded resource path: " + relative);
+                }
 
-            Directory.CreateDirectory(Path.GetDirectoryName(fullDestination)!);
-            using Stream? source = assembly.GetManifestResourceStream(resourceName);
-            if (source == null)
-            {
-                throw new InvalidOperationException("Embedded resource not found: " + resourceName);
+                Directory.CreateDirectory(Path.GetDirectoryName(fullDestination)!);
+                using Stream? source = assembly.GetManifestResourceStream(resourceName);
+                if (source == null)
+                {
+                    throw new InvalidOperationException("Embedded resource not found: " + resourceName);
+                }
+                ExtractResource(source, fullDestination);
             }
-            using FileStream target = File.Create(fullDestination);
-            source.CopyTo(target);
+        }
+    }
+
+    private static void ExtractResource(Stream source, string fullDestination)
+    {
+        long sourceLength = source.CanSeek ? source.Length : -1;
+        if (File.Exists(fullDestination) &&
+            sourceLength >= 0 &&
+            new FileInfo(fullDestination).Length == sourceLength)
+        {
+            return;
+        }
+
+        string temp = fullDestination + "." + Guid.NewGuid().ToString("N") + ".tmp";
+        try
+        {
+            using (var target = new FileStream(temp, FileMode.CreateNew, FileAccess.Write, FileShare.Read))
+            {
+                source.CopyTo(target);
+            }
+            File.Move(temp, fullDestination, overwrite: true);
+        }
+        catch (IOException) when (File.Exists(fullDestination) &&
+                                  sourceLength >= 0 &&
+                                  new FileInfo(fullDestination).Length == sourceLength)
+        {
+            TryDelete(temp);
+        }
+        catch
+        {
+            TryDelete(temp);
+            throw;
+        }
+    }
+
+    private static void TryDelete(string path)
+    {
+        try
+        {
+            if (File.Exists(path))
+            {
+                File.Delete(path);
+            }
+        }
+        catch
+        {
         }
     }
 }

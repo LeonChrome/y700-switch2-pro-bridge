@@ -10,6 +10,9 @@ namespace Y700Switch2V55Manager;
 
 public partial class App : Application
 {
+    private static readonly Encoding Utf8NoBom = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
+    private static readonly Encoding Utf8Bom = new UTF8Encoding(encoderShouldEmitUTF8Identifier: true);
+
     public App()
     {
         DispatcherUnhandledException += OnDispatcherUnhandledException;
@@ -83,7 +86,7 @@ public partial class App : Application
 
         string fullPath = Path.GetFullPath(outputPath);
         Directory.CreateDirectory(Path.GetDirectoryName(fullPath)!);
-        File.WriteAllText(fullPath, result, Encoding.UTF8);
+        File.WriteAllText(fullPath, result, Utf8NoBom);
     }
 
     private void OnDispatcherUnhandledException(object sender, DispatcherUnhandledExceptionEventArgs e)
@@ -115,7 +118,7 @@ public partial class App : Application
                 .AppendLine()
                 .AppendLine(exception.ToString())
                 .ToString();
-            File.WriteAllText(path, text, Encoding.UTF8);
+            File.WriteAllText(path, text, Utf8Bom);
             return path;
         }
         catch

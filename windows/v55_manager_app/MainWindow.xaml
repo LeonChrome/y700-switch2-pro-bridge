@@ -362,6 +362,7 @@
                                     Background="{Binding DualSenseCardBackground}"
                                     BorderBrush="{Binding DualSenseCardBorderBrush}"
                                     Command="{Binding ActivateDualSenseModeCommand}"
+                                    IsEnabled="{Binding CanSwitchModes}"
                                     AutomationProperties.AutomationId="ModeCardDualSense"
                                     AutomationProperties.Name="切换到 DualSense-like"
                                     ToolTip="{Binding DualSenseCardTooltip}">
@@ -390,6 +391,7 @@
                                     Background="{Binding Pro2CardBackground}"
                                     BorderBrush="{Binding Pro2CardBorderBrush}"
                                     Command="{Binding ActivatePro2ModeCommand}"
+                                    IsEnabled="{Binding CanSwitchModes}"
                                     AutomationProperties.AutomationId="ModeCardPro2"
                                     AutomationProperties.Name="切换到 Pro2 / Nintendo"
                                     ToolTip="{Binding Pro2CardTooltip}">
@@ -418,6 +420,7 @@
                                     Background="{Binding XboxCardBackground}"
                                     BorderBrush="{Binding XboxCardBorderBrush}"
                                     Command="{Binding ActivateXboxModeCommand}"
+                                    IsEnabled="{Binding CanSwitchModes}"
                                     AutomationProperties.AutomationId="ModeCardXbox"
                                     AutomationProperties.Name="切换到 Xbox / XInput"
                                     ToolTip="{Binding XboxCardTooltip}">

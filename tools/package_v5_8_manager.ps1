@@ -13,10 +13,10 @@ $PublishRoot = Join-Path $ReleaseRoot "publish"
 $SingleExeName = [System.Text.Encoding]::UTF8.GetString([byte[]](
     0x50,0x52,0x4F,0x32,0xE6,0x89,0x8B,0xE6,0x9F,0x84,0xE6,0x97,0xA0,0xE7,0xBA,0xBF,
     0xE6,0x8E,0xA5,0xE6,0x94,0xB6,0xE5,0x99,0xA8,0xE6,0x8E,0xA7,0xE5,0x88,0xB6,
-    0xE6,0x9D,0xBF,0x2D,0x61,0x69,0x6F,0x2D,0x76,0x35,0x2E,0x38,0x2E,0x32,0x2E,0x65,0x78,0x65))
+    0xE6,0x9D,0xBF,0x2D,0x61,0x69,0x6F,0x2D,0x76,0x35,0x2E,0x38,0x2E,0x33,0x2E,0x65,0x78,0x65))
 $SingleExe = Join-Path $ReleaseRoot $SingleExeName
 $LegacySingleExe = Join-Path $ReleaseRoot "Y700Switch2V55Manager-aio-v5.8.0.exe"
-$HashFile = Join-Path $ReleaseRoot "SHA256SUMS-v5.8.2.txt"
+$HashFile = Join-Path $ReleaseRoot "SHA256SUMS-v5.8.3.txt"
 $DotnetRoot = Join-Path $RepoRoot "work\dotnet"
 
 function Write-Step([string]$Name, [string]$Value) {
@@ -218,8 +218,8 @@ function Refresh-EmbeddedAssets {
     $profiles += Add-XInputBridgeProfilePayload $firmwareRoot
 
     $manifest = [ordered]@{
-        packageVersion = "v5.8.2-aio"
-        firmwareVersion = "5.8.2-manager"
+        packageVersion = "v5.8.3-aio"
+        firmwareVersion = "5.8.3-manager"
         target = "esp32s3"
         flashMode = "dio"
         flashFreq = "80m"
@@ -284,7 +284,7 @@ if (!$DryRun) {
     if (Test-Path -LiteralPath $PublishRoot) { Remove-Item -LiteralPath $PublishRoot -Recurse -Force }
     if (Test-Path -LiteralPath $SingleExe) { Remove-Item -LiteralPath $SingleExe -Force }
     if (Test-Path -LiteralPath $LegacySingleExe) { Remove-Item -LiteralPath $LegacySingleExe -Force }
-    Get-ChildItem -LiteralPath $ReleaseRoot -Filter "*aio-v5.8.2.exe" -ErrorAction SilentlyContinue |
+    Get-ChildItem -LiteralPath $ReleaseRoot -Filter "*aio-v5.8.3.exe" -ErrorAction SilentlyContinue |
         Where-Object { $_.FullName -ne $SingleExe -and $_.FullName -ne $LegacySingleExe } |
         Remove-Item -Force
 

@@ -38,6 +38,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private readonly ManagerSettings settings = ManagerSettingsStore.Load();
     private readonly StringBuilder log = new();
     private readonly SemaphoreSlim serialLock = new(1, 1);
+    private readonly SemaphoreSlim flashLock = new(1, 1);
     private readonly DispatcherTimer stateTimer = new();
     private CancellationTokenSource? gameMonitorCts;
     private bool stateRefreshInProgress;
@@ -80,6 +81,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private bool serialBoardReady;
     private bool desiredModeAutoAligned;
     private bool busy;
+    private bool flashInProgress;
     private bool gameMonitorRunning;
     private BleScanItem? selectedBleDevice;
 
@@ -136,6 +138,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             OnPropertyChanged(nameof(OverallBrush));
             OnPropertyChanged(nameof(OverallStatusBackgroundBrush));
             OnPropertyChanged(nameof(OverallStatusForegroundBrush));
+            NotifyModeStateChanged();
         }
     }
     public string CustomCommand { get => customCommand; set { customCommand = value; OnPropertyChanged(); } }
@@ -236,6 +239,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public bool IsPro2ToolsEnabled => desiredMode == OutputModeId.Pro2;
     public bool IsXboxToolsEnabled => desiredMode == OutputModeId.Xbox;
     public bool IsUnknownMode => currentMode == DeviceUiMode.Unknown || currentMode == DeviceUiMode.Recovery;
+    public bool CanSwitchModes => !Busy && !flashInProgress;
     public bool CanUseBleButtons => HasUsableSerialCandidate;
     public bool CanUsePro2ToolButtons => HasUsableSerialCandidate && desiredMode == OutputModeId.Pro2 && currentMode == DeviceUiMode.Pro2;
     public bool CanUseDualSenseToolButtons => HasUsableSerialCandidate && desiredMode == OutputModeId.DualSenseLike && currentMode == DeviceUiMode.DualSense;
@@ -579,6 +583,14 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     private async Task ActivateModeAsync(OutputModeProfile profile)
     {
+        if (Busy || flashInProgress)
+        {
+            ModeSwitchStatus = "已有刷写、切换或设备操作正在进行。请等待当前任务结束后再切换模式。";
+            NextAction = "等待当前任务结束，不要连续点击模式卡片。";
+            AppendLog("[MODE_DECK_BUSY] requested=" + profile.ModeId);
+            return;
+        }
+
         SetDesiredMode(profile.ModeId);
 
         if (!profile.ManagerReady)
@@ -640,6 +652,16 @@ public sealed class MainViewModel : INotifyPropertyChanged
 #pragma warning disable CS0162
     private async Task FlashAsync(string profile, FlashMode mode)
     {
+        if (!await flashLock.WaitAsync(0))
+        {
+            ModeSwitchStatus = "已有刷写或模式切换正在进行，已忽略新的刷写请求。";
+            NextAction = "请等待当前刷写结束后再切换。";
+            AppendLog("[MODE_SWITCH_BUSY] ignored_profile=" + profile);
+            return;
+        }
+
+        flashInProgress = true;
+        NotifyModeStateChanged();
         try
         {
             Busy = true;
@@ -720,6 +742,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
         finally
         {
             Busy = false;
+            flashInProgress = false;
+            flashLock.Release();
+            NotifyModeStateChanged();
         }
     }
 #pragma warning restore CS0162
@@ -2004,6 +2029,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         OnPropertyChanged(nameof(IsXboxToolsEnabled));
         OnPropertyChanged(nameof(IsUnknownMode));
         OnPropertyChanged(nameof(HasUsableSerialCandidate));
+        OnPropertyChanged(nameof(CanSwitchModes));
         OnPropertyChanged(nameof(CanUseBleButtons));
         OnPropertyChanged(nameof(CanUsePro2ToolButtons));
         OnPropertyChanged(nameof(CanUseDualSenseToolButtons));
@@ -2505,7 +2531,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         };
         if (dialog.ShowDialog(owner) == true)
         {
-            File.WriteAllText(dialog.FileName, log.ToString(), Encoding.UTF8);
+            File.WriteAllText(dialog.FileName, log.ToString(), new UTF8Encoding(encoderShouldEmitUTF8Identifier: true));
             AppendLog("日志已保存：" + dialog.FileName);
         }
     }
