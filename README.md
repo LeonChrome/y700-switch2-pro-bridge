@@ -1,82 +1,128 @@
-# PRO2 手柄无线接收器控制板
+# PRO2 Wireless Receiver Control Board
 
-当前主线是 **V5.8 三模普通震动版本**：用 ESP32-S3 开发板接收真实 Switch 2 Pro Controller 的 BLE 输入，再通过原生 USB 在 Windows / Steam 上切换成 Pro2 / Nintendo、Xbox / XInput 或 DualSense-like 三种手柄身份。
+Final release: **V5.9.0**
 
-## 下载
+This repository contains the final ESP32-S3 firmware and Windows Manager for a three-mode wireless receiver bridge for the real Switch 2 Pro / Pro2 controller.
 
-推荐直接使用 GitHub Release 里的 All-in-one EXE：
+The project is archived as a finished personal hardware/software build. No further feature updates are planned.
 
-[下载 V5.8.3 Manager](https://github.com/LeonChrome/y700-switch2-pro-bridge/releases/tag/v5.8.3)
+## Download
 
-EXE 内置固件、esptool、刷写流程、BLE 控制和常用测试工具。普通用户不需要手动安装 ESP-IDF，也不需要从仓库目录里挑固件文件。
+Use the all-in-one Windows Manager:
 
-## V5.8 功能
+[release/v5.9/PRO2手柄无线接收器控制板-aio-v5.9.0.exe](release/v5.9/PRO2%E6%89%8B%E6%9F%84%E6%97%A0%E7%BA%BF%E6%8E%A5%E6%94%B6%E5%99%A8%E6%8E%A7%E5%88%B6%E6%9D%BF-aio-v5.9.0.exe)
 
-- 三模切换：Pro2 / Nintendo、Xbox / XInput、DualSense-like。
-- 真实 Pro2 BLE 输入：按键、方向键、摇杆、扳机、C、GL、GR、Home、Capture。
-- 摇杆满量程修正：解决主机侧只能推到约 80% 的问题。
-- 摇杆中心吸附：静止附近统一压回协议中心，减少 tester 里轻微偏移。
-- 普通震动：三种 USB 身份都走 normalized rumble，再回传到真实 Pro2。
-- BLE 管理：扫描、列表、连接目标、断开、重连上次、自动重连开关。
-- 状态检查：串口、USB 身份、BLE 状态、输入状态、震动状态。
-- 离线可用：没插 ESP32 时界面不会卡死，串口刷新不会主动打开 COM 口。
-- 安全切换：刷写或切换进行中会阻止重复点击，避免并发 esptool 冲突。
+SHA256:
 
-## 三种模式
+```text
+4dcbf9c19ba9f493b316bb35aba3b994ff555a876f7246ff42ba43090cd84137
+```
 
-| 模式 | USB 身份 | 适合场景 |
+The EXE bundles:
+
+- V5.9 firmware profiles
+- esptool
+- Windows flashing flow
+- BLE scan/connect controls
+- USB identity checks
+- Pro2 rumble tools
+- XInput rumble probe
+
+## What It Does
+
+An ESP32-S3 board connects to the real controller over BLE, then exposes one of three USB controller identities to Windows / Steam:
+
+| Mode | USB identity | Main use |
 | --- | --- | --- |
-| Pro2 / Nintendo | Switch Pro / Pro2 风格 HID | 日常使用、Steam、Pro2 普通震动 |
-| Xbox / XInput | Xbox 360 / XInput 风格 | 对 XInput 兼容更好的游戏，例如部分射击游戏 |
-| DualSense-like | DualSense 风格 HID + 控制器音频实验端点 | DualSense-like 兼容性测试、普通震动验证 |
+| Pro2 / Nintendo | Nintendo Switch Pro style HID, `057E:2069` | Best default mode for Steam Input and Pro2-style layout |
+| Xbox / XInput | Xbox 360 style, `045E:028E` | Games that prefer XInput |
+| DualSense-like | DualSense-style HID/audio experiment, `054C:0CE6` | Compatibility and haptic-audio experiments |
 
-V5.8 只承诺普通震动，不承诺原生 DualSense HD haptic 或 Nintendo HD Rumble 2 的完整复刻。DualSense-like 的音频链路保留为实验入口。
+V5.9 focuses on preserving controller feel:
 
-## 使用方式
+- Pro2 / Nintendo mode keeps raw HID report `0x02` rumble authoritative.
+- Xbox / XInput and DualSense-like modes preserve left/right motor routing and strength, then shape Pro2 output frequency dynamically.
+- Left and right stick Y axes use host-expected polarity.
+- BLE auto reconnect keeps daily use working after controller sleep/disconnect.
+- The Manager avoids UI freezes when both native USB and CH343P control USB are connected.
 
-1. 下载并打开 V5.8 Manager EXE。
-2. 用 CH343P / WCH Type-C 口连接 ESP32-S3 控制板。
-3. 在 Manager 中确认 COM 口。
-4. 点击三模切换台上的目标手柄卡片，刷入对应固件。
-5. 刷写完成后，重新插拔 ESP32-S3 原生 USB / OTG 口。
-6. 在 Manager 中执行 USB 检查，确认 Windows 识别到了目标模式。
-7. 连接真实 Pro2 的 BLE，再进入游戏或 tester 测试输入与普通震动。
+## Hardware
 
-## 硬件
+Tested target:
 
-当前实测硬件：
+- ESP32-S3 N16R8
+- 16 MB flash
+- 8 MB Octal PSRAM
+- CH343P / WCH USB serial control port
+- ESP32-S3 native USB / OTG gamepad port
 
-- ESP32-S3-N16R8
-- 16MB flash
-- 8MB PSRAM
-- CH343P / WCH 串口用于刷写、日志和控制
-- ESP32-S3 native USB / OTG 用于输出 USB 手柄身份
+The release firmware uses the safer N16R8 PSRAM profile:
 
-如果你的板子启动异常或反复 watchdog reset，优先确认 flash / PSRAM 配置、USB 线、供电和实际板型是否与 release 固件匹配。
+```text
+CONFIG_SPIRAM_USE_MEMMAP=y
+# CONFIG_SPIRAM_USE_MALLOC is not set
+# CONFIG_SPIRAM_MEMTEST is not set
+```
 
-## 开发命令
+## Basic Use
 
-从仓库根目录执行：
+1. Connect the CH343P control USB port.
+2. Open the V5.9 Manager EXE.
+3. Select or refresh the COM port.
+4. Click the target mode card: Pro2 / Nintendo, Xbox / XInput, or DualSense-like.
+5. Wait for flashing to finish.
+6. Replug the ESP32-S3 native USB / OTG gamepad port.
+7. Click USB check in the Manager.
+8. Connect the real controller over BLE.
+
+See [docs/USER_GUIDE.md](docs/USER_GUIDE.md) for the full user flow.
+
+## Repository Layout
+
+```text
+firmware/
+  esp32s3_switch2_bridge/              Pro2/Nintendo and Xbox/XInput bridge firmware
+  esp32s3_dualsense_identity_experiment/ DualSense-like firmware
+
+windows/
+  v55_manager_app/                     Final V5.9 Windows Manager
+
+tools/
+  esp32s3/                             ESP-IDF build/flash helpers
+  package_v5_9_manager.ps1             Final all-in-one package script
+
+release/
+  v5.9/                                Final EXE and SHA256
+
+docs/
+  USER_GUIDE.md
+  TROUBLESHOOTING.md
+  TECHNICAL_NOTES.md
+```
+
+## Build
+
+For normal users, building is not required. Use the release EXE.
+
+For source builds:
 
 ```powershell
 .\tools\esp32s3\build.ps1 -IdfPath C:\Espressif\v5.3.3\esp-idf
-.\tools\package_v5_8_manager.ps1 -SkipFirmwareBuild
+.\tools\package_v5_9_manager.ps1 -IdfPath C:\Espressif\v5.3.3\esp-idf
 ```
 
-打包后的 EXE 位于：
+To package from already-built firmware:
 
-```text
-.\release\v5.8\
+```powershell
+.\tools\package_v5_9_manager.ps1 -SkipFirmwareBuild
 ```
 
-## English
+## Notes
 
-This project turns an ESP32-S3 board into a wireless receiver for the real Switch 2 Pro Controller. V5.8 is the current mainline release and focuses on three ordinary-rumble USB modes: Pro2 / Nintendo, Xbox / XInput, and DualSense-like.
-
-Download the latest All-in-one Manager from [GitHub Releases](https://github.com/LeonChrome/y700-switch2-pro-bridge/releases/tag/v5.8.3). It bundles the firmware, flasher, BLE controls, USB checks, and test tools.
-
-V5.8 supports real Pro2 BLE input, full-stick scaling, neutral center snapping, mode switching, ordinary rumble forwarding, and offline-safe Manager behavior. It does not claim full native DualSense HD haptics or Nintendo HD Rumble 2 reproduction.
+- This is an independent experimental project.
+- It is not affiliated with Nintendo, Sony, Microsoft, Valve, Espressif, or WCH.
+- Brand names and USB identities are used only to describe compatibility behavior.
 
 ## License
 
-Apache License 2.0. This is an independent experimental project and is not affiliated with Nintendo, Sony, Microsoft, Valve, Espressif, or related companies.
+Apache License 2.0.

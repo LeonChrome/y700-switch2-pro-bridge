@@ -202,9 +202,9 @@ esp_err_t control_protocol_handle_line(const char *line, char *reply, int reply_
                                                 &rumble_hold_ms,
                                                 &rumble_tick_ms,
                                                 &rumble_stop_packets);
-        static char extra[3600];
+        static char extra[3800];
         snprintf(extra, sizeof(extra),
-                 "\"mode\":\"%s\",\"usb\":\"%s\",\"hid_out\":%lu,\"hid_out_last\":\"%02x/%02x/%02x/%02x/%u\",\"hid_get\":%lu,\"hid_get_last\":\"%02x/%02x/%u/%u\",\"bulk\":\"%s\",\"bulk_rx\":%lu,\"bulk_tx\":%lu,\"bulk_tx_done\":%lu,\"bulk_tx_sent\":%lu,\"bulk_last\":\"%02x/%02x\",\"bulk_addr\":\"%08lx\",\"bulk_rx_len\":%u,\"bulk_tx_len\":%u,\"bulk_pending\":\"%u/%u\",\"hid_guard\":\"%s\",\"ble\":\"%s\",\"ble_auto\":\"%s\",\"ble_target\":\"%s\",\"ble_conn_interval_units\":%u,\"ble_conn_interval_us\":%lu,\"ble_conn_latency\":%u,\"ble_conn_supervision\":%u,\"ble_conn_update_start_rc\":%d,\"ble_conn_update_status\":%d,\"ble_conn_update_requests\":%lu,\"ble_input_actual_hz\":%lu,\"ble_input_actual_mhz\":%lu,\"ble_input_last_gap_us\":%lu,\"ble_input_max_gap_us\":%lu,\"hid\":\"%s\",\"test_mode\":\"%s\",\"imu_passthrough\":\"%s\",\"imu_usb_offset\":%u,\"imu_ble_offset\":%u,\"imu_ble_full\":\"%s\",\"imu_transform\":\"%s\",\"imu_usbtest\":\"%s\",\"gyro_bias\":\"%s\",\"gyro_bias_xyz\":\"%ld/%ld/%ld\",\"gyro_cal_remaining\":%u,\"gyro_scale\":%u,\"gyro_deadband\":%d,\"rate_hz\":%u,\"report_actual_hz\":%lu,\"report_actual_mhz\":%lu,\"report_sent\":%lu,\"report_failed\":%lu,\"report_last_gap_us\":%lu,\"report_max_gap_us\":%lu,\"live\":\"%s\",\"live_updates\":%lu,\"live_age_ms\":%lld,\"rumble\":\"%s\",\"rumble_updates\":%lu,\"rumble_writes\":%lu,\"rumble_stops\":%lu,\"rumble_errors\":%lu,\"rumble_scale_percent\":%u,\"rumble_hold_ms\":%u,\"rumble_tick_ms\":%u,\"rumble_stop_packets\":%u,\"version\":\"%s\"",
+                 "\"mode\":\"%s\",\"usb\":\"%s\",\"hid_out\":%lu,\"hid_out_last\":\"%02x/%02x/%02x/%02x/%u\",\"hid_get\":%lu,\"hid_get_last\":\"%02x/%02x/%u/%u\",\"bulk\":\"%s\",\"bulk_rx\":%lu,\"bulk_tx\":%lu,\"bulk_tx_done\":%lu,\"bulk_tx_sent\":%lu,\"bulk_last\":\"%02x/%02x\",\"bulk_addr\":\"%08lx\",\"bulk_rx_len\":%u,\"bulk_tx_len\":%u,\"bulk_pending\":\"%u/%u\",\"hid_guard\":\"%s\",\"ble\":\"%s\",\"ble_auto\":\"%s\",\"ble_target\":\"%s\",\"ble_conn_interval_units\":%u,\"ble_conn_interval_us\":%lu,\"ble_conn_latency\":%u,\"ble_conn_supervision\":%u,\"ble_conn_update_start_rc\":%d,\"ble_conn_update_status\":%d,\"ble_conn_update_requests\":%lu,\"ble_input_actual_hz\":%lu,\"ble_input_actual_mhz\":%lu,\"ble_input_last_gap_us\":%lu,\"ble_input_max_gap_us\":%lu,\"hid\":\"%s\",\"test_mode\":\"%s\",\"imu_passthrough\":\"%s\",\"imu_usb_offset\":%u,\"imu_ble_offset\":%u,\"imu_ble_full\":\"%s\",\"imu_transform\":\"%s\",\"imu_usbtest\":\"%s\",\"gyro_bias\":\"%s\",\"gyro_bias_xyz\":\"%ld/%ld/%ld\",\"gyro_cal_remaining\":%u,\"gyro_scale\":%u,\"gyro_deadband\":%d,\"rate_hz\":%u,\"report_actual_hz\":%lu,\"report_actual_mhz\":%lu,\"report_sent\":%lu,\"report_failed\":%lu,\"report_last_gap_us\":%lu,\"report_max_gap_us\":%lu,\"live\":\"%s\",\"live_updates\":%lu,\"live_age_ms\":%lld,\"rumble\":\"%s\",\"rumble_updates\":%lu,\"rumble_writes\":%lu,\"rumble_stops\":%lu,\"rumble_errors\":%lu,\"rumble_preset_ignored\":%lu,\"rumble_scale_percent\":%u,\"rumble_hold_ms\":%u,\"rumble_tick_ms\":%u,\"rumble_stop_packets\":%u,\"version\":\"%s\"",
                  device_mode_to_string(device_config_get_mode()),
                  usb_hid_device_state_string(),
                  (unsigned long)usb_hid_device_out_count(),
@@ -275,6 +275,7 @@ esp_err_t control_protocol_handle_line(const char *line, char *reply, int reply_
                  (unsigned long)usb_switch2_vendor_hd_rumble_write_count(),
                  (unsigned long)usb_switch2_vendor_hd_rumble_stop_count(),
                  (unsigned long)usb_switch2_vendor_hd_rumble_error_count(),
+                 (unsigned long)usb_switch2_vendor_hd_rumble_preset_ignored_count(),
                  (unsigned)rumble_scale_percent,
                  (unsigned)rumble_hold_ms,
                  (unsigned)rumble_tick_ms,
@@ -390,6 +391,7 @@ esp_err_t control_protocol_handle_line(const char *line, char *reply, int reply_
         if (err != ESP_OK) {
             return json_error(reply, reply_len, "ble auto", "failed to save BLE autoconnect");
         }
+        ble_central_start_auto_reconnect();
         return json_ok(reply, reply_len, "ble auto", "\"ble_auto\":\"on\"");
     }
     if (strcmp(cmd, "ble auto off") == 0 || strcmp(cmd, "ble autoconnect off") == 0) {

@@ -1,5 +1,27 @@
+# Local build output
 build/
+work/
 logs/
+bin/
+obj/
+.vs/
+
+# Generated ESP-IDF state
+firmware/esp32s3_switch2_bridge/build/
+firmware/esp32s3_switch2_bridge/managed_components/
+firmware/esp32s3_switch2_bridge/sdkconfig
+firmware/esp32s3_switch2_bridge/sdkconfig.old
+firmware/esp32s3_dualsense_identity_experiment/build/
+firmware/esp32s3_dualsense_identity_experiment/managed_components/
+firmware/esp32s3_dualsense_identity_experiment/sdkconfig
+firmware/esp32s3_dualsense_identity_experiment/sdkconfig.old
+
+# Local tooling output
+tools/*.exe
+tools/*.log
+tools/steam_input_probe_runtime/steam_api64.dll
+
+# Temporary files
 *.log
 *.tmp
 *.bak
@@ -9,34 +31,9 @@ logs/
 *.ilk
 *.obj
 *.class
-bin/
-obj/
-.vs/
 *.zip
-release/*.exe
-tools/*.exe
-tools/steam_input_probe_runtime/steam_api64.dll
-SUCCESS_MILESTONE_20260525_V3.md
-release/**/SUCCESS_MILESTONE_20260525_V3.md
-release/v0.1.0-experimental/
-release/esp32s3-pro2-bridge-v*/
-release/esp32s3-pro2-bridge-firmware-v*/
-firmware/esp32s3_switch2_bridge/managed_components/
-firmware/esp32s3_switch2_bridge/sdkconfig
-firmware/esp32s3_switch2_bridge/sdkconfig.old
-firmware/esp32s3_dualsense_identity_experiment/managed_components/
-firmware/esp32s3_dualsense_identity_experiment/sdkconfig
-firmware/esp32s3_dualsense_identity_experiment/sdkconfig.old
-eim_config.toml
-config/
-windows/rate_manager_app/
-build_bridge_rate_manager.ps1
-STABLE_CHECKPOINT_*.md
-work/
-research/upstream/
 
-# Keep release artifacts, source jars, and the Windows launcher in the repo.
+# Keep final release artifacts tracked.
 !release/
-!*.jar
-!Y700Switch2Launcher.exe
-!release/**/Y700Switch2Launcher.exe
+!release/v5.9/
+!release/v5.9/**

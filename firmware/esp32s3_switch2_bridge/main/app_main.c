@@ -207,36 +207,10 @@ static void hid_report_task(void *arg)
     }
 }
 
-static void ble_autoconnect_task(void *arg)
-{
-    (void)arg;
-    vTaskDelay(pdMS_TO_TICKS(2500));
-
-    if (!device_config_get_ble_autoconnect()) {
-        APP_LOGI(TAG, "BLE autoconnect disabled");
-        vTaskDelete(NULL);
-        return;
-    }
-
-    for (int attempt = 1; attempt <= 10; attempt++) {
-        esp_err_t err = ble_central_reconnect_saved_or_scan();
-        if (err == ESP_OK) {
-            APP_LOGI(TAG, "BLE autoconnect started attempt=%d", attempt);
-            break;
-        }
-        APP_LOGW(TAG, "BLE autoconnect attempt=%d failed err=%d; retrying",
-                 attempt,
-                 (int)err);
-        vTaskDelay(pdMS_TO_TICKS(1000));
-    }
-
-    vTaskDelete(NULL);
-}
-
 void app_main(void)
 {
     app_log_init();
-    APP_LOGI(TAG, "ESP32-S3 Switch 2 bridge firmware 5.0.0 starting");
+    APP_LOGI(TAG, "ESP32-S3 Switch 2 bridge firmware 5.9.0 starting");
     APP_LOGI(TAG, "Stable path: Steam Switch Pro/Pro2 layout, BLE input, raw-like gyro, rumble, and boot autoconnect are verified");
 
     esp_err_t nvs_err = nvs_flash_init();
@@ -257,5 +231,4 @@ void app_main(void)
 
     xTaskCreate(control_task, "control_task", 6144, NULL, 6, NULL);
     xTaskCreate(hid_report_task, "hid_report_task", 4096, NULL, 5, NULL);
-    xTaskCreate(ble_autoconnect_task, "ble_autoconnect_task", 4096, NULL, 4, NULL);
 }

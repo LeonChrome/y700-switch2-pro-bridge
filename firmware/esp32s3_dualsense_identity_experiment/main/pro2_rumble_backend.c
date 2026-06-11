@@ -312,6 +312,7 @@ static void rumble_task(void *arg)
 
             if (err == ESP_OK && (raw02_active || active) && now_us >= next_log_us) {
                 uint8_t preview_left[5];
+                uint8_t preview_right[5];
                 next_log_us = now_us + 500000LL;
                 if (raw02_active) {
                     memcpy(preview_left, raw02_left, sizeof(preview_left));
@@ -319,7 +320,7 @@ static void rumble_task(void *arg)
                     normalized_rumble_build_pro2_pair(&rumble,
                                                       PRO2_RUMBLE_MAX_AMPLITUDE,
                                                       preview_left,
-                                                      raw02_right);
+                                                      preview_right);
                 }
                 ESP_LOGI(TAG,
                          "[DS5_RUMBLE] tick=true source=%s writes=%lu errors=%lu data=%02x%02x%02x%02x%02x",

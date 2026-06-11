@@ -113,7 +113,10 @@ public sealed class MainViewModel : INotifyPropertyChanged
             OnPropertyChanged(nameof(CanUseBleButtons));
             OnPropertyChanged(nameof(CanUsePro2ToolButtons));
             OnPropertyChanged(nameof(CanUseDualSenseToolButtons));
+            OnPropertyChanged(nameof(CanUseXboxToolButtons));
             OnPropertyChanged(nameof(CanUseMonitorButtons));
+            OnPropertyChanged(nameof(CanStartMonitorButton));
+            OnPropertyChanged(nameof(CanStopMonitorButton));
             OnPropertyChanged(nameof(CanUseAudioPatternButton));
             OnPropertyChanged(nameof(CanSendCustomSerialCommand));
             OnPropertyChanged(nameof(DualSenseToolStateText));
@@ -201,6 +204,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             OnPropertyChanged(nameof(OverallBrush));
             OnPropertyChanged(nameof(OverallStatusBackgroundBrush));
             OnPropertyChanged(nameof(OverallStatusForegroundBrush));
+            NotifyModeStateChanged();
         }
     }
     public bool GameMonitorRunning
@@ -213,10 +217,11 @@ public sealed class MainViewModel : INotifyPropertyChanged
             OnPropertyChanged(nameof(OverallBrush));
             OnPropertyChanged(nameof(OverallStatusBackgroundBrush));
             OnPropertyChanged(nameof(OverallStatusForegroundBrush));
+            NotifyModeStateChanged();
         }
     }
 
-    public string FirmwareSummary => "V5.8 管理器内置：Pro2 / Nintendo、Xbox / XInput、DualSense-like、HID 纯恢复固件、嵌入式 esptool 和 XInput 震动探针。";
+    public string FirmwareSummary => "V5.9 管理器内置：Pro2 / Nintendo、Xbox / XInput、DualSense-like、HID 纯恢复固件、嵌入式 esptool 和 XInput 震动探针。";
     public string SafetySummary => "Live 转发默认不自动开启。游戏监听会保持 HD-only 过滤，普通 PCM 只计入 blocked_pcm，不会被盲目推送。";
     public string LogText => log.ToString();
     public Brush OverallBrush => Busy || GameMonitorRunning
@@ -239,19 +244,22 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public bool IsPro2ToolsEnabled => desiredMode == OutputModeId.Pro2;
     public bool IsXboxToolsEnabled => desiredMode == OutputModeId.Xbox;
     public bool IsUnknownMode => currentMode == DeviceUiMode.Unknown || currentMode == DeviceUiMode.Recovery;
-    public bool CanSwitchModes => !Busy && !flashInProgress;
-    public bool CanUseBleButtons => HasUsableSerialCandidate;
-    public bool CanUsePro2ToolButtons => HasUsableSerialCandidate && desiredMode == OutputModeId.Pro2 && currentMode == DeviceUiMode.Pro2;
-    public bool CanUseDualSenseToolButtons => HasUsableSerialCandidate && desiredMode == OutputModeId.DualSenseLike && currentMode == DeviceUiMode.DualSense;
+    public bool CanSwitchModes => !Busy && !flashInProgress && !GameMonitorRunning;
+    public bool CanUseBleButtons => HasUsableSerialCandidate && !Busy && !flashInProgress && !GameMonitorRunning;
+    public bool CanUsePro2ToolButtons => HasUsableSerialCandidate && desiredMode == OutputModeId.Pro2 && currentMode == DeviceUiMode.Pro2 && !Busy && !flashInProgress && !GameMonitorRunning;
+    public bool CanUseDualSenseToolButtons => HasUsableSerialCandidate && desiredMode == OutputModeId.DualSenseLike && currentMode == DeviceUiMode.DualSense && !Busy && !flashInProgress && !GameMonitorRunning;
+    public bool CanUseXboxToolButtons => HasUsableSerialCandidate && desiredMode == OutputModeId.Xbox && currentMode == DeviceUiMode.Xbox && !Busy && !flashInProgress && !GameMonitorRunning;
     public bool CanUseMonitorButtons => HasUsableSerialCandidate && desiredMode == OutputModeId.DualSenseLike;
-    public bool CanUseAudioPatternButton => HasUsableSerialCandidate && desiredMode == OutputModeId.DualSenseLike;
-    public bool CanSendCustomSerialCommand => HasUsableSerialCandidate;
+    public bool CanStartMonitorButton => HasUsableSerialCandidate && desiredMode == OutputModeId.DualSenseLike && currentMode == DeviceUiMode.DualSense && !Busy && !flashInProgress && !GameMonitorRunning;
+    public bool CanStopMonitorButton => HasUsableSerialCandidate && desiredMode == OutputModeId.DualSenseLike && GameMonitorRunning;
+    public bool CanUseAudioPatternButton => HasUsableSerialCandidate && desiredMode == OutputModeId.DualSenseLike && currentMode == DeviceUiMode.DualSense && !Busy && !flashInProgress && !GameMonitorRunning;
+    public bool CanSendCustomSerialCommand => HasUsableSerialCandidate && !Busy && !flashInProgress && !GameMonitorRunning;
     public string DesiredModeLabel => GetModeLabel(desiredMode);
     public string DesiredModeDescription => GetModeDescription(desiredMode);
     public string ModeDeckHint => desiredMode switch
     {
         OutputModeId.DualSenseLike => "点击卡片可切换到 DualSense-like 模式。刷写后管理器会等待 USB 重新枚举并校验身份。",
-        OutputModeId.Pro2 => "点击卡片可切换到 Pro2 / Nintendo 模式。这是当前最稳定的普通震动路线。",
+        OutputModeId.Pro2 => "点击卡片可切换到 Pro2 / Nintendo 模式。这是当前最稳定的原始 HID 0x02 震动优先路线。",
         OutputModeId.Xbox => "点击卡片可切换到 Xbox / XInput 模式。刷写后 USB 应枚举为 045E:028E，普通震动会回传到 Pro2。",
         _ => "点击手柄卡片即可设置目标模式；如果校验失败，界面会保留回退提示。"
     };
@@ -266,7 +274,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public string CurrentModeDescription => currentMode switch
     {
         DeviceUiMode.DualSense => "USB 当前已枚举为 DualSense-like，可使用 DualSense 实验工具。",
-        DeviceUiMode.Pro2 => "USB 当前已枚举为 Pro2 / Nintendo，适合稳定输入和普通震动测试。",
+        DeviceUiMode.Pro2 => "USB 当前已枚举为 Pro2 / Nintendo，适合稳定输入和原始/普通震动测试。",
         DeviceUiMode.Xbox => "USB 当前已枚举为 Xbox / XInput，适合 Steam、Apex 和普通双马达震动兼容性测试。",
         DeviceUiMode.Recovery => "当前看起来是最小化 HID 恢复固件，用于救援重刷和枚举恢复。",
         _ => "请先执行 USB 检查。在确认模式前，所有真实震动发送都会保持保守策略。"
@@ -283,7 +291,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public string Pro2ToolStateText => DescribeToolState(
         OutputModeId.Pro2,
         currentMode == DeviceUiMode.Pro2,
-        "当前 USB 身份就是 Pro2 / Nintendo 普通震动桥接。",
+        "当前 USB 身份就是 Pro2 / Nintendo 原始 0x02 + 普通兼容震动桥接。",
         "已选 Pro2 / Nintendo 面板，但 USB 还没有切到 Pro2 / Nintendo。");
     public string DualSenseCardStateText => GetModeStateText(OutputModeId.DualSenseLike, managerReady: true);
     public string Pro2CardStateText => GetModeStateText(OutputModeId.Pro2, managerReady: true);
@@ -463,7 +471,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         ClearLogCommand = new RelayCommand(_ => { log.Clear(); OnPropertyChanged(nameof(LogText)); });
         SaveLogCommand = new RelayCommand(_ => SaveLog());
 
-        AppendLog("PRO2 手柄无线接收器控制板 V5.8 已就绪。此 EXE 内置固件与 esptool，单击刷写时无需额外安装 ESP-IDF。");
+        AppendLog("PRO2 手柄无线接收器控制板 V5.9 已就绪。此 EXE 内置固件与 esptool，单击刷写时无需额外安装 ESP-IDF。");
         if (!string.IsNullOrWhiteSpace(settings.LastBleTarget))
         {
             bleTarget = settings.LastBleTarget;
@@ -601,7 +609,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             MessageBox.Show(
                 owner,
                 profile.Label + " 目前还是预留位，暂时没有接入完整后端。\n\n管理器已经保留好了模式位和切换语义，后续补固件时不需要再重做界面。",
-                "V5.8 模式预留",
+                "V5.9 模式预留",
                 MessageBoxButton.OK,
                 MessageBoxImage.Information);
             return;
@@ -652,6 +660,14 @@ public sealed class MainViewModel : INotifyPropertyChanged
 #pragma warning disable CS0162
     private async Task FlashAsync(string profile, FlashMode mode)
     {
+        if (Busy || flashInProgress || GameMonitorRunning)
+        {
+            ModeSwitchStatus = "已有刷写、模式切换、游戏监听或设备操作正在进行，已忽略新的刷写请求。";
+            NextAction = "请等待当前任务结束后再切换或刷写。";
+            AppendLog("[FLASH_BUSY] ignored_profile=" + profile + " busy=" + Busy + " flashing=" + flashInProgress + " monitor=" + GameMonitorRunning);
+            return;
+        }
+
         if (!await flashLock.WaitAsync(0))
         {
             ModeSwitchStatus = "已有刷写或模式切换正在进行，已忽略新的刷写请求。";
@@ -702,13 +718,26 @@ public sealed class MainViewModel : INotifyPropertyChanged
             AppendLog("[MODE_SWITCH_FLASH] profile=" + profile +
                       " port=" + SelectedPort.PortName +
                       " desired=" + desiredMode);
-            var progress = new Progress<string>(AppendLog);
-            if (!await SerialCommandClient.CloseAsync(1000))
-            {
-                AppendLog("[SERIAL] close before flash timed out; continuing with esptool, UI remains responsive");
-            }
             using var flashTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(150));
-            await flasher.FlashAsync(SelectedPort.PortName, profile, mode, progress, flashTimeout.Token);
+            var progress = new Progress<string>(AppendLog);
+            await serialLock.WaitAsync(flashTimeout.Token);
+            try
+            {
+                AppendLog("[SERIAL] closing persistent " + SelectedPort.PortName + " before esptool");
+                if (!await SerialCommandClient.CloseAsync(5000))
+                {
+                    throw new InvalidOperationException("刷写前无法释放 " + SelectedPort.PortName + "。请关闭串口监视器、旧版 Manager、PowerShell send_command/monitor，或拔插 CH343P 控制口后重试。");
+                }
+                string flashPort = SelectedPort.PortName;
+                await Task.Delay(250, flashTimeout.Token);
+                await Task.Run(
+                    async () => await flasher.FlashAsync(flashPort, profile, mode, progress, flashTimeout.Token),
+                    flashTimeout.Token);
+            }
+            finally
+            {
+                serialLock.Release();
+            }
             settings.LastPortName = SelectedPort.PortName;
             settings.PreviousSuccessfulProfileId = settings.LastSuccessfulProfileId;
             settings.LastSuccessfulProfileId = profile;
@@ -1073,6 +1102,13 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     private async Task SendAudioPatternAsync()
     {
+        if (!CanUseAudioPatternButton)
+        {
+            AudioStatus = "当前不是可用的 DualSense-like 模式，或已有任务正在运行，已拒绝发送 PCM / 图样自测。";
+            NextAction = "请先切到 DualSense-like，确认 USB 和串口状态后再发送图样。";
+            return;
+        }
+
         string args = "-DeviceName \"" + AudioDeviceName.Replace("\"", "") + "\" -Pattern " +
                       AudioPattern + " -DurationMs " + AudioDurationMs + " -Intensity " + AudioIntensity;
         try
@@ -1142,6 +1178,12 @@ public sealed class MainViewModel : INotifyPropertyChanged
         if (GameMonitorRunning)
         {
             MonitorStatus = "游戏监听已经在运行。";
+            return;
+        }
+        if (!CanStartMonitorButton)
+        {
+            MonitorStatus = "当前不是可用的 DualSense-like 模式，或已有任务正在运行，已拒绝开始监听。";
+            NextAction = "请先切到 DualSense-like，确认 USB 和串口状态后再开始监听。";
             return;
         }
 
@@ -1841,7 +1883,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         return mode switch
         {
             OutputModeId.DualSenseLike => "DualSense-like USB 身份，并保留控制器音频实验链路。",
-            OutputModeId.Pro2 => "面向稳定普通震动路线调好的 Nintendo-like / Pro2 桥接。",
+            OutputModeId.Pro2 => "面向原始 HID 0x02 震动优先路线调好的 Nintendo-like / Pro2 桥接。",
             OutputModeId.Xbox => "真实 Xbox 360 / XInput 风格 USB 后端，普通震动会回传到 Pro2 BLE。",
             OutputModeId.Recovery => "用于重刷与 USB 救援的最小恢复固件。",
             _ => "尚未选择目标模式。"
@@ -2033,7 +2075,10 @@ public sealed class MainViewModel : INotifyPropertyChanged
         OnPropertyChanged(nameof(CanUseBleButtons));
         OnPropertyChanged(nameof(CanUsePro2ToolButtons));
         OnPropertyChanged(nameof(CanUseDualSenseToolButtons));
+        OnPropertyChanged(nameof(CanUseXboxToolButtons));
         OnPropertyChanged(nameof(CanUseMonitorButtons));
+        OnPropertyChanged(nameof(CanStartMonitorButton));
+        OnPropertyChanged(nameof(CanStopMonitorButton));
         OnPropertyChanged(nameof(CanUseAudioPatternButton));
         OnPropertyChanged(nameof(CanSendCustomSerialCommand));
         OnPropertyChanged(nameof(DesiredModeLabel));
@@ -2264,11 +2309,12 @@ public sealed class MainViewModel : INotifyPropertyChanged
         long writes = ReadJsonCounter(status, "rumble_writes");
         long stops = ReadJsonCounter(status, "rumble_stops");
         long errors = ReadJsonCounter(status, "rumble_errors");
+        long presetIgnored = ReadJsonCounter(status, "rumble_preset_ignored");
         long scale = ReadJsonCounter(status, "rumble_scale_percent");
         long holdMs = ReadJsonCounter(status, "rumble_hold_ms");
         long tickMs = ReadJsonCounter(status, "rumble_tick_ms");
         long stopPackets = ReadJsonCounter(status, "rumble_stop_packets");
-        return $"BLE={ble}, rumble={rumble}, updates={updates}, writes={writes}, stops={stops}, errors={errors}, scale={scale}, hold_ms={holdMs}, tick_ms={tickMs}, stop_packets={stopPackets}";
+        return $"BLE={ble}, rumble={rumble}, updates={updates}, writes={writes}, stops={stops}, errors={errors}, preset_ignored={presetIgnored}, scale={scale}, hold_ms={holdMs}, tick_ms={tickMs}, stop_packets={stopPackets}";
     }
 
     private async Task EnsurePro2BridgeReadyAsync()
@@ -2448,6 +2494,13 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     private async Task RunXInputProbeAsync()
     {
+        if (!CanUseXboxToolButtons)
+        {
+            XboxStatus = "当前不是可用的 Xbox / XInput 模式，或已有任务正在运行，已拒绝运行探针。";
+            NextAction = "请先切到 Xbox / XInput，确认 USB 已枚举为 045E:028E 后再运行探针。";
+            return;
+        }
+
         try
         {
             Busy = true;
@@ -2526,7 +2579,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     {
         var dialog = new SaveFileDialog
         {
-            FileName = "v5_8_manager_" + DateTime.Now.ToString("yyyyMMdd_HHmmss") + ".log",
+            FileName = "v5_9_manager_" + DateTime.Now.ToString("yyyyMMdd_HHmmss") + ".log",
             Filter = "Log file|*.log|Text file|*.txt"
         };
         if (dialog.ShowDialog(owner) == true)

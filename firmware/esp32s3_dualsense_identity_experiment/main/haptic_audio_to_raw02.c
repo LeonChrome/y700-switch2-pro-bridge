@@ -20,8 +20,6 @@
 #define RAW02_DEFAULT_SILENCE_TIMEOUT_MS 100
 #define RAW02_DEFAULT_ACTIVITY_THRESHOLD 512
 #define RAW02_REFERENCE_MAX_INTENSITY 96
-#define RAW02_REFERENCE_HIGH_FREQ 0x187
-#define RAW02_REFERENCE_LOW_FREQ 0x112
 
 static const char *TAG = "v5.5_haptic_raw02";
 static portMUX_TYPE s_lock = portMUX_INITIALIZER_UNLOCKED;
@@ -273,6 +271,57 @@ static uint8_t calculate_intensity(uint16_t envelope,
     return clamp_u8_int(value);
 }
 
+static uint16_t mix_raw02_frequency(uint16_t low, uint16_t high, uint8_t intensity)
+{
+    return (uint16_t)(low + (((uint32_t)(high - low) * intensity + 127u) / 255u));
+}
+
+static uint16_t scale_amp_percent(uint16_t amp, uint8_t percent)
+{
+    return (uint16_t)(((uint32_t)amp * percent + 50u) / 100u);
+}
+
+static void choose_mode_shape(haptic_raw02_mode_t mode,
+                              uint8_t intensity,
+                              uint16_t *high_freq,
+                              uint16_t *low_freq,
+                              uint8_t *high_amp_percent,
+                              uint8_t *low_amp_percent)
+{
+    switch (mode) {
+    case HAPTIC_RAW02_MODE_TICK:
+        *high_freq = mix_raw02_frequency(0x1c8, 0x1f2, intensity);
+        *low_freq = mix_raw02_frequency(0x0c8, 0x0e8, intensity);
+        *high_amp_percent = 100;
+        *low_amp_percent = 28;
+        break;
+    case HAPTIC_RAW02_MODE_PUNCH:
+        *high_freq = mix_raw02_frequency(0x158, 0x198, intensity);
+        *low_freq = mix_raw02_frequency(0x0a8, 0x0d8, intensity);
+        *high_amp_percent = 68;
+        *low_amp_percent = 100;
+        break;
+    case HAPTIC_RAW02_MODE_TEXTURE:
+        *high_freq = mix_raw02_frequency(0x1a8, 0x1f8, intensity);
+        *low_freq = mix_raw02_frequency(0x0f0, 0x130, intensity);
+        *high_amp_percent = 100;
+        *low_amp_percent = 42;
+        break;
+    case HAPTIC_RAW02_MODE_CONTINUOUS:
+        *high_freq = mix_raw02_frequency(0x178, 0x1bc, intensity);
+        *low_freq = mix_raw02_frequency(0x0d8, 0x118, intensity);
+        *high_amp_percent = 78;
+        *low_amp_percent = 100;
+        break;
+    default:
+        *high_freq = mix_raw02_frequency(0x178, 0x1e8, intensity);
+        *low_freq = mix_raw02_frequency(0x0c8, 0x112, intensity);
+        *high_amp_percent = 86;
+        *low_amp_percent = 86;
+        break;
+    }
+}
+
 static void build_side(uint8_t intensity,
                        haptic_raw02_mode_t mode,
                        uint8_t out[HAPTIC_RAW02_SIDE_BYTES])
@@ -298,10 +347,22 @@ static void build_side(uint8_t intensity,
     if (source_amp > UINT16_MAX) {
         source_amp = UINT16_MAX;
     }
-    encode_switch_rumble_frame(RAW02_REFERENCE_HIGH_FREQ,
-                               (uint16_t)source_amp,
-                               RAW02_REFERENCE_LOW_FREQ,
-                               (uint16_t)source_amp,
+
+    uint16_t high_freq = 0;
+    uint16_t low_freq = 0;
+    uint8_t high_amp_percent = 100;
+    uint8_t low_amp_percent = 100;
+    choose_mode_shape(mode,
+                      shaped,
+                      &high_freq,
+                      &low_freq,
+                      &high_amp_percent,
+                      &low_amp_percent);
+
+    encode_switch_rumble_frame(high_freq,
+                               scale_amp_percent((uint16_t)source_amp, high_amp_percent),
+                               low_freq,
+                               scale_amp_percent((uint16_t)source_amp, low_amp_percent),
                                out + 1);
 }
 

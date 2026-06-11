@@ -198,10 +198,10 @@
                 <StackPanel>
                     <StackPanel Orientation="Horizontal">
                         <Border Background="#E0F2FE" BorderBrush="#7DD3FC" BorderThickness="1" CornerRadius="15" Padding="10,4" Margin="0,0,10,0">
-                            <TextBlock Text="V5.8" Foreground="#0F172A" FontSize="12" FontWeight="SemiBold"/>
+                            <TextBlock Text="V5.9" Foreground="#0F172A" FontSize="12" FontWeight="SemiBold"/>
                         </Border>
                         <Border Background="#172554" BorderBrush="#60A5FA" BorderThickness="1" CornerRadius="15" Padding="10,4">
-                            <TextBlock Text="V5.8 普通震动版" Foreground="#FFFFFF" FontSize="12" FontWeight="SemiBold"/>
+                            <TextBlock Text="V5.9 震动保真版" Foreground="#FFFFFF" FontSize="12" FontWeight="SemiBold"/>
                         </Border>
                     </StackPanel>
                     <TextBlock Text="PRO2 手柄无线接收器控制板"
@@ -209,7 +209,7 @@
                                FontSize="30"
                                FontWeight="SemiBold"
                                Margin="0,12,0,6"/>
-                    <TextBlock Text="统一控制 Pro2 / Nintendo、Xbox / XInput、DualSense-like 三种模式。这一版重点强化稳定切换、普通震动和更完整的前端体验。"
+                    <TextBlock Text="统一控制 Pro2 / Nintendo、Xbox / XInput、DualSense-like 三种模式。这一版重点强化震动保真、模式互锁和更完整的前端体验。"
                                Foreground="#CBD5E1"
                                FontSize="14"
                                TextWrapping="Wrap"
@@ -306,7 +306,7 @@
                             <WrapPanel Margin="-4,0,0,0">
                                 <Button Style="{StaticResource SubtleButton}" Content="joy.cpl" Command="{Binding OpenJoyCommand}"/>
                                 <Button Style="{StaticResource SubtleButton}" Content="设备管理器" Command="{Binding OpenDeviceManagerCommand}"/>
-                                <Button Style="{StaticResource SubtleButton}" Content="HID 恢复固件" Command="{Binding FlashHidOnlyCommand}"/>
+                                <Button Style="{StaticResource SubtleButton}" Content="HID 恢复固件" Command="{Binding FlashHidOnlyCommand}" IsEnabled="{Binding CanSwitchModes}"/>
                             </WrapPanel>
                             <TextBlock Style="{StaticResource MetricLabel}" Text="下一步动作" Margin="0,12,0,4"/>
                             <TextBlock Style="{StaticResource MetricValue}" Text="{Binding NextAction}"/>
@@ -411,7 +411,7 @@
                                     </Border>
                                     <TextBlock Style="{StaticResource HintText}"
                                                Margin="0,14,0,0"
-                                               Text="红白路线。最适合稳定输入、普通震动以及 BLE Pro2 调试，也是当前最实用的日常模式。"/>
+                                               Text="红白路线。最适合稳定输入、原始 HID 0x02 震动以及 BLE Pro2 调试，也是当前最实用的日常模式。"/>
                                 </StackPanel>
                             </Button>
 
@@ -478,13 +478,13 @@
                     <StackPanel Grid.Column="0">
                         <Border Style="{StaticResource Panel}" Visibility="{Binding Pro2LabVisibility}">
                             <StackPanel IsEnabled="{Binding CanUsePro2ToolButtons}">
-                                <TextBlock Style="{StaticResource SectionTitle}" Text="Pro2 普通震动台"/>
+                                <TextBlock Style="{StaticResource SectionTitle}" Text="Pro2 原始震动台"/>
                                 <TextBlock Style="{StaticResource HintText}" Text="{Binding Pro2ToolStateText}" Margin="0,0,0,10"/>
 
                                 <WrapPanel Margin="-4,0,0,0">
                                     <Button Style="{StaticResource SubtleButton}" Content="读取状态" Command="{Binding Pro2RumbleStatusCommand}"/>
-                                    <Button Style="{StaticResource SubtleButton}" Content="轻震" Command="{Binding Pro2RumbleLightCommand}"/>
-                                    <Button Style="{StaticResource SubtleButton}" Content="重震" Command="{Binding Pro2RumbleStrongCommand}"/>
+                                    <Button Style="{StaticResource SubtleButton}" Content="轻震自检" Command="{Binding Pro2RumbleLightCommand}"/>
+                                    <Button Style="{StaticResource SubtleButton}" Content="重震自检" Command="{Binding Pro2RumbleStrongCommand}"/>
                                     <Button Style="{StaticResource RoseButton}" Content="停止" Command="{Binding Pro2RumbleStopCommand}"/>
                                 </WrapPanel>
 
@@ -540,7 +540,7 @@
                         </Border>
 
                         <Border Style="{StaticResource Panel}" Visibility="{Binding DualSenseLabDisabledVisibility}">
-                            <StackPanel>
+                            <StackPanel IsEnabled="{Binding CanUseXboxToolButtons}">
                                 <TextBlock Style="{StaticResource SectionTitle}" Text="DualSense 实验台"/>
                                 <TextBlock Style="{StaticResource HintText}" Text="当前并不处于 DualSense-like 模式，因此这些按钮会收起，避免误触发错误模式下的专属操作。"/>
                                 <TextBlock Style="{StaticResource HintText}" Text="如果要继续测试音频、震动或游戏监听，请先点击上方的 DualSense-like 卡片切换。" Margin="0,8,0,0"/>
@@ -564,7 +564,7 @@
                                     <TextBox Grid.Column="1" Style="{StaticResource InputBox}" Text="{Binding XInputProbeLow}" Margin="0,0,6,0" ToolTip="左马达 0..65535"/>
                                     <TextBox Grid.Column="2" Style="{StaticResource InputBox}" Text="{Binding XInputProbeHigh}" Margin="0,0,6,0" ToolTip="右马达 0..65535"/>
                                     <TextBlock Grid.Column="3" VerticalAlignment="Center" Foreground="{StaticResource Muted}" Text="运行主机侧 XInput 识别与双马达普通震动探针，并写出日志。"/>
-                                    <Button Grid.Column="4" Style="{StaticResource PrimaryButton}" Content="运行探针" Command="{Binding RunXInputProbeCommand}" AutomationProperties.AutomationId="RunXInputProbeButton"/>
+                                    <Button Grid.Column="4" Style="{StaticResource PrimaryButton}" Content="运行探针" Command="{Binding RunXInputProbeCommand}" IsEnabled="{Binding CanUseXboxToolButtons}" AutomationProperties.AutomationId="RunXInputProbeButton"/>
                                 </Grid>
 
                                 <Grid Margin="0,12,0,0">
@@ -600,8 +600,8 @@
                                     </StackPanel>
                                     <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
                                         <TextBox Style="{StaticResource InputBox}" Width="74" Text="{Binding GameMonitorSeconds}" ToolTip="10..900"/>
-                                        <Button Style="{StaticResource PrimaryButton}" Content="开始监听" Command="{Binding StartGameMonitorCommand}" IsEnabled="{Binding CanUseMonitorButtons}"/>
-                                        <Button Style="{StaticResource RoseButton}" Content="停止监听" Command="{Binding StopGameMonitorCommand}" IsEnabled="{Binding CanUseMonitorButtons}"/>
+                                        <Button Style="{StaticResource PrimaryButton}" Content="开始监听" Command="{Binding StartGameMonitorCommand}" IsEnabled="{Binding CanStartMonitorButton}"/>
+                                        <Button Style="{StaticResource RoseButton}" Content="停止监听" Command="{Binding StopGameMonitorCommand}" IsEnabled="{Binding CanStopMonitorButton}"/>
                                     </StackPanel>
                                 </Grid>
                                 <TextBlock Style="{StaticResource HintText}" Text="{Binding MonitorStatus}" Margin="0,10,0,0"/>

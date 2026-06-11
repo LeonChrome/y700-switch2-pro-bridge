@@ -41,6 +41,8 @@ static const char *TAG = "ble";
 #define BLE_FAST_CONN_SUPERVISION_TIMEOUT 100
 #define BLE_FAST_SCAN_ITVL 16
 #define BLE_FAST_SCAN_WINDOW 16
+#define BLE_AUTO_RECONNECT_INITIAL_DELAY_MS 2500
+#define BLE_AUTO_RECONNECT_INTERVAL_MS 3000
 
 typedef enum {
     BLE_STATE_IDLE = 0,
@@ -124,6 +126,8 @@ static ble_central_conn_metrics_t s_conn_metrics;
 static bool s_imu_debug_enabled;
 static uint32_t s_imu_debug_every = 32;
 static uint32_t s_imu_debug_seen;
+static TaskHandle_t s_auto_reconnect_task;
+static bool s_suppress_next_auto_reconnect;
 
 static const struct ble_gap_conn_params s_fast_connect_params = {
     .scan_itvl = BLE_FAST_SCAN_ITVL,
@@ -144,6 +148,84 @@ static const struct ble_gap_upd_params s_fast_update_params = {
     .min_ce_len = 0,
     .max_ce_len = 0,
 };
+
+static void ble_auto_reconnect_task(void *arg)
+{
+    uint32_t delay_ms = (uint32_t)(uintptr_t)arg;
+    if (delay_ms > 0) {
+        vTaskDelay(pdMS_TO_TICKS(delay_ms));
+    }
+
+    uint32_t attempt = 0;
+    while (device_config_get_ble_autoconnect()) {
+        if (s_connected || s_state == BLE_STATE_CONNECTED) {
+            break;
+        }
+
+        if (s_host_ready &&
+            s_state == BLE_STATE_IDLE &&
+            !ble_gap_disc_active() &&
+            !ble_gap_conn_active()) {
+            attempt++;
+            esp_err_t err = ble_central_reconnect_saved_or_scan();
+            APP_LOGI(TAG, "BLE auto reconnect attempt=%lu started=%s err=%s",
+                     (unsigned long)attempt,
+                     err == ESP_OK ? "true" : "false",
+                     esp_err_to_name(err));
+        }
+
+        vTaskDelay(pdMS_TO_TICKS(BLE_AUTO_RECONNECT_INTERVAL_MS));
+    }
+
+    APP_LOGI(TAG, "BLE auto reconnect task stopped state=%s auto=%s",
+             ble_central_state_string(),
+             device_config_get_ble_autoconnect() ? "on" : "off");
+    s_auto_reconnect_task = NULL;
+    vTaskDelete(NULL);
+}
+
+static void schedule_auto_reconnect(const char *reason, uint32_t delay_ms)
+{
+    if (!device_config_get_ble_autoconnect()) {
+        APP_LOGI(TAG, "BLE auto reconnect not scheduled reason=%s auto=off",
+                 reason ? reason : "<none>");
+        return;
+    }
+    if (s_connected || s_state == BLE_STATE_CONNECTED) {
+        return;
+    }
+    if (s_auto_reconnect_task) {
+        return;
+    }
+
+    BaseType_t created = xTaskCreate(ble_auto_reconnect_task,
+                                     "ble_reconnect",
+                                     4096,
+                                     (void *)(uintptr_t)delay_ms,
+                                     4,
+                                     &s_auto_reconnect_task);
+    if (created != pdPASS) {
+        s_auto_reconnect_task = NULL;
+        APP_LOGE(TAG, "BLE auto reconnect task create failed reason=%s",
+                 reason ? reason : "<none>");
+        return;
+    }
+
+    APP_LOGI(TAG, "BLE auto reconnect scheduled reason=%s delay_ms=%lu",
+             reason ? reason : "<none>",
+             (unsigned long)delay_ms);
+}
+
+static void handle_auto_reconnect_after_drop(const char *reason)
+{
+    if (s_suppress_next_auto_reconnect) {
+        s_suppress_next_auto_reconnect = false;
+        APP_LOGI(TAG, "BLE auto reconnect suppressed reason=%s",
+                 reason ? reason : "<none>");
+        return;
+    }
+    schedule_auto_reconnect(reason, BLE_AUTO_RECONNECT_INTERVAL_MS);
+}
 
 static const uint8_t s_init_cmd_0[] = {0x03, 0x91, 0x01, 0x0d, 0x00, 0x08, 0x00, 0x00, 0x01, 0x00, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
 static const uint8_t s_init_cmd_1[] = {0x07, 0x91, 0x01, 0x01, 0x00, 0x00, 0x00, 0x00};
@@ -1379,6 +1461,8 @@ static int ble_gap_event(struct ble_gap_event *event, void *arg)
         return 0;
 
     case BLE_GAP_EVENT_DISC_COMPLETE:
+        {
+        bool auto_scan = s_auto_scan_connect;
         APP_LOGI(TAG, "BLE scan complete reason=%d seen=%lu",
                  event->disc_complete.reason,
                  (unsigned long)s_scan_seen_count);
@@ -1395,8 +1479,13 @@ static int ble_gap_event(struct ble_gap_event *event, void *arg)
             (void)ble_central_connect_addr(&target, label);
         } else {
             s_auto_scan_connect = false;
+            if (auto_scan) {
+                schedule_auto_reconnect("scan_complete_no_target",
+                                        BLE_AUTO_RECONNECT_INTERVAL_MS);
+            }
         }
         return 0;
+        }
 
     case BLE_GAP_EVENT_CONNECT:
         if (event->connect.status == 0) {
@@ -1420,6 +1509,7 @@ static int ble_gap_event(struct ble_gap_event *event, void *arg)
             s_pending_connect_valid = false;
             clear_conn_metrics();
             APP_LOGW(TAG, "BLE connect failed status=%d", event->connect.status);
+            handle_auto_reconnect_after_drop("connect_failed");
         }
         return 0;
 
@@ -1455,6 +1545,7 @@ static int ble_gap_event(struct ble_gap_event *event, void *arg)
         switch2_state_clear_live();
         clear_conn_metrics();
         APP_LOGI(TAG, "BLE disconnected reason=%d", event->disconnect.reason);
+        handle_auto_reconnect_after_drop("disconnect");
         return 0;
 
     case BLE_GAP_EVENT_NOTIFY_RX:
@@ -1502,6 +1593,7 @@ static void ble_on_sync(void)
 
     s_host_ready = true;
     APP_LOGI(TAG, "NimBLE host ready own_addr_type=%u", s_own_addr_type);
+    schedule_auto_reconnect("host_sync", BLE_AUTO_RECONNECT_INITIAL_DELAY_MS);
 }
 
 static void ble_host_task(void *param)
@@ -1522,6 +1614,8 @@ void ble_central_init(void)
     s_auto_scan_connect = false;
     s_auto_scan_target_valid = false;
     s_pending_connect_valid = false;
+    s_auto_reconnect_task = NULL;
+    s_suppress_next_auto_reconnect = false;
     memset(s_scan_cache, 0, sizeof(s_scan_cache));
     clear_gatt_cache();
     clear_conn_metrics();
@@ -1683,11 +1777,21 @@ esp_err_t ble_central_reconnect_saved_or_scan(void)
     return ble_central_start_scan_internal(true);
 }
 
+void ble_central_start_auto_reconnect(void)
+{
+    schedule_auto_reconnect("control", 0);
+}
+
 void ble_central_disconnect(void)
 {
     s_auto_scan_connect = false;
     s_auto_scan_target_valid = false;
     s_pending_connect_valid = false;
+    s_suppress_next_auto_reconnect = true;
+    if (s_auto_reconnect_task && s_auto_reconnect_task != xTaskGetCurrentTaskHandle()) {
+        vTaskDelete(s_auto_reconnect_task);
+        s_auto_reconnect_task = NULL;
+    }
     if (ble_gap_disc_active()) {
         (void)ble_gap_disc_cancel();
     }

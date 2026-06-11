@@ -127,9 +127,9 @@ static void make_report(const internal_gamepad_state_t *state,
         state->r2,
         internal_gamepad_state_get_button(state, INTERNAL_GAMEPAD_BUTTON_R2));
     report->left_x = axis_to_xinput(state->lx, false);
-    report->left_y = axis_to_xinput(state->ly, true);
+    report->left_y = axis_to_xinput(state->ly, false);
     report->right_x = axis_to_xinput(state->rx, false);
-    report->right_y = axis_to_xinput(state->ry, true);
+    report->right_y = axis_to_xinput(state->ry, false);
 }
 
 esp_err_t usb_xinput_device_send_report(const internal_gamepad_state_t *state)

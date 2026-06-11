@@ -10,8 +10,8 @@ namespace Y700Switch2V55Manager;
 
 public static class EmbeddedAssets
 {
-    public const string BundledPackageVersion = "v5.8.3-aio";
-    public const string BundledFirmwareVersion = "5.8.3-manager";
+    public const string BundledPackageVersion = "v5.9.0-aio";
+    public const string BundledFirmwareVersion = "5.9.0-manager";
     private static readonly object ExtractLock = new();
     private static readonly JsonSerializerOptions ManifestJsonOptions = new()
     {
@@ -24,31 +24,31 @@ public static class EmbeddedAssets
 
     public static FirmwarePackage EnsurePackage()
     {
-        string firmwareRoot = Path.Combine(RootDirectory, "firmware", "v5.8");
+        string firmwareRoot = Path.Combine(RootDirectory, "firmware", "v5.9");
         string toolsRoot = Path.Combine(RootDirectory, "tools");
-        ExtractPrefix("embedded/firmware/v5.8/", firmwareRoot);
+        ExtractPrefix("embedded/firmware/v5.9/", firmwareRoot);
         ExtractPrefix("embedded/tools/", toolsRoot);
 
         string manifestPath = Path.Combine(firmwareRoot, "firmware_manifest.json");
         if (!File.Exists(manifestPath))
         {
-            throw new FileNotFoundException("Bundled V5.8 firmware manifest was not extracted.", manifestPath);
+            throw new FileNotFoundException("Bundled V5.9 firmware manifest was not extracted.", manifestPath);
         }
 
         FirmwareManifest manifest = JsonSerializer.Deserialize<FirmwareManifest>(
                 File.ReadAllText(manifestPath),
                 ManifestJsonOptions)
-            ?? throw new InvalidOperationException("Bundled V5.8 firmware manifest is invalid.");
+            ?? throw new InvalidOperationException("Bundled V5.9 firmware manifest is invalid.");
         if (manifest.Profiles is not { Count: > 0 })
         {
-            throw new InvalidOperationException("Bundled V5.8 firmware manifest contains no profiles.");
+            throw new InvalidOperationException("Bundled V5.9 firmware manifest contains no profiles.");
         }
 
         foreach (FirmwareProfile profile in manifest.Profiles)
         {
             if (string.IsNullOrWhiteSpace(profile.Id) || profile.Assets is not { Count: > 0 })
             {
-                throw new InvalidOperationException("Bundled V5.8 firmware manifest contains an incomplete profile.");
+                throw new InvalidOperationException("Bundled V5.9 firmware manifest contains an incomplete profile.");
             }
             foreach (FirmwareAsset asset in profile.Assets)
             {
@@ -129,8 +129,7 @@ public static class EmbeddedAssets
     {
         long sourceLength = source.CanSeek ? source.Length : -1;
         if (File.Exists(fullDestination) &&
-            sourceLength >= 0 &&
-            new FileInfo(fullDestination).Length == sourceLength)
+            EmbeddedResourceMatchesFile(source, fullDestination, sourceLength))
         {
             return;
         }
@@ -145,8 +144,7 @@ public static class EmbeddedAssets
             File.Move(temp, fullDestination, overwrite: true);
         }
         catch (IOException) when (File.Exists(fullDestination) &&
-                                  sourceLength >= 0 &&
-                                  new FileInfo(fullDestination).Length == sourceLength)
+                                  EmbeddedResourceMatchesFile(source, fullDestination, sourceLength))
         {
             TryDelete(temp);
         }
@@ -154,6 +152,51 @@ public static class EmbeddedAssets
         {
             TryDelete(temp);
             throw;
+        }
+    }
+
+    private static bool EmbeddedResourceMatchesFile(Stream source, string path, long sourceLength)
+    {
+        if (sourceLength < 0 || !source.CanSeek)
+        {
+            return false;
+        }
+        if (!File.Exists(path) || new FileInfo(path).Length != sourceLength)
+        {
+            return false;
+        }
+
+        long originalPosition = source.Position;
+        try
+        {
+            source.Position = 0;
+            using var existing = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+            byte[] sourceBuffer = new byte[8192];
+            byte[] fileBuffer = new byte[8192];
+            while (true)
+            {
+                int sourceRead = source.Read(sourceBuffer, 0, sourceBuffer.Length);
+                int fileRead = existing.Read(fileBuffer, 0, fileBuffer.Length);
+                if (sourceRead != fileRead)
+                {
+                    return false;
+                }
+                if (sourceRead == 0)
+                {
+                    return true;
+                }
+                for (int i = 0; i < sourceRead; i++)
+                {
+                    if (sourceBuffer[i] != fileBuffer[i])
+                    {
+                        return false;
+                    }
+                }
+            }
+        }
+        finally
+        {
+            source.Position = originalPosition;
         }
     }
 

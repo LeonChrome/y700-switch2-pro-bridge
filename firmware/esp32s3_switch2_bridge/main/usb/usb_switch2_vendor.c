@@ -70,6 +70,7 @@ static uint32_t s_hd_stream_updates;
 static uint32_t s_hd_stream_writes;
 static uint32_t s_hd_stream_stops;
 static uint32_t s_hd_stream_errors;
+static uint32_t s_hd_preset_ignored;
 static int64_t s_hd_next_update_log_us;
 static int64_t s_hd_next_stop_log_us;
 static uint16_t s_hd_scale_percent = SWITCH2_HD_SCALE_DEFAULT_PERCENT;
@@ -741,6 +742,15 @@ uint32_t usb_switch2_vendor_hd_rumble_error_count(void)
     return value;
 }
 
+uint32_t usb_switch2_vendor_hd_rumble_preset_ignored_count(void)
+{
+    uint32_t value;
+    portENTER_CRITICAL(&s_hd_lock);
+    value = s_hd_preset_ignored;
+    portEXIT_CRITICAL(&s_hd_lock);
+    return value;
+}
+
 void usb_switch2_vendor_get_hd_rumble_tuning(uint16_t *scale_percent, uint16_t *hold_ms,
                                              uint16_t *tick_ms, uint8_t *stop_packets)
 {
@@ -854,16 +864,15 @@ void usb_switch2_vendor_bridge_hid_output_to_ble(const uint8_t *data, uint16_t l
     uint8_t c0 = data[0];
     uint8_t sub = len > 3 ? data[3] : 0xff;
     if (c0 == 0x0a && sub == 0x02 && len >= 16) {
-        uint8_t cmd[128];
-        uint16_t n = len > sizeof(cmd) ? sizeof(cmd) : len;
-        memcpy(cmd, data, n);
-        cmd[2] = 0x01;
-        esp_err_t err = ble_central_send_command(cmd, n);
-        if (err == ESP_OK) {
-            APP_LOGI(TAG, "bulk vibrate preset bridged to BLE command len=%u", (unsigned)n);
-        } else {
-            APP_LOGD(TAG, "bulk vibrate preset BLE bridge skipped err=%d", (int)err);
-        }
+        uint32_t ignored;
+        portENTER_CRITICAL(&s_hd_lock);
+        ignored = ++s_hd_preset_ignored;
+        portEXIT_CRITICAL(&s_hd_lock);
+        APP_LOGI(TAG,
+                 "bulk vibrate preset ignored len=%u count=%lu; raw HID 0x02 stream stays authoritative",
+                 (unsigned)len,
+                 (unsigned long)ignored);
+        return;
     }
 }
 
@@ -1135,8 +1144,7 @@ uint16_t usb_switch2_vendor_pending_offset(void)
 
 uint8_t const *tud_descriptor_bos_cb(void)
 {
-    (void)s_bos_descriptor;
-    return NULL;
+    return nintendo_mode() ? s_bos_descriptor : NULL;
 }
 
 uint16_t const *tinyusb_extra_string_descriptor_cb(uint8_t index, uint16_t langid)

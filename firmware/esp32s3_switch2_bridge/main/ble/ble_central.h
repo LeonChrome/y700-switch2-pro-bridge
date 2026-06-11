@@ -20,6 +20,7 @@ void ble_central_init(void);
 esp_err_t ble_central_start_scan(void);
 esp_err_t ble_central_connect(const char *address_or_name);
 esp_err_t ble_central_reconnect_saved_or_scan(void);
+void ble_central_start_auto_reconnect(void);
 void ble_central_disconnect(void);
 esp_err_t ble_central_request_fast_params(void);
 void ble_central_get_conn_metrics(ble_central_conn_metrics_t *out_metrics);

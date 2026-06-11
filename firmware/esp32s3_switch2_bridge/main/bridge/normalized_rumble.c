@@ -26,6 +26,11 @@ static uint16_t scale_amplitude(uint8_t value, uint16_t max_amplitude)
     return (uint16_t)(((uint32_t)value * max_amplitude + 127u) / 255u);
 }
 
+static uint16_t mix_frequency(uint16_t low, uint16_t high, uint8_t value)
+{
+    return (uint16_t)(low + (((uint32_t)(high - low) * value + 127u) / 255u));
+}
+
 static void build_side_payload(uint8_t weak,
                                uint8_t strong,
                                uint16_t max_amplitude,
@@ -33,11 +38,20 @@ static void build_side_payload(uint8_t weak,
 {
     uint16_t low_amp = scale_amplitude(strong, max_amplitude);
     uint16_t high_amp = scale_amplitude(weak, max_amplitude);
+    uint16_t low_freq = 0x0e1;
+    uint16_t high_freq = 0x1e1;
     uint64_t value = 0;
 
-    value |= (uint64_t)0x0e1;
+    if (low_amp != 0) {
+        low_freq = mix_frequency(0x0b8, 0x122, strong);
+    }
+    if (high_amp != 0) {
+        high_freq = mix_frequency(0x160, 0x1f0, weak);
+    }
+
+    value |= (uint64_t)low_freq;
     value |= (uint64_t)(low_amp & 0x03ff) << 10;
-    value |= (uint64_t)0x1e1 << 20;
+    value |= (uint64_t)high_freq << 20;
     value |= (uint64_t)(high_amp & 0x03ff) << 30;
 
     for (size_t i = 0; i < 5; i++) {

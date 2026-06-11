@@ -19,35 +19,52 @@ public static class SerialCommandClient
 
     public static void Close()
     {
+        SerialPort? port = null;
         if (!PortGate.Wait(TimeSpan.FromMilliseconds(250)))
         {
             return;
         }
         try
         {
-            CloseActivePort();
+            port = DetachActivePort();
         }
         finally
         {
             PortGate.Release();
         }
+        DisposePort(port);
     }
 
     public static async Task<bool> CloseAsync(int timeoutMs = 750)
     {
-        if (!await PortGate.WaitAsync(TimeSpan.FromMilliseconds(Math.Max(50, timeoutMs))))
+        int timeout = Math.Max(50, timeoutMs);
+        SerialPort? port = null;
+        if (!await PortGate.WaitAsync(TimeSpan.FromMilliseconds(timeout)))
         {
             return false;
         }
         try
         {
-            CloseActivePort();
-            return true;
+            port = DetachActivePort();
         }
         finally
         {
             PortGate.Release();
         }
+
+        if (port == null)
+        {
+            return true;
+        }
+
+        Task closeTask = Task.Run(() => DisposePort(port));
+        Task completed = await Task.WhenAny(closeTask, Task.Delay(timeout));
+        if (completed != closeTask)
+        {
+            return false;
+        }
+        await closeTask;
+        return true;
     }
 
     public static void CloseInBackground()
@@ -172,12 +189,25 @@ public static class SerialCommandClient
 
     private static void CloseActivePort()
     {
-        if (activePort == null) return;
+        DisposePort(DetachActivePort());
+    }
+
+    private static SerialPort? DetachActivePort()
+    {
+        SerialPort? port = activePort;
+        activePort = null;
+        activePortName = "";
+        return port;
+    }
+
+    private static void DisposePort(SerialPort? port)
+    {
+        if (port == null) return;
         try
         {
-            if (activePort.IsOpen)
+            if (port.IsOpen)
             {
-                activePort.Close();
+                port.Close();
             }
         }
         catch
@@ -186,9 +216,7 @@ public static class SerialCommandClient
         }
         finally
         {
-            activePort.Dispose();
-            activePort = null;
-            activePortName = "";
+            port.Dispose();
         }
     }
 

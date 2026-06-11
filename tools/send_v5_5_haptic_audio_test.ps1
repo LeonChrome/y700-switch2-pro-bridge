@@ -47,12 +47,12 @@ if (!(Test-Path -LiteralPath $Source)) {
 }
 
 $csc = Find-Csc
-Write-Output "[V5_5_HAPTIC_AUDIO_TEST] compile_source=tools\SendV55HapticAudioTest.cs"
+Write-Output "[HAPTIC_AUDIO_TEST] compile_source=tools\SendV55HapticAudioTest.cs"
 & $csc /nologo /unsafe /platform:x64 /out:$Out $Source
 if ($LASTEXITCODE -ne 0) {
     throw "C# compile failed: $LASTEXITCODE"
 }
-Write-Output "[V5_5_HAPTIC_AUDIO_TEST] compile=passed exe=tools\SendV55HapticAudioTest.exe"
+Write-Output "[HAPTIC_AUDIO_TEST] compile=passed exe=tools\SendV55HapticAudioTest.exe"
 
 if ($CompileOnly) {
     return
@@ -72,5 +72,5 @@ if ($ListDevices) {
 
 & $Out @args
 if ($LASTEXITCODE -ne 0) {
-    throw "V5.5 haptic audio test failed: $LASTEXITCODE"
+    throw "Haptic audio test failed: $LASTEXITCODE"
 }

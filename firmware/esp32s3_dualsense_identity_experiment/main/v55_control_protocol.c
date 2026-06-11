@@ -133,7 +133,7 @@ static void format_status_extra(char *out, size_t out_len)
 
     snprintf(out,
              out_len,
-             "\"mode\":\"dualsense\",\"profile\":\"%s\",\"usb_audio\":\"uac1_4ch\",\"ble\":\"%s\",\"ble_auto\":\"%s\",\"ble_target\":\"%s\",\"ble_conn_interval_units\":%u,\"ble_conn_interval_us\":%lu,\"audio_streaming\":%s,\"audio_alt\":%u,\"audio_packets\":%lu,\"audio_active\":%lu,\"audio_silence\":%lu,\"audio_parser\":\"%s\",\"audio_pair\":\"%s\",\"hd_candidate\":%s,\"front_rms_l\":%u,\"front_rms_r\":%u,\"rear_rms_l\":%u,\"rear_rms_r\":%u,\"front_peak_l\":%u,\"front_peak_r\":%u,\"rear_peak_l\":%u,\"rear_peak_r\":%u,\"front_env_l\":%u,\"front_env_r\":%u,\"rear_env_l\":%u,\"rear_env_r\":%u,\"transient_l\":%u,\"transient_r\":%u,\"haptic\":\"%s\",\"haptic_live\":%s,\"haptic_dry_run\":%s,\"haptic_mode\":\"%s\",\"haptic_source\":\"%s\",\"haptic_max\":%u,\"haptic_gain\":%.3f,\"haptic_transient_gain\":%.3f,\"haptic_interval_ms\":%u,\"haptic_activity_threshold\":%u,\"haptic_silence_timeout_ms\":%u,\"raw02_hd_candidate_packets\":%lu,\"raw02_dry_packets\":%lu,\"raw02_live_packets\":%lu,\"raw02_dropped_rate\":%lu,\"raw02_dropped_no_ble\":%lu,\"raw02_dropped_silence\":%lu,\"raw02_dropped_pcm\":%lu,\"raw02_ble_writes\":%lu,\"raw02_ble_errors\":%lu,\"raw02_last_mode\":\"%s\",\"raw02_left\":\"%s\",\"raw02_right\":\"%s\",\"raw02_error\":\"%s\",\"version\":\"v5.5-experimental\"",
+             "\"mode\":\"dualsense\",\"profile\":\"%s\",\"usb_audio\":\"uac1_4ch\",\"ble\":\"%s\",\"ble_auto\":\"%s\",\"ble_target\":\"%s\",\"ble_conn_interval_units\":%u,\"ble_conn_interval_us\":%lu,\"audio_streaming\":%s,\"audio_alt\":%u,\"audio_packets\":%lu,\"audio_active\":%lu,\"audio_silence\":%lu,\"audio_parser\":\"%s\",\"audio_pair\":\"%s\",\"hd_candidate\":%s,\"front_rms_l\":%u,\"front_rms_r\":%u,\"rear_rms_l\":%u,\"rear_rms_r\":%u,\"front_peak_l\":%u,\"front_peak_r\":%u,\"rear_peak_l\":%u,\"rear_peak_r\":%u,\"front_env_l\":%u,\"front_env_r\":%u,\"rear_env_l\":%u,\"rear_env_r\":%u,\"transient_l\":%u,\"transient_r\":%u,\"haptic\":\"%s\",\"haptic_live\":%s,\"haptic_dry_run\":%s,\"haptic_mode\":\"%s\",\"haptic_source\":\"%s\",\"haptic_max\":%u,\"haptic_gain\":%.3f,\"haptic_transient_gain\":%.3f,\"haptic_interval_ms\":%u,\"haptic_activity_threshold\":%u,\"haptic_silence_timeout_ms\":%u,\"raw02_hd_candidate_packets\":%lu,\"raw02_dry_packets\":%lu,\"raw02_live_packets\":%lu,\"raw02_dropped_rate\":%lu,\"raw02_dropped_no_ble\":%lu,\"raw02_dropped_silence\":%lu,\"raw02_dropped_pcm\":%lu,\"raw02_ble_writes\":%lu,\"raw02_ble_errors\":%lu,\"raw02_last_mode\":\"%s\",\"raw02_left\":\"%s\",\"raw02_right\":\"%s\",\"raw02_error\":\"%s\",\"version\":\"v5.9.0-dualsense\"",
              DS5_PROFILE_NAME,
              pro2_input_backend_state(),
              device_config_get_ble_autoconnect() ? "on" : "off",
@@ -205,7 +205,7 @@ static void format_status_lite_extra(char *out, size_t out_len)
 
     snprintf(out,
              out_len,
-             "\"mode\":\"dualsense\",\"profile\":\"%s\",\"ble\":\"%s\",\"audio_streaming\":%s,\"audio_alt\":%u,\"audio_packets\":%lu,\"audio_active\":%lu,\"audio_silence\":%lu,\"audio_parser\":\"%s\",\"audio_pair\":\"%s\",\"hd_candidate\":%s,\"front_env_l\":%u,\"front_env_r\":%u,\"rear_env_l\":%u,\"rear_env_r\":%u,\"front_peak_l\":%u,\"front_peak_r\":%u,\"rear_peak_l\":%u,\"rear_peak_r\":%u,\"haptic\":\"%s\",\"haptic_live\":%s,\"haptic_dry_run\":%s,\"haptic_mode\":\"%s\",\"haptic_source\":\"%s\",\"raw02_hd_candidate_packets\":%lu,\"raw02_live_packets\":%lu,\"raw02_dropped_rate\":%lu,\"raw02_dropped_silence\":%lu,\"raw02_dropped_pcm\":%lu,\"raw02_ble_writes\":%lu,\"raw02_ble_errors\":%lu,\"raw02_last_mode\":\"%s\",\"raw02_left\":\"%s\",\"raw02_right\":\"%s\",\"raw02_error\":\"%s\",\"input_live\":%s,\"input_updates\":%lu,\"input_age_ms\":%lld,\"input_rate_millihz\":%lu,\"input_last_gap_us\":%lu,\"input_max_gap_us\":%lu,\"input_lx\":%u,\"input_ly\":%u,\"input_rx\":%u,\"input_ry\":%u,\"version\":\"v5.5-experimental\"",
+             "\"mode\":\"dualsense\",\"profile\":\"%s\",\"ble\":\"%s\",\"audio_streaming\":%s,\"audio_alt\":%u,\"audio_packets\":%lu,\"audio_active\":%lu,\"audio_silence\":%lu,\"audio_parser\":\"%s\",\"audio_pair\":\"%s\",\"hd_candidate\":%s,\"front_env_l\":%u,\"front_env_r\":%u,\"rear_env_l\":%u,\"rear_env_r\":%u,\"front_peak_l\":%u,\"front_peak_r\":%u,\"rear_peak_l\":%u,\"rear_peak_r\":%u,\"haptic\":\"%s\",\"haptic_live\":%s,\"haptic_dry_run\":%s,\"haptic_mode\":\"%s\",\"haptic_source\":\"%s\",\"raw02_hd_candidate_packets\":%lu,\"raw02_live_packets\":%lu,\"raw02_dropped_rate\":%lu,\"raw02_dropped_silence\":%lu,\"raw02_dropped_pcm\":%lu,\"raw02_ble_writes\":%lu,\"raw02_ble_errors\":%lu,\"raw02_last_mode\":\"%s\",\"raw02_left\":\"%s\",\"raw02_right\":\"%s\",\"raw02_error\":\"%s\",\"input_live\":%s,\"input_updates\":%lu,\"input_age_ms\":%lld,\"input_rate_millihz\":%lu,\"input_last_gap_us\":%lu,\"input_max_gap_us\":%lu,\"input_lx\":%u,\"input_ly\":%u,\"input_rx\":%u,\"input_ry\":%u,\"version\":\"v5.9.0-dualsense\"",
              DS5_PROFILE_NAME,
              pro2_input_backend_state(),
              audio.streaming ? "true" : "false",
@@ -443,13 +443,13 @@ esp_err_t v55_control_protocol_handle_line(const char *line, char *reply, int re
         return json_ok(reply, reply_len, "status lite", extra);
     }
     if (strcmp(cmd, "version") == 0) {
-        return json_ok(reply, reply_len, "version", "\"version\":\"v5.5-experimental\",\"profile\":\"" DS5_PROFILE_NAME "\"");
+        return json_ok(reply, reply_len, "version", "\"version\":\"v5.9.0-dualsense\",\"profile\":\"" DS5_PROFILE_NAME "\"");
     }
     if (strcmp(cmd, "mode pro2") == 0) {
-        return json_ok(reply, reply_len, "mode", "\"mode\":\"pro2\",\"reflash_required\":true,\"note\":\"Flash V5.0/V5.2 Pro2 firmware, then replug native USB\"");
+        return json_ok(reply, reply_len, "mode", "\"mode\":\"pro2\",\"reflash_required\":true,\"note\":\"Flash V5.9 Pro2 / Nintendo bridge firmware, then replug native USB\"");
     }
     if (strcmp(cmd, "mode dualsense") == 0) {
-        return json_ok(reply, reply_len, "mode", "\"mode\":\"dualsense\",\"reflash_required\":false,\"note\":\"Already running V5.5 DualSense identity\"");
+        return json_ok(reply, reply_len, "mode", "\"mode\":\"dualsense\",\"reflash_required\":false,\"note\":\"Already running V5.9 DualSense-like identity\"");
     }
     if (strcmp(cmd, "reboot") == 0) {
         json_ok(reply, reply_len, "reboot", "\"note\":\"restarting\"");
@@ -555,5 +555,5 @@ esp_err_t v55_control_protocol_handle_line(const char *line, char *reply, int re
         return json_ok(reply, reply_len, "param set", "\"saved\":false");
     }
 
-    return json_error(reply, reply_len, "unknown", "unknown V5.5 command");
+    return json_error(reply, reply_len, "unknown", "unknown V5.9 command");
 }

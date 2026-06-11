@@ -342,6 +342,11 @@ static int8_t axis12_to_i8(uint16_t value)
     return (int8_t)scaled;
 }
 
+static int8_t axis12_to_i8_inverted(uint16_t value)
+{
+    return (int8_t)-axis12_to_i8(value);
+}
+
 static uint8_t map_hat_internal(const internal_gamepad_state_t *state)
 {
     if (internal_gamepad_state_get_button(state, INTERNAL_GAMEPAD_BUTTON_DPAD_UP)) {
@@ -372,9 +377,9 @@ void report_mapper_internal_to_generic_report(const internal_gamepad_state_t *st
 
     report->hat = map_hat_internal(state);
     report->x = axis12_to_i8(state->lx);
-    report->y = axis12_to_i8(state->ly);
+    report->y = axis12_to_i8_inverted(state->ly);
     report->z = axis12_to_i8(state->rx);
-    report->rz = axis12_to_i8(state->ry);
+    report->rz = axis12_to_i8_inverted(state->ry);
 
     if (internal_gamepad_state_get_button(state, INTERNAL_GAMEPAD_BUTTON_SOUTH)) report->buttons |= 0x0001;
     if (internal_gamepad_state_get_button(state, INTERNAL_GAMEPAD_BUTTON_EAST)) report->buttons |= 0x0002;

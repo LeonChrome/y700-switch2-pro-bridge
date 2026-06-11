@@ -24,6 +24,7 @@ uint32_t usb_switch2_vendor_hd_rumble_update_count(void);
 uint32_t usb_switch2_vendor_hd_rumble_write_count(void);
 uint32_t usb_switch2_vendor_hd_rumble_stop_count(void);
 uint32_t usb_switch2_vendor_hd_rumble_error_count(void);
+uint32_t usb_switch2_vendor_hd_rumble_preset_ignored_count(void);
 void usb_switch2_vendor_get_hd_rumble_tuning(uint16_t *scale_percent, uint16_t *hold_ms,
                                              uint16_t *tick_ms, uint8_t *stop_packets);
 void usb_switch2_vendor_set_hd_rumble_tuning(uint16_t scale_percent, uint16_t hold_ms,

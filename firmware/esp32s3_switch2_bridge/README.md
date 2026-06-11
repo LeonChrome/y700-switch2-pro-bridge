@@ -1,48 +1,71 @@
-# ESP32-S3 Switch 2 Bridge Firmware
+# ESP32-S3 Bridge Firmware
 
-This is the ESP-IDF firmware for an ESP32-S3 MCU version of the Y700 Switch 2 Pro bridge.
+This firmware is the final V5.9 Pro2 / Nintendo and Xbox / XInput bridge for ESP32-S3.
 
-Observed on first hardware bring-up:
+## Target
 
-- ESP-IDF v5.3.3 build completed on the Windows host
-- firmware flashed over CH343P serial
-- serial `status` returned JSON
-- Generic HID enumerated over native ESP32-S3 USB
-- `joy.cpl` showed the generic gamepad and Button 1/A test reports
-- Steam recognized the Nintendo Switch Pro/Pro2 layout through the SDL Switch 2 HIDAPI path
-- ESP32-S3 BLE connected directly to the Pro2 controller once the Y700 Bluetooth bridge was disabled
-- live BLE input forwarding worked in Steam, including Pro2-specific buttons
-- Steam and BzzzController rumble tests produced physical Pro2 vibration
-- V5 raw-like gyro passthrough worked through USB report `0x05` in Steam / Aimlabs
+- ESP32-S3 N16R8
+- 16 MB flash
+- 8 MB Octal PSRAM
+- Native ESP32-S3 USB / OTG for the host gamepad interface
+- CH343P / WCH USB serial for flashing, logs, and Manager control
 
-Current build behavior:
+## Modes
 
-- Default mode is `NINTENDO_EXPERIMENT_MODE` using VID/PID `057e:2069` and the Y700-stable product string `Nintendo Switch Pro Controller`.
-- `mode generic` remains available as a fallback and requires reboot/replug for USB re-enumeration.
-- `rate <20..1000>` persists the HID report-loop rate in NVS; the V5 default is 250 Hz.
-- `status` exposes both the configured report rate and firmware-measured actual HID send rate.
-- Gyro uses the Switch 2 Pro FD2 BLE full-report motion block at bytes `48..59` and maps it into USB report `0x05` bytes `49..60` with smoothing, scaling, deadband, and auto calibration disabled by default.
-- The Windows manager can control the bridge over CH343P serial, native USB HID feature report `0x7f`, or native USB WinUSB bulk fallback.
-- `ble scan` starts a 15-second NimBLE active scan and logs nearby BLE advertisements over CH343P serial.
-- `ble connect last|#n|addr|name` starts NimBLE connection, GATT discovery, CCCD subscription, and notify parsing for the known Y700 UUIDs.
-- `ble reconnect` uses a saved BLE target when available; otherwise it scans and connects the first Nintendo/Pro2-looking candidate. Boot-time BLE autoconnect is enabled by default.
-- The HID loop sends live BLE state when notify packets are active; otherwise it falls back to the selected test mode.
-- `rumble config` reads runtime haptic tuning; `rumble tune 100 180 20 3` is the verified default.
-- `rumble hdtest` and `rumble hold <ms>` send the verified 33-byte rumble stream to the Pro2 BLE rumble characteristic. Runtime rumble follows Steam/SDL HID OUT updates; voice, headphone audio, microphone audio, and full HD Rumble 2 audio are not implemented.
-- `rumble raw02 <hex>` is the V5.2 Phase 3 experimental raw HD input. It accepts either 64 hex chars (`LeftRumble[16] + RightRumble[16]`) or a 128-char full `0x02` HID OUT payload, validates it, writes one Pro2 BLE rumble packet, and starts the existing short HD stream.
+The same firmware source builds two packaged profiles:
 
-Expected board:
+| Profile | Default USB mode |
+| --- | --- |
+| `pro2_bridge_v5_5` | Pro2 / Nintendo HID |
+| `xinput_bridge_v5_8` | Xbox / XInput |
 
-- ESP32-S3-N16R8
-- 16MB flash
-- 8MB PSRAM
-- Native ESP32-S3 USB & OTG Type-C for TinyUSB HID Device
-- CH343P Type-C for flashing, logs, and serial control
+The profile names are historical compatibility IDs used by the Windows Manager. The final package version is V5.9.
 
-Host-side report-rate measurement:
+## Pro2 / Nintendo Mode
 
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\Measure-SwitchHidRate.ps1 -Seconds 5
+- USB VID/PID: `057E:2069`
+- Product string: `Nintendo Switch Pro Controller`
+- HID input report ID: `0x05`
+- 64-byte report shape for Steam / SDL Switch Pro handling
+- Raw HID output report `0x02` is the authoritative rumble path
+- BOS / Microsoft OS 2.0 descriptor is exposed for MI_01 WinUSB binding
+
+## Xbox / XInput Mode
+
+- USB VID/PID: `045E:028E`
+- XInput-style report path
+- Left/right stick Y axes use host-expected polarity
+- Ordinary weak/strong rumble is converted to Pro2 BLE output with strength preservation and dynamic frequency shaping
+
+## BLE
+
+The firmware acts as a BLE central for the real controller:
+
+- scans and connects from Manager commands
+- persists BLE auto-connect settings
+- retries reconnect in the background after disconnect or failed connect
+- keeps the USB gamepad interface alive while BLE is reconnecting
+
+## PSRAM Defaults
+
+The final defaults favor reliable boot on N16R8 / AP 8 MB Octal PSRAM boards:
+
+```text
+CONFIG_SPIRAM_USE_MEMMAP=y
+# CONFIG_SPIRAM_USE_MALLOC is not set
+# CONFIG_SPIRAM_MEMTEST is not set
 ```
 
-The host-side measurement reads the native Nintendo HID input interface and counts reports delivered to Windows. It is independent from the CH343P control port and is useful for confirming that `rate_hz` changes are visible to the PC.
+## Build
+
+From the repository root:
+
+```powershell
+.\tools\esp32s3\build.ps1 -IdfPath C:\Espressif\v5.3.3\esp-idf
+```
+
+For the XInput profile:
+
+```powershell
+.\tools\esp32s3\build.ps1 -IdfPath C:\Espressif\v5.3.3\esp-idf -BuildDir work\build\v5_9_xinput_bridge -DeviceDefaultMode XINPUT_EXPERIMENT_MODE
+```
