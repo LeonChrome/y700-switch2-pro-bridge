@@ -69,7 +69,7 @@
                                         {
                                             "offset":  "0x10000",
                                             "path":  "pro2_bridge_v5_5/esp32s3_switch2_bridge.bin",
-                                            "sha256":  "1a91bc64bf324195c045db96c1d1e1ab522154105e664eadd269238deb2dd969"
+                                            "sha256":  "291e21ebec07831f535b5419e1aa368bcb237e78580b604af07d5cab7d684bd9"
                                         }
                                     ]
                      },
@@ -91,7 +91,7 @@
                                         {
                                             "offset":  "0x10000",
                                             "path":  "xinput_bridge_v5_8/esp32s3_switch2_bridge.bin",
-                                            "sha256":  "f5b738cb3b371a6e428f259d08715959ec5fb23fe88e1dd15dba8c0dd62f3702"
+                                            "sha256":  "e64b60dfa3a301f18625cc0a72f5f053061e459cfbbbee798ea819b11c78d9cf"
                                         }
                                     ]
                      },
@@ -113,7 +113,7 @@
                                         {
                                             "offset":  "0x10000",
                                             "path":  "xinput_elite_bridge_v5_9/esp32s3_switch2_bridge.bin",
-                                            "sha256":  "76f37f32ab7672345bbeb0de72c350e20cb1ba73b08b1fdaaa9b64d5ccfb280e"
+                                            "sha256":  "61a10efa45258b2f2959e65404c08ac470bfe74368e30095f8f437ae30d2254e"
                                         }
                                     ]
                      }

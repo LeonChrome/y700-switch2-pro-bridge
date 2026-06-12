@@ -32,6 +32,10 @@ static const char *TAG = "usb_vendor";
 #define SWITCH2_MS_OS_10_STRING_INDEX 0xee
 #define SWITCH2_MS_OS_10_COMPAT_ID_LEN 0x28
 #define SWITCH2_MS_OS_10_PROPERTY_LEN 0x8e
+#ifdef XINPUT_ELITE_EXPERIMENT
+#define XGIP_MS_VENDOR_CODE 0x90
+#define XGIP_MS_OS_10_COMPAT_ID_LEN 0x28
+#endif
 #define SWITCH2_FLASH_REPLY_FULL_SPEED_LEN 0x50
 #define SWITCH2_HID_GUARD_TIMEOUT_US (10LL * 60LL * 1000LL * 1000LL)
 #define SWITCH2_HD_STREAM_TICK_DEFAULT_MS 20
@@ -85,6 +89,27 @@ static const uint8_t s_ms_os_10_string_descriptor[] = {
     USB_SWITCH2_MS_VENDOR_CODE, 0x00,
 };
 
+#ifdef XINPUT_ELITE_EXPERIMENT
+static const uint8_t s_xgip_ms_os_10_string_descriptor[] = {
+    0x12, TUSB_DESC_STRING,
+    'M', 0x00, 'S', 0x00, 'F', 0x00, 'T', 0x00,
+    '1', 0x00, '0', 0x00, '0', 0x00,
+    XGIP_MS_VENDOR_CODE, 0x00,
+};
+
+static const uint8_t s_xgip_ms_os_10_compat_id_descriptor[] = {
+    U32_TO_U8S_LE(XGIP_MS_OS_10_COMPAT_ID_LEN),
+    U16_TO_U8S_LE(0x0100),
+    U16_TO_U8S_LE(0x0004),
+    0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+
+    0x00, 0x01,
+    'X', 'G', 'I', 'P', '1', '0', 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+};
+#endif
+
 static const uint8_t s_ms_os_10_compat_id_descriptor[] = {
     U32_TO_U8S_LE(SWITCH2_MS_OS_10_COMPAT_ID_LEN),
     U16_TO_U8S_LE(0x0100),
@@ -122,6 +147,12 @@ static const uint8_t s_ms_os_10_property_descriptor[] = {
 
 TU_VERIFY_STATIC(sizeof(s_ms_os_10_string_descriptor) == 18,
                  "incorrect MS OS 1.0 string descriptor size");
+#ifdef XINPUT_ELITE_EXPERIMENT
+TU_VERIFY_STATIC(sizeof(s_xgip_ms_os_10_string_descriptor) == 18,
+                 "incorrect XGIP MS OS 1.0 string descriptor size");
+TU_VERIFY_STATIC(sizeof(s_xgip_ms_os_10_compat_id_descriptor) == XGIP_MS_OS_10_COMPAT_ID_LEN,
+                 "incorrect XGIP MS OS 1.0 compat ID descriptor size");
+#endif
 TU_VERIFY_STATIC(sizeof(s_ms_os_10_compat_id_descriptor) == SWITCH2_MS_OS_10_COMPAT_ID_LEN,
                  "incorrect MS OS 1.0 compat ID descriptor size");
 TU_VERIFY_STATIC(sizeof(s_ms_os_10_property_descriptor) == SWITCH2_MS_OS_10_PROPERTY_LEN,
@@ -171,6 +202,13 @@ static bool nintendo_mode(void)
 {
     return device_config_get_mode() == NINTENDO_EXPERIMENT_MODE;
 }
+
+#ifdef XINPUT_ELITE_EXPERIMENT
+static bool xgip_mode(void)
+{
+    return device_config_get_mode() == XINPUT_EXPERIMENT_MODE;
+}
+#endif
 
 static void hex_preview(const uint8_t *data, uint16_t len, char *out, size_t out_len)
 {
@@ -1150,6 +1188,12 @@ uint8_t const *tud_descriptor_bos_cb(void)
 uint16_t const *tinyusb_extra_string_descriptor_cb(uint8_t index, uint16_t langid)
 {
     (void)langid;
+#ifdef XINPUT_ELITE_EXPERIMENT
+    if (xgip_mode() && index == SWITCH2_MS_OS_10_STRING_INDEX) {
+        APP_LOGI(TAG, "XGIP MS OS 1.0 string descriptor requested");
+        return (uint16_t const *)(uintptr_t)s_xgip_ms_os_10_string_descriptor;
+    }
+#endif
     if (nintendo_mode() && index == SWITCH2_MS_OS_10_STRING_INDEX) {
         APP_LOGI(TAG, "MS OS 1.0 string descriptor requested");
         return (uint16_t const *)(uintptr_t)s_ms_os_10_string_descriptor;
@@ -1165,9 +1209,24 @@ bool tud_vendor_control_xfer_cb(uint8_t rhport, uint8_t stage,
     }
 
     if (device_config_get_mode() == XINPUT_EXPERIMENT_MODE) {
+#ifdef XINPUT_ELITE_EXPERIMENT
+        if (request &&
+            request->bmRequestType_bit.type == TUSB_REQ_TYPE_VENDOR &&
+            request->bRequest == XGIP_MS_VENDOR_CODE &&
+            request->wIndex == 0x0004) {
+            APP_LOGI(TAG, "XGIP MS OS 1.0 compat ID requested len=%u",
+                     (unsigned)sizeof(s_xgip_ms_os_10_compat_id_descriptor));
+            return tud_control_xfer(rhport,
+                                    request,
+                                    (void *)(uintptr_t)s_xgip_ms_os_10_compat_id_descriptor,
+                                    sizeof(s_xgip_ms_os_10_compat_id_descriptor));
+        }
+        return false;
+#else
         (void)rhport;
         (void)request;
         return true;
+#endif
     }
 
     if (!nintendo_mode() || !request) {

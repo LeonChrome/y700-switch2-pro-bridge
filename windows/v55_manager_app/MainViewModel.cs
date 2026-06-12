@@ -1780,8 +1780,12 @@ public sealed class MainViewModel : INotifyPropertyChanged
                  lower.Contains("vid_045e&pid_02e3") ||
                  lower.Contains("vid_045e&pid_028e"))
         {
+            bool expectingElite = desiredMode == OutputModeId.XboxElite ||
+                                  currentMode == DeviceUiMode.XboxElite ||
+                                  string.Equals(settings.PendingProfileId, "xinput_elite_bridge_v5_9", StringComparison.OrdinalIgnoreCase);
             SetCurrentMode(profile.Contains("elite", StringComparison.OrdinalIgnoreCase) ||
-                           lower.Contains("vid_045e&pid_02e3")
+                           lower.Contains("vid_045e&pid_02e3") ||
+                           expectingElite
                 ? DeviceUiMode.XboxElite
                 : DeviceUiMode.Xbox);
         }
