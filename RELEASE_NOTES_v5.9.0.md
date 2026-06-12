@@ -11,6 +11,7 @@ V5.9.0 is the final all-in-one release for the ESP32-S3 Switch 2 / Pro2 bridge.
 - N16R8 PSRAM defaults are safe for boot: memmap enabled, malloc heap disabled, PSRAM memtest disabled.
 - Nintendo mode exposes BOS / Microsoft OS 2.0 descriptors for MI_01 WinUSB binding.
 - BLE auto reconnect continues in the background after controller sleep or BLE disconnect.
+- BLE wake reconnect now scans for the saved Pro2 address, so pressing any controller button after sleep can trigger a faster reconnect.
 - Manager flashing flow now guards against duplicate clicks, busy COM ports, stale esptool processes, and CH343 driver stalls.
 - Repository has been cleaned into a V5.9 final archive.
 
@@ -18,7 +19,7 @@ V5.9.0 is the final all-in-one release for the ESP32-S3 Switch 2 / Pro2 bridge.
 
 ```text
 release/v5.9/PRO2手柄无线接收器控制板-aio-v5.9.0.exe
-sha256 4dcbf9c19ba9f493b316bb35aba3b994ff555a876f7246ff42ba43090cd84137
+sha256 dc9e211631786cd05bd04211130a1d0e8bbb249badfc8a277f339d909d19d405
 ```
 
 ## Verification
