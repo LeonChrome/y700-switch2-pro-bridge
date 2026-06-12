@@ -250,8 +250,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public bool CanUsePro2ToolButtons => HasUsableSerialCandidate && desiredMode == OutputModeId.Pro2 && currentMode == DeviceUiMode.Pro2 && !Busy && !flashInProgress && !GameMonitorRunning;
     public bool CanUseDualSenseToolButtons => HasUsableSerialCandidate && desiredMode == OutputModeId.DualSenseLike && currentMode == DeviceUiMode.DualSense && !Busy && !flashInProgress && !GameMonitorRunning;
     public bool CanUseXboxToolButtons => HasUsableSerialCandidate &&
-        ((desiredMode == OutputModeId.Xbox && currentMode == DeviceUiMode.Xbox) ||
-         (desiredMode == OutputModeId.XboxElite && currentMode == DeviceUiMode.XboxElite)) &&
+        desiredMode == OutputModeId.Xbox && currentMode == DeviceUiMode.Xbox &&
         !Busy && !flashInProgress && !GameMonitorRunning;
     public bool CanUseMonitorButtons => HasUsableSerialCandidate && desiredMode == OutputModeId.DualSenseLike;
     public bool CanStartMonitorButton => HasUsableSerialCandidate && desiredMode == OutputModeId.DualSenseLike && currentMode == DeviceUiMode.DualSense && !Busy && !flashInProgress && !GameMonitorRunning;
@@ -265,7 +264,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         OutputModeId.DualSenseLike => "点击卡片可切换到 DualSense-like 模式。刷写后管理器会等待 USB 重新枚举并校验身份。",
         OutputModeId.Pro2 => "点击卡片可切换到 Pro2 / Nintendo 模式。这是当前最稳定的原始 HID 0x02 震动优先路线。",
         OutputModeId.Xbox => "点击卡片可切换到 Xbox / XInput 模式。刷写后 USB 应枚举为 045E:028E，普通震动会回传到 Pro2。",
-        OutputModeId.XboxElite => "点击“新和联胜”可刷入 Xbox Elite 2 / GIP 实验模式。刷写后 USB 应枚举为 045E:0B00。",
+        OutputModeId.XboxElite => "点击“新和联胜”刷入 GIP 枚举 bring-up。刷写后先验证 045E:0B00、XGIP10、xboxgip.sys 和 Active 状态。",
         _ => "点击手柄卡片即可设置目标模式；如果校验失败，界面会保留回退提示。"
     };
     public string CurrentModeLabel => currentMode switch
@@ -282,7 +281,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         DeviceUiMode.DualSense => "USB 当前已枚举为 DualSense-like，可使用 DualSense 实验工具。",
         DeviceUiMode.Pro2 => "USB 当前已枚举为 Pro2 / Nintendo，适合稳定输入和原始/普通震动测试。",
         DeviceUiMode.Xbox => "USB 当前已枚举为 Xbox / XInput，适合 Steam、Apex 和普通双马达震动兼容性测试。",
-        DeviceUiMode.XboxElite => "USB 当前已枚举为 Xbox Elite 2 / GIP 实验模式，适合检查 Windows / Steam 是否走 Elite 路线。",
+        DeviceUiMode.XboxElite => "USB 已看到 Xbox Elite 2 / GIP 身份；这轮只检查 Windows 绑定与 GIP Active，扩展输入和震动暂时停用。",
         DeviceUiMode.Recovery => "当前看起来是最小化 HID 恢复固件，用于救援重刷和枚举恢复。",
         _ => "请先执行 USB 检查。在确认模式前，所有真实震动发送都会保持保守策略。"
     };
@@ -383,11 +382,13 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public Visibility Pro2LabVisibility => desiredMode == OutputModeId.Pro2 ? Visibility.Visible : Visibility.Collapsed;
     public Visibility DualSenseLabDisabledVisibility => desiredMode == OutputModeId.Unknown || desiredMode == OutputModeId.Recovery ? Visibility.Visible : Visibility.Collapsed;
     public Visibility XboxLabVisibility => IsXboxLikeMode(desiredMode) ? Visibility.Visible : Visibility.Collapsed;
-    public string XboxToolStateText => DescribeToolState(
-        desiredMode == OutputModeId.XboxElite ? OutputModeId.XboxElite : OutputModeId.Xbox,
-        desiredMode == OutputModeId.XboxElite ? currentMode == DeviceUiMode.XboxElite : currentMode == DeviceUiMode.Xbox,
-        "当前 USB 身份是 Xbox 系列实验模式。BLE 输入走同一份 Pro2 state，主机普通震动会被解析并回传到 Pro2。",
-        "已选 Xbox 面板，但 USB 还没有切到对应的 045E 设备。");
+    public string XboxToolStateText => desiredMode == OutputModeId.XboxElite
+        ? "Elite 2 当前为 GIP 枚举 bring-up：只验证 0xEE/XGIP10、xboxgip.sys 与 Arrival → Metadata → Idle → Active；震动探针、背键和扩展包已停用。"
+        : DescribeToolState(
+            OutputModeId.Xbox,
+            currentMode == DeviceUiMode.Xbox,
+            "当前 USB 身份是 Xbox / XInput。BLE 输入走同一份 Pro2 state，主机普通震动会被解析并回传到 Pro2。",
+            "已选 Xbox 面板，但 USB 还没有切到 045E:028E。");
 
     public ICommand RefreshPortsCommand { get; }
     public ICommand FlashHapticCommand { get; }
@@ -813,7 +814,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         if (UsbStatus.Contains("VID_045E&PID_0B00", StringComparison.OrdinalIgnoreCase) ||
             UsbStatus.Contains("VID_045E&PID_02E3", StringComparison.OrdinalIgnoreCase))
         {
-            NextAction = "当前是新和联胜 / Xbox Elite 2 GIP 实验模式。请重点看设备管理器、Steam 输入和背键识别是否有变化。";
+            NextAction = "当前是 Elite 2 GIP 枚举 bring-up。请检查 UsbTreeView 的 0xEE/XGIP10、设备管理器的 xboxgip.sys，以及串口是否进入 Active；暂不测试背键和震动。";
         }
         else if (UsbStatus.Contains("VID_045E&PID_028E", StringComparison.OrdinalIgnoreCase) ||
             UsbStatus.Contains("XInput", StringComparison.OrdinalIgnoreCase))
@@ -1925,7 +1926,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             OutputModeId.DualSenseLike => "DualSense-like USB 身份，并保留控制器音频实验链路。",
             OutputModeId.Pro2 => "面向原始 HID 0x02 震动优先路线调好的 Nintendo-like / Pro2 桥接。",
             OutputModeId.Xbox => "真实 Xbox 360 / XInput 风格 USB 后端，普通震动会回传到 Pro2 BLE。",
-            OutputModeId.XboxElite => "Xbox Elite 2 / GIP 身份实验入口，观察 Windows / Steam 是否启用 Elite 路径和背键状态。",
+            OutputModeId.XboxElite => "Xbox Elite 2 / GIP 枚举 bring-up，优先验证 Microsoft OS Descriptor、xboxgip.sys 绑定和 Active 状态。",
             OutputModeId.Recovery => "用于重刷与 USB 救援的最小恢复固件。",
             _ => "尚未选择目标模式。"
         };

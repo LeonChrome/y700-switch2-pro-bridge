@@ -2,7 +2,7 @@
 
 Final release: **V5.9.0**
 
-This repository contains the final ESP32-S3 firmware and Windows Manager for a three-mode wireless receiver bridge for the real Switch 2 Pro / Pro2 controller.
+This repository contains the final ESP32-S3 firmware and Windows Manager for a four-mode wireless receiver bridge for the real Switch 2 Pro / Pro2 controller.
 
 The project is archived as a finished personal hardware/software build. No further feature updates are planned.
 
@@ -15,7 +15,7 @@ Use the all-in-one Windows Manager:
 SHA256:
 
 ```text
-4dcbf9c19ba9f493b316bb35aba3b994ff555a876f7246ff42ba43090cd84137
+114fc560dc30fe500bf7247880cb6e8b0455d3ac75ad9b8dc99966d792204226
 ```
 
 The EXE bundles:
@@ -27,15 +27,17 @@ The EXE bundles:
 - USB identity checks
 - Pro2 rumble tools
 - XInput rumble probe
+- Xbox Elite 2 GIP enumeration bring-up
 
 ## What It Does
 
-An ESP32-S3 board connects to the real controller over BLE, then exposes one of three USB controller identities to Windows / Steam:
+An ESP32-S3 board connects to the real controller over BLE, then exposes one of four USB controller identities to Windows / Steam:
 
 | Mode | USB identity | Main use |
 | --- | --- | --- |
 | Pro2 / Nintendo | Nintendo Switch Pro style HID, `057E:2069` | Best default mode for Steam Input and Pro2-style layout |
 | Xbox / XInput | Xbox 360 style, `045E:028E` | Games that prefer XInput |
+| Xbox Elite 2 GIP bring-up | Vendor-specific GIP, `045E:0B00` | Validate `XGIP10`, Windows driver binding, and GIP Active before restoring Elite extensions |
 | DualSense-like | DualSense-style HID/audio experiment, `054C:0CE6` | Compatibility and haptic-audio experiments |
 
 V5.9 focuses on preserving controller feel:
@@ -45,6 +47,7 @@ V5.9 focuses on preserving controller feel:
 - Left and right stick Y axes use host-expected polarity.
 - BLE auto reconnect keeps daily use working after controller sleep/disconnect.
 - The Manager avoids UI freezes when both native USB and CH343P control USB are connected.
+- Elite 2 mode is intentionally minimal: only standard GIP input is enabled after the host reaches Active; paddles, guide, rumble, unmapped state, and extended Elite input are paused.
 
 ## Hardware
 
@@ -69,7 +72,7 @@ CONFIG_SPIRAM_USE_MEMMAP=y
 1. Connect the CH343P control USB port.
 2. Open the V5.9 Manager EXE.
 3. Select or refresh the COM port.
-4. Click the target mode card: Pro2 / Nintendo, Xbox / XInput, or DualSense-like.
+4. Click the target mode card: Pro2 / Nintendo, Xbox / XInput, Xbox Elite 2 GIP bring-up, or DualSense-like.
 5. Wait for flashing to finish.
 6. Replug the ESP32-S3 native USB / OTG gamepad port.
 7. Click USB check in the Manager.

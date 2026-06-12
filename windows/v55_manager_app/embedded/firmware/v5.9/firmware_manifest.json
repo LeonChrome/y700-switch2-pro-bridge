@@ -69,7 +69,7 @@
                                         {
                                             "offset":  "0x10000",
                                             "path":  "pro2_bridge_v5_5/esp32s3_switch2_bridge.bin",
-                                            "sha256":  "69e1d8263f49ad61c0b872efa265081f56e0a79c2a1a83c28a210bcafa44db1c"
+                                            "sha256":  "6994ab64a9f2016ad10bc275fde89c156dd1eca35e8078b7438a121663c6648a"
                                         }
                                     ]
                      },
@@ -91,13 +91,13 @@
                                         {
                                             "offset":  "0x10000",
                                             "path":  "xinput_bridge_v5_8/esp32s3_switch2_bridge.bin",
-                                            "sha256":  "d44935cb9d05158a933ea18252dfdaf53fa1d6a9bad1523f9ebd074b62636a20"
+                                            "sha256":  "a010afb379b623b82b0aa90611af5036fff6728110f17f928ad225694de91c68"
                                         }
                                     ]
                      },
                      {
                          "id":  "xinput_elite_bridge_v5_9",
-                         "label":  "Xbox Elite 2 GIP bridge",
+                         "label":  "Xbox Elite 2 GIP enumeration bring-up",
                          "app":  "esp32s3_switch2_bridge.bin",
                          "assets":  [
                                         {
@@ -113,10 +113,10 @@
                                         {
                                             "offset":  "0x10000",
                                             "path":  "xinput_elite_bridge_v5_9/esp32s3_switch2_bridge.bin",
-                                            "sha256":  "846bed15a6c169bca1aa0d5fbea6a6fa462a197efde08ee656bec0ece587ac76"
+                                            "sha256":  "1b09d9da4bc74bc41015e3d1d2366ec4bda48bf9e57e8d6c5a19149088ac76a4"
                                         }
                                     ]
                      }
                  ],
-    "notes":  "V5.9 manager bundle for PRO2 wireless receiver control board: Pro2 / Nintendo bridge with raw HID 0x02 rumble kept authoritative, Xbox/XInput bridge with shaped ordinary rumble, DualSense-like bridge with controller-audio raw02 shaping, HID-only recovery, embedded esptool, and XInput host rumble probe."
+    "notes":  "V5.9 manager bundle for PRO2 wireless receiver control board: Pro2 / Nintendo bridge, Xbox/XInput bridge, Xbox Elite 2 GIP enumeration bring-up with XGIP10 and extensions paused, DualSense-like bridge, HID-only recovery, embedded esptool, and XInput host rumble probe."
 }

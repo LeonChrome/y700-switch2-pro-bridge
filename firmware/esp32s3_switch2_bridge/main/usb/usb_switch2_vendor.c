@@ -35,6 +35,8 @@ static const char *TAG = "usb_vendor";
 #ifdef XINPUT_ELITE_EXPERIMENT
 #define XGIP_MS_VENDOR_CODE 0x90
 #define XGIP_MS_OS_10_COMPAT_ID_LEN 0x28
+#define XGIP_FIRST_INTERFACE 0x00
+#define XGIP_FUNCTION_INTERFACE_COUNT 0x01
 #endif
 #define SWITCH2_FLASH_REPLY_FULL_SPEED_LEN 0x50
 #define SWITCH2_HID_GUARD_TIMEOUT_US (10LL * 60LL * 1000LL * 1000LL)
@@ -103,7 +105,7 @@ static const uint8_t s_xgip_ms_os_10_compat_id_descriptor[] = {
     U16_TO_U8S_LE(0x0004),
     0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 
-    0x00, 0x01,
+    XGIP_FIRST_INTERFACE, XGIP_FUNCTION_INTERFACE_COUNT,
     'X', 'G', 'I', 'P', '1', '0', 0x00, 0x00,
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -1190,7 +1192,7 @@ uint16_t const *tinyusb_extra_string_descriptor_cb(uint8_t index, uint16_t langi
     (void)langid;
 #ifdef XINPUT_ELITE_EXPERIMENT
     if (xgip_mode() && index == SWITCH2_MS_OS_10_STRING_INDEX) {
-        APP_LOGI(TAG, "XGIP MS OS 1.0 string descriptor requested");
+        APP_LOGI(TAG, "USB GET_DESCRIPTOR string index=0xee len=0x12 signature=MSFT100 vendor_code=0x90");
         return (uint16_t const *)(uintptr_t)s_xgip_ms_os_10_string_descriptor;
     }
 #endif
@@ -1210,11 +1212,24 @@ bool tud_vendor_control_xfer_cb(uint8_t rhport, uint8_t stage,
 
     if (device_config_get_mode() == XINPUT_EXPERIMENT_MODE) {
 #ifdef XINPUT_ELITE_EXPERIMENT
-        if (request &&
-            request->bmRequestType_bit.type == TUSB_REQ_TYPE_VENDOR &&
+        if (!request) {
+            return false;
+        }
+
+        APP_LOGI(TAG, "USB vendor request bm=0x%02x req=0x%02x value=0x%04x index=0x%04x length=%u",
+                 request->bmRequestType,
+                 request->bRequest,
+                 request->wValue,
+                 request->wIndex,
+                 (unsigned)request->wLength);
+
+        if (request->bmRequestType == 0xc0 &&
             request->bRequest == XGIP_MS_VENDOR_CODE &&
+            request->wValue == 0x0000 &&
             request->wIndex == 0x0004) {
-            APP_LOGI(TAG, "XGIP MS OS 1.0 compat ID requested len=%u",
+            APP_LOGI(TAG, "USB vendor request 0x90 returning XGIP10 compat ID first_itf=%u interfaces=%u len=%u",
+                     (unsigned)XGIP_FIRST_INTERFACE,
+                     (unsigned)XGIP_FUNCTION_INTERFACE_COUNT,
                      (unsigned)sizeof(s_xgip_ms_os_10_compat_id_descriptor));
             return tud_control_xfer(rhport,
                                     request,

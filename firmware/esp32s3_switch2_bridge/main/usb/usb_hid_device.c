@@ -11,6 +11,7 @@
 #include "usb_descriptors.h"
 #include "usb_hid_device.h"
 #include "usb_switch2_vendor.h"
+#include "usb_xinput_device.h"
 
 static const char *TAG = "usb";
 static bool s_mounted;
@@ -49,6 +50,13 @@ esp_err_t usb_hid_device_init(void)
              usb_descriptors_current_vid(),
              usb_descriptors_current_pid(),
              usb_descriptors_current_product());
+#ifdef XINPUT_ELITE_EXPERIMENT
+    if (device_config_get_mode() == XINPUT_EXPERIMENT_MODE) {
+        APP_LOGI(TAG, "GIP bring-up descriptor bcdUSB=0x0200 bcdDevice=0x0512 serial=ELITE2-GIP-0512");
+        APP_LOGI(TAG, "GIP data interface=0 class/subclass/protocol=ff/47/d0 OUT=0x02 IN=0x82 mps=64 interval=4");
+        APP_LOGI(TAG, "GIP MS OS 1.0 string=0xee vendor_code=0x90 compatible_id=XGIP10");
+    }
+#endif
     APP_LOGI(TAG, "USB path: Nintendo/Steam HID and vendor bulk init are verified on ESP32-S3");
     usb_switch2_vendor_init();
 
@@ -223,7 +231,8 @@ void tud_mount_cb(void)
     s_mounted = true;
     s_suspended = false;
     usb_switch2_vendor_reset_hid_guard();
-    APP_LOGI(TAG, "USB mounted");
+    usb_xinput_device_on_mount();
+    APP_LOGI(TAG, "USB SET_CONFIGURATION complete; mounted");
 }
 
 void tud_umount_cb(void)
@@ -231,6 +240,7 @@ void tud_umount_cb(void)
     s_mounted = false;
     s_suspended = false;
     usb_switch2_vendor_reset_hid_guard();
+    usb_xinput_device_on_unmount();
     APP_LOGI(TAG, "USB unmounted");
 }
 

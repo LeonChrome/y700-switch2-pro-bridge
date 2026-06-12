@@ -61,7 +61,7 @@ public static class OutputModeCatalog
         "新和联胜 / Xbox Elite 2 GIP",
         "VID_045E&PID_0B00",
         true,
-        "Xbox Elite 2 / GIP 身份实验入口，复用当前 Pro2 BLE 输入、普通震动和背键映射。");
+        "Xbox Elite 2 / GIP 枚举 bring-up：优先验证 XGIP10、xboxgip.sys 和 Active 状态，背键与震动暂时停用。");
 
     public static IReadOnlyList<OutputModeProfile> All { get; } = new[]
     {

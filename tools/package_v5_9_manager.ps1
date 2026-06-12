@@ -221,7 +221,7 @@ function Refresh-EmbeddedAssets {
     $profiles += Add-FirmwareProfilePayload "hid_only" $firmwareRoot
     $profiles += Add-Pro2BridgeProfilePayload $firmwareRoot
     $profiles += Add-XInputBridgeProfilePayload $firmwareRoot
-    $profiles += Add-XInputBridgeProfilePayload $firmwareRoot "xinput_elite_bridge_v5_9" "work\build\v5_9_xinput_elite_bridge" "Xbox Elite 2 GIP bridge"
+    $profiles += Add-XInputBridgeProfilePayload $firmwareRoot "xinput_elite_bridge_v5_9" "work\build\v5_9_xinput_elite_bridge" "Xbox Elite 2 GIP enumeration bring-up"
 
     $manifest = [ordered]@{
         packageVersion = "v5.9.0-aio"
@@ -232,7 +232,7 @@ function Refresh-EmbeddedAssets {
         flashSize = "16MB"
         defaultProfile = "pro2_bridge_v5_5"
         profiles = $profiles
-        notes = "V5.9 manager bundle for PRO2 wireless receiver control board: Pro2 / Nintendo bridge with raw HID 0x02 rumble kept authoritative, Xbox/XInput bridge with shaped ordinary rumble, DualSense-like bridge with controller-audio raw02 shaping, HID-only recovery, embedded esptool, and XInput host rumble probe."
+        notes = "V5.9 manager bundle for PRO2 wireless receiver control board: Pro2 / Nintendo bridge, Xbox/XInput bridge, Xbox Elite 2 GIP enumeration bring-up with XGIP10 and extensions paused, DualSense-like bridge, HID-only recovery, embedded esptool, and XInput host rumble probe."
     }
     $manifest | ConvertTo-Json -Depth 8 | Set-Content -Encoding UTF8 -Path (Join-Path $firmwareRoot "firmware_manifest.json")
 

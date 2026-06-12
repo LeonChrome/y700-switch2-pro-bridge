@@ -471,7 +471,7 @@
                                     </Border>
                                     <TextBlock Style="{StaticResource HintText}"
                                                Margin="0,14,0,0"
-                                               Text="狠活路线。USB 枚举为 Xbox Elite 2 / GIP，专门测试 Steam、Windows 和背键识别。"/>
+                                               Text="枚举 bring-up。先验证 XGIP10、xboxgip.sys 和 GIP Active；背键、震动与 Elite 扩展暂时停用。"/>
                                 </StackPanel>
                             </Button>
                         </Grid>
