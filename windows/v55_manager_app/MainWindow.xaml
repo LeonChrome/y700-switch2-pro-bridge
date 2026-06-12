@@ -444,6 +444,20 @@
                                 </StackPanel>
                             </Button>
                         </Grid>
+                        <DockPanel Margin="0,14,0,0">
+                            <TextBlock DockPanel.Dock="Left"
+                                       Style="{StaticResource HintText}"
+                                       VerticalAlignment="Center"
+                                       Text="Xbox Elite 身份实验入口，刷入后用 USB 检查确认 045E:02E3。"/>
+                            <Button DockPanel.Dock="Right"
+                                    Style="{StaticResource SubtleButton}"
+                                    Content="新和联胜"
+                                    Command="{Binding ActivateXboxEliteModeCommand}"
+                                    IsEnabled="{Binding CanSwitchModes}"
+                                    AutomationProperties.AutomationId="ModeButtonXboxElite"
+                                    AutomationProperties.Name="刷入新和联胜 Xbox Elite 身份实验模式"
+                                    ToolTip="{Binding XboxEliteCardTooltip}"/>
+                        </DockPanel>
                     </StackPanel>
                 </Border>
 

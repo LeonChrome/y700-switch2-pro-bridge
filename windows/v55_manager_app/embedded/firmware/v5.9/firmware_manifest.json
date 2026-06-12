@@ -25,7 +25,7 @@
                                         {
                                             "offset":  "0x10000",
                                             "path":  "hid_audio_uac1_4ch_ds5like/esp32s3_dualsense_identity_experiment.bin",
-                                            "sha256":  "b69afa28a68a5f3abc162b34c921f4416b9f665ab0da364a36580e7328b3cb07"
+                                            "sha256":  "c525696a0e62b9933df207668e7c6398d3e90ff9fe9f2c3f26aebfbdbde56282"
                                         }
                                     ]
                      },
@@ -47,7 +47,7 @@
                                         {
                                             "offset":  "0x10000",
                                             "path":  "hid_only/esp32s3_dualsense_identity_experiment.bin",
-                                            "sha256":  "f0f73cb1e142642c091690c264c31b84146a84869bc343fa36bf5719c075cddb"
+                                            "sha256":  "21c71b396f797b9dd26b6ce8961e40caf94ebd2e5b0cfe82cb9348af98a1116c"
                                         }
                                     ]
                      },
@@ -69,7 +69,7 @@
                                         {
                                             "offset":  "0x10000",
                                             "path":  "pro2_bridge_v5_5/esp32s3_switch2_bridge.bin",
-                                            "sha256":  "3e9da033c518e01df8bfc34b4aaad45a6efa76f1671d22c96037a3907dc67b82"
+                                            "sha256":  "1a91bc64bf324195c045db96c1d1e1ab522154105e664eadd269238deb2dd969"
                                         }
                                     ]
                      },
@@ -91,7 +91,29 @@
                                         {
                                             "offset":  "0x10000",
                                             "path":  "xinput_bridge_v5_8/esp32s3_switch2_bridge.bin",
-                                            "sha256":  "834eb43c6c5dc6d0d9524f4861926849337ef664d08418740b6e3afcab0f0fb6"
+                                            "sha256":  "f5b738cb3b371a6e428f259d08715959ec5fb23fe88e1dd15dba8c0dd62f3702"
+                                        }
+                                    ]
+                     },
+                     {
+                         "id":  "xinput_elite_bridge_v5_9",
+                         "label":  "Xbox Elite identity bridge",
+                         "app":  "esp32s3_switch2_bridge.bin",
+                         "assets":  [
+                                        {
+                                            "offset":  "0x0",
+                                            "path":  "xinput_elite_bridge_v5_9/bootloader/bootloader.bin",
+                                            "sha256":  "615ad4aaf73f74e003c85efd3075053ce24a71481ee9f069681b5d47360677ad"
+                                        },
+                                        {
+                                            "offset":  "0x8000",
+                                            "path":  "xinput_elite_bridge_v5_9/partition_table/partition-table.bin",
+                                            "sha256":  "7f00b6c042a89b15b0cac534f82ed988caf29278ff5700b0c511eb1b5bb7c820"
+                                        },
+                                        {
+                                            "offset":  "0x10000",
+                                            "path":  "xinput_elite_bridge_v5_9/esp32s3_switch2_bridge.bin",
+                                            "sha256":  "76f37f32ab7672345bbeb0de72c350e20cb1ba73b08b1fdaaa9b64d5ccfb280e"
                                         }
                                     ]
                      }

@@ -52,6 +52,7 @@ public partial class App : Application
             FirmwareProfile recovery = package.GetProfile("hid_only");
             FirmwareProfile pro2 = package.GetProfile("pro2_bridge_v5_5");
             FirmwareProfile xinput = package.GetProfile("xinput_bridge_v5_8");
+            FirmwareProfile xinputElite = package.GetProfile("xinput_elite_bridge_v5_9");
             int assetCount = package.Manifest.Profiles.Sum(profile => profile.Assets.Count);
             string result = string.Join(Environment.NewLine, new[]
             {
@@ -63,6 +64,7 @@ public partial class App : Application
                 "recovery_assets=" + recovery.Assets.Count,
                 "pro2_assets=" + pro2.Assets.Count,
                 "xinput_assets=" + xinput.Assets.Count,
+                "xinput_elite_assets=" + xinputElite.Assets.Count,
                 "asset_count=" + assetCount,
                 "esptool=" + package.EsptoolPath,
                 "xinput_probe=" + package.XInputProbePath

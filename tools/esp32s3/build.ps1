@@ -2,7 +2,8 @@ param(
     [string]$IdfPath,
     [string]$BuildDir = "",
     [ValidateSet("", "GENERIC_HID_MODE", "NINTENDO_EXPERIMENT_MODE", "XINPUT_EXPERIMENT_MODE")]
-    [string]$DeviceDefaultMode = ""
+    [string]$DeviceDefaultMode = "",
+    [switch]$XInputElite
 )
 
 $ErrorActionPreference = "Stop"
@@ -50,6 +51,9 @@ function Invoke-IdfBuild {
     }
     if ($DeviceDefaultMode) {
         $args += "-DDEVICE_DEFAULT_MODE=$DeviceDefaultMode"
+    }
+    if ($XInputElite) {
+        $args += "-DXINPUT_ELITE_EXPERIMENT=1"
     }
     $args += "build"
 

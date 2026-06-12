@@ -161,9 +161,14 @@ function Add-Pro2BridgeProfilePayload([string]$TargetRoot) {
     }
 }
 
-function Add-XInputBridgeProfilePayload([string]$TargetRoot) {
-    $profile = "xinput_bridge_v5_8"
-    $buildDir = Join-Path $RepoRoot "work\build\v5_9_xinput_bridge"
+function Add-XInputBridgeProfilePayload(
+    [string]$TargetRoot,
+    [string]$Profile = "xinput_bridge_v5_8",
+    [string]$BuildDirRelative = "work\build\v5_9_xinput_bridge",
+    [string]$Label = "Xbox / XInput bridge"
+) {
+    $profile = $Profile
+    $buildDir = Join-Path $RepoRoot $BuildDirRelative
     if (!(Test-Path -LiteralPath $buildDir)) {
         throw "Missing XInput bridge firmware build directory: $buildDir"
     }
@@ -196,7 +201,7 @@ function Add-XInputBridgeProfilePayload([string]$TargetRoot) {
 
     return [ordered]@{
         id = $profile
-        label = "Xbox / XInput bridge"
+        label = $Label
         app = "esp32s3_switch2_bridge.bin"
         assets = $assets
     }
@@ -216,6 +221,7 @@ function Refresh-EmbeddedAssets {
     $profiles += Add-FirmwareProfilePayload "hid_only" $firmwareRoot
     $profiles += Add-Pro2BridgeProfilePayload $firmwareRoot
     $profiles += Add-XInputBridgeProfilePayload $firmwareRoot
+    $profiles += Add-XInputBridgeProfilePayload $firmwareRoot "xinput_elite_bridge_v5_9" "work\build\v5_9_xinput_elite_bridge" "Xbox Elite identity bridge"
 
     $manifest = [ordered]@{
         packageVersion = "v5.9.0-aio"
@@ -258,6 +264,16 @@ if (!$SkipFirmwareBuild) {
             -BuildDir "work\build\v5_9_xinput_bridge" `
             -DeviceDefaultMode XINPUT_EXPERIMENT_MODE
         if ($LASTEXITCODE -ne 0) { throw "Firmware build failed: xinput_bridge_v5_8" }
+    }
+
+    Write-Step "firmware_build" "xinput_elite_bridge_v5_9"
+    if (!$DryRun) {
+        & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $RepoRoot "tools\esp32s3\build.ps1") `
+            -IdfPath $IdfPath `
+            -BuildDir "work\build\v5_9_xinput_elite_bridge" `
+            -DeviceDefaultMode XINPUT_EXPERIMENT_MODE `
+            -XInputElite
+        if ($LASTEXITCODE -ne 0) { throw "Firmware build failed: xinput_elite_bridge_v5_9" }
     }
 
     $buildScript = Join-Path $RepoRoot "tools\esp32s3\build_v5_5_dualsense_identity.ps1"
@@ -321,8 +337,8 @@ if (!$DryRun) {
         }
     }
     if ($verifyData["result"] -ne "passed" -or
-        $verifyData["profiles"] -ne "hid_audio_uac1_4ch_ds5like,hid_only,pro2_bridge_v5_5,xinput_bridge_v5_8" -or
-        $verifyData["asset_count"] -ne "12") {
+        $verifyData["profiles"] -ne "hid_audio_uac1_4ch_ds5like,hid_only,pro2_bridge_v5_5,xinput_bridge_v5_8,xinput_elite_bridge_v5_9" -or
+        $verifyData["asset_count"] -ne "15") {
         throw "Published manager package verification returned unexpected data:`n$verifyDetails"
     }
     Write-Step "package_verify" "passed"

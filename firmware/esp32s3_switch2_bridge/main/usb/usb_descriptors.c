@@ -19,7 +19,21 @@
 #define CONFIG_TOTAL_LEN_XINPUT 0x30
 #define HID_POLL_INTERVAL_MS 1
 #define VENDOR_BULK_PACKET_SIZE 64
+#ifdef XINPUT_ELITE_EXPERIMENT
+#define USB_PID_XINPUT_ACTIVE USB_PID_XINPUT_ELITE_EXPERIMENT
+#define USB_PRODUCT_XINPUT_ACTIVE "Xbox Elite Wireless Controller"
+#define USB_MANUFACTURER_XINPUT_ACTIVE "Microsoft Corporation"
+#define USB_SERIAL_XINPUT_ACTIVE "ELITE-EXP"
+#define USB_BCD_DEVICE_XINPUT_ACTIVE 0x0500
+#define XINPUT_PACKET_SIZE 64
+#else
+#define USB_PID_XINPUT_ACTIVE USB_PID_XINPUT_EXPERIMENT
+#define USB_PRODUCT_XINPUT_ACTIVE "XINPUT CONTROLLER"
+#define USB_MANUFACTURER_XINPUT_ACTIVE "GENERIC"
+#define USB_SERIAL_XINPUT_ACTIVE "1.0"
+#define USB_BCD_DEVICE_XINPUT_ACTIVE 0x0572
 #define XINPUT_PACKET_SIZE 32
+#endif
 #define XINPUT_IN_INTERVAL_MS 4
 #define XINPUT_OUT_INTERVAL_MS 8
 #define CONFIG_ATTR_NINTENDO 0
@@ -104,8 +118,8 @@ static const tusb_desc_device_t desc_device_xinput = {
     .bDeviceProtocol = 0xff,
     .bMaxPacketSize0 = CFG_TUD_ENDPOINT0_SIZE,
     .idVendor = USB_VID_XINPUT_EXPERIMENT,
-    .idProduct = USB_PID_XINPUT_EXPERIMENT,
-    .bcdDevice = 0x0572,
+    .idProduct = USB_PID_XINPUT_ACTIVE,
+    .bcdDevice = USB_BCD_DEVICE_XINPUT_ACTIVE,
     .iManufacturer = STRID_MANUFACTURER,
     .iProduct = STRID_PRODUCT,
     .iSerialNumber = STRID_SERIAL,
@@ -152,9 +166,9 @@ static const char *string_desc_nintendo[] = {
 
 static const char *string_desc_xinput[] = {
     "",
-    "GENERIC",
-    "XINPUT CONTROLLER",
-    "1.0",
+    USB_MANUFACTURER_XINPUT_ACTIVE,
+    USB_PRODUCT_XINPUT_ACTIVE,
+    USB_SERIAL_XINPUT_ACTIVE,
 };
 
 uint16_t usb_descriptors_current_vid(void)
@@ -175,7 +189,7 @@ uint16_t usb_descriptors_current_pid(void)
     case NINTENDO_EXPERIMENT_MODE:
         return USB_PID_NINTENDO_EXPERIMENT;
     case XINPUT_EXPERIMENT_MODE:
-        return USB_PID_XINPUT_EXPERIMENT;
+        return USB_PID_XINPUT_ACTIVE;
     default:
         return USB_PID_GENERIC;
     }
@@ -187,7 +201,7 @@ const char *usb_descriptors_current_product(void)
     case NINTENDO_EXPERIMENT_MODE:
         return "Nintendo Switch Pro Controller";
     case XINPUT_EXPERIMENT_MODE:
-        return "XINPUT CONTROLLER";
+        return USB_PRODUCT_XINPUT_ACTIVE;
     default:
         return "ESP32-S3 Generic HID Gamepad";
     }
@@ -199,7 +213,7 @@ const char *usb_descriptors_current_manufacturer(void)
     case NINTENDO_EXPERIMENT_MODE:
         return "Nintendo Co., Ltd.";
     case XINPUT_EXPERIMENT_MODE:
-        return "GENERIC";
+        return USB_MANUFACTURER_XINPUT_ACTIVE;
     default:
         return "LeonChrome";
     }

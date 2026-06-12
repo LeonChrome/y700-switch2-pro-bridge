@@ -44,10 +44,10 @@ static const char *TAG = "ble";
 #define BLE_AUTO_RECONNECT_INITIAL_DELAY_MS 1500
 #define BLE_AUTO_RECONNECT_AFTER_DROP_DELAY_MS 800
 #define BLE_AUTO_RECONNECT_FAST_WINDOW_MS 60000
-#define BLE_AUTO_RECONNECT_FAST_SCAN_MS 3500
-#define BLE_AUTO_RECONNECT_FAST_IDLE_MS 500
-#define BLE_AUTO_RECONNECT_SLOW_SCAN_MS 8000
-#define BLE_AUTO_RECONNECT_SLOW_IDLE_MS 500
+#define BLE_AUTO_RECONNECT_FAST_SCAN_MS 8000
+#define BLE_AUTO_RECONNECT_FAST_IDLE_MS 250
+#define BLE_AUTO_RECONNECT_SLOW_SCAN_MS 30000
+#define BLE_AUTO_RECONNECT_SLOW_IDLE_MS 250
 
 typedef enum {
     BLE_STATE_IDLE = 0,
@@ -651,25 +651,13 @@ static void log_adv_report(const struct ble_gap_disc_desc *disc)
     struct ble_hs_adv_fields fields;
     int rc = ble_hs_adv_parse_fields(&fields, disc->data, disc->length_data);
     if (rc != 0) {
-        bool directed_wake_match = s_auto_scan_connect &&
-                                   s_auto_scan_preferred_valid &&
-                                   disc->event_type == BLE_HCI_ADV_RPT_EVTYPE_DIR_IND;
-        if (directed_wake_match) {
-            select_auto_scan_target(disc,
-                                    "directed-wake",
-                                    index,
-                                    addr,
-                                    "",
-                                    true);
-        }
-        APP_LOGW(TAG, "BLE scan parse failed #%lu addr=%s rssi=%d event=%u len=%u rc=%d directed_wake=%s",
+        APP_LOGW(TAG, "BLE scan parse failed #%lu addr=%s rssi=%d event=%u len=%u rc=%d",
                  (unsigned long)index,
                  addr,
                  disc->rssi,
                  disc->event_type,
                  disc->length_data,
-                 rc,
-                 directed_wake_match ? "yes" : "no");
+                 rc);
         return;
     }
 
@@ -687,12 +675,9 @@ static void log_adv_report(const struct ble_gap_disc_desc *disc)
         s_auto_scan_preferred_valid &&
         same_addr_value(&disc->addr, &s_auto_scan_preferred);
     bool candidate_match = s_auto_scan_connect && candidate;
-    bool directed_wake_match = s_auto_scan_connect &&
-                               s_auto_scan_preferred_valid &&
-                               disc->event_type == BLE_HCI_ADV_RPT_EVTYPE_DIR_IND;
-    if (preferred_match || directed_wake_match) {
+    if (preferred_match) {
         select_auto_scan_target(disc,
-                                preferred_match ? "saved" : "directed-wake",
+                                "saved",
                                 index,
                                 addr,
                                 name,
@@ -703,18 +688,17 @@ static void log_adv_report(const struct ble_gap_disc_desc *disc)
                                 index,
                                 addr,
                                 name,
-                                !s_auto_scan_preferred_valid);
+                                true);
     }
 
     APP_LOGI(TAG,
-             "BLE scan device #%lu addr=%s rssi=%d event=%u name=\"%s\" candidate=%s directed_wake=%s nintendo_mfg=%s appearance=%s%u mfg_len=%u mfg=\"%s\"",
+             "BLE scan device #%lu addr=%s rssi=%d event=%u name=\"%s\" candidate=%s nintendo_mfg=%s appearance=%s%u mfg_len=%u mfg=\"%s\"",
              (unsigned long)index,
              addr,
              disc->rssi,
              disc->event_type,
              name[0] ? name : "<none>",
              candidate ? "yes" : "no",
-             directed_wake_match ? "yes" : "no",
              nintendo_mfg ? "yes" : "no",
              fields.appearance_is_present ? "" : "<none>/",
              fields.appearance_is_present ? fields.appearance : 0,

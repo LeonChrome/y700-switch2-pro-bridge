@@ -30,6 +30,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         DualSense,
         Pro2,
         Xbox,
+        XboxElite,
         Recovery
     }
 
@@ -221,7 +222,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         }
     }
 
-    public string FirmwareSummary => "V5.9 管理器内置：Pro2 / Nintendo、Xbox / XInput、DualSense-like、HID 纯恢复固件、嵌入式 esptool 和 XInput 震动探针。";
+    public string FirmwareSummary => "V5.9 管理器内置：Pro2 / Nintendo、Xbox / XInput、新和联胜 / Xbox Elite、DualSense-like、HID 纯恢复固件、嵌入式 esptool 和 XInput 震动探针。";
     public string SafetySummary => "Live 转发默认不自动开启。游戏监听会保持 HD-only 过滤，普通 PCM 只计入 blocked_pcm，不会被盲目推送。";
     public string LogText => log.ToString();
     public Brush OverallBrush => Busy || GameMonitorRunning
@@ -242,13 +243,16 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public bool HasUsableSerialCandidate => SelectedPort != null && SelectedPort.CanOpen;
     public bool IsDualSenseToolsEnabled => desiredMode == OutputModeId.DualSenseLike;
     public bool IsPro2ToolsEnabled => desiredMode == OutputModeId.Pro2;
-    public bool IsXboxToolsEnabled => desiredMode == OutputModeId.Xbox;
+    public bool IsXboxToolsEnabled => IsXboxLikeMode(desiredMode);
     public bool IsUnknownMode => currentMode == DeviceUiMode.Unknown || currentMode == DeviceUiMode.Recovery;
     public bool CanSwitchModes => !Busy && !flashInProgress && !GameMonitorRunning;
     public bool CanUseBleButtons => HasUsableSerialCandidate && !Busy && !flashInProgress && !GameMonitorRunning;
     public bool CanUsePro2ToolButtons => HasUsableSerialCandidate && desiredMode == OutputModeId.Pro2 && currentMode == DeviceUiMode.Pro2 && !Busy && !flashInProgress && !GameMonitorRunning;
     public bool CanUseDualSenseToolButtons => HasUsableSerialCandidate && desiredMode == OutputModeId.DualSenseLike && currentMode == DeviceUiMode.DualSense && !Busy && !flashInProgress && !GameMonitorRunning;
-    public bool CanUseXboxToolButtons => HasUsableSerialCandidate && desiredMode == OutputModeId.Xbox && currentMode == DeviceUiMode.Xbox && !Busy && !flashInProgress && !GameMonitorRunning;
+    public bool CanUseXboxToolButtons => HasUsableSerialCandidate &&
+        ((desiredMode == OutputModeId.Xbox && currentMode == DeviceUiMode.Xbox) ||
+         (desiredMode == OutputModeId.XboxElite && currentMode == DeviceUiMode.XboxElite)) &&
+        !Busy && !flashInProgress && !GameMonitorRunning;
     public bool CanUseMonitorButtons => HasUsableSerialCandidate && desiredMode == OutputModeId.DualSenseLike;
     public bool CanStartMonitorButton => HasUsableSerialCandidate && desiredMode == OutputModeId.DualSenseLike && currentMode == DeviceUiMode.DualSense && !Busy && !flashInProgress && !GameMonitorRunning;
     public bool CanStopMonitorButton => HasUsableSerialCandidate && desiredMode == OutputModeId.DualSenseLike && GameMonitorRunning;
@@ -261,6 +265,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         OutputModeId.DualSenseLike => "点击卡片可切换到 DualSense-like 模式。刷写后管理器会等待 USB 重新枚举并校验身份。",
         OutputModeId.Pro2 => "点击卡片可切换到 Pro2 / Nintendo 模式。这是当前最稳定的原始 HID 0x02 震动优先路线。",
         OutputModeId.Xbox => "点击卡片可切换到 Xbox / XInput 模式。刷写后 USB 应枚举为 045E:028E，普通震动会回传到 Pro2。",
+        OutputModeId.XboxElite => "点击“新和联胜”可刷入 Xbox Elite 身份实验模式。刷写后 USB 应枚举为 045E:02E3。",
         _ => "点击手柄卡片即可设置目标模式；如果校验失败，界面会保留回退提示。"
     };
     public string CurrentModeLabel => currentMode switch
@@ -268,6 +273,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         DeviceUiMode.DualSense => "DualSense-like 模式",
         DeviceUiMode.Pro2 => "Pro2 / Nintendo 模式",
         DeviceUiMode.Xbox => "Xbox / XInput 模式",
+        DeviceUiMode.XboxElite => "新和联胜 / Xbox Elite 模式",
         DeviceUiMode.Recovery => "HID 纯恢复模式",
         _ => "USB 模式未知"
     };
@@ -276,6 +282,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         DeviceUiMode.DualSense => "USB 当前已枚举为 DualSense-like，可使用 DualSense 实验工具。",
         DeviceUiMode.Pro2 => "USB 当前已枚举为 Pro2 / Nintendo，适合稳定输入和原始/普通震动测试。",
         DeviceUiMode.Xbox => "USB 当前已枚举为 Xbox / XInput，适合 Steam、Apex 和普通双马达震动兼容性测试。",
+        DeviceUiMode.XboxElite => "USB 当前已枚举为 Xbox Elite 身份实验模式，适合检查 Windows / Steam 是否走 Elite 路线。",
         DeviceUiMode.Recovery => "当前看起来是最小化 HID 恢复固件，用于救援重刷和枚举恢复。",
         _ => "请先执行 USB 检查。在确认模式前，所有真实震动发送都会保持保守策略。"
     };
@@ -296,14 +303,17 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public string DualSenseCardStateText => GetModeStateText(OutputModeId.DualSenseLike, managerReady: true);
     public string Pro2CardStateText => GetModeStateText(OutputModeId.Pro2, managerReady: true);
     public string XboxCardStateText => GetModeStateText(OutputModeId.Xbox, managerReady: true);
+    public string XboxEliteCardStateText => GetModeStateText(OutputModeId.XboxElite, managerReady: true);
     public string DualSenseCardTooltip => "点击切换到 DualSense-like 模式";
     public string Pro2CardTooltip => "点击切换到 Pro2 / Nintendo 模式";
     public string XboxCardTooltip => "点击切换到 Xbox / XInput 模式";
+    public string XboxEliteCardTooltip => "点击刷入新和联胜 / Xbox Elite 身份实验模式";
     public Brush UsbIndicatorBrush => currentMode switch
     {
         DeviceUiMode.DualSense => new SolidColorBrush(Color.FromRgb(29, 78, 216)),
         DeviceUiMode.Pro2 => new SolidColorBrush(Color.FromRgb(190, 24, 93)),
         DeviceUiMode.Xbox => new SolidColorBrush(Color.FromRgb(22, 101, 52)),
+        DeviceUiMode.XboxElite => new SolidColorBrush(Color.FromRgb(21, 128, 61)),
         DeviceUiMode.Recovery => new SolidColorBrush(Color.FromRgb(71, 85, 105)),
         _ => new SolidColorBrush(Color.FromRgb(51, 65, 85))
     };
@@ -346,6 +356,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         DeviceUiMode.DualSense => new SolidColorBrush(Color.FromRgb(235, 245, 255)),
         DeviceUiMode.Pro2 => new SolidColorBrush(Color.FromRgb(255, 241, 242)),
         DeviceUiMode.Xbox => new SolidColorBrush(Color.FromRgb(236, 252, 233)),
+        DeviceUiMode.XboxElite => new SolidColorBrush(Color.FromRgb(236, 253, 245)),
         _ => Brushes.White
     };
     public Brush ModeCardBorderBrush => currentMode switch
@@ -353,26 +364,30 @@ public sealed class MainViewModel : INotifyPropertyChanged
         DeviceUiMode.DualSense => new SolidColorBrush(Color.FromRgb(29, 78, 216)),
         DeviceUiMode.Pro2 => new SolidColorBrush(Color.FromRgb(190, 24, 93)),
         DeviceUiMode.Xbox => new SolidColorBrush(Color.FromRgb(22, 101, 52)),
+        DeviceUiMode.XboxElite => new SolidColorBrush(Color.FromRgb(21, 128, 61)),
         _ => new SolidColorBrush(Color.FromRgb(148, 163, 184))
     };
     public Brush DualSenseCardBackground => GetModeCardBackground(OutputModeId.DualSenseLike);
     public Brush Pro2CardBackground => GetModeCardBackground(OutputModeId.Pro2);
     public Brush XboxCardBackground => GetModeCardBackground(OutputModeId.Xbox);
+    public Brush XboxEliteCardBackground => GetModeCardBackground(OutputModeId.XboxElite);
     public Brush DualSenseCardBorderBrush => GetModeCardBorderBrush(OutputModeId.DualSenseLike, managerReady: true);
     public Brush Pro2CardBorderBrush => GetModeCardBorderBrush(OutputModeId.Pro2, managerReady: true);
     public Brush XboxCardBorderBrush => GetModeCardBorderBrush(OutputModeId.Xbox, managerReady: true);
+    public Brush XboxEliteCardBorderBrush => GetModeCardBorderBrush(OutputModeId.XboxElite, managerReady: true);
     public Brush DualSenseCardBadgeBrush => GetModeBadgeBrush(OutputModeId.DualSenseLike, managerReady: true);
     public Brush Pro2CardBadgeBrush => GetModeBadgeBrush(OutputModeId.Pro2, managerReady: true);
     public Brush XboxCardBadgeBrush => GetModeBadgeBrush(OutputModeId.Xbox, managerReady: true);
+    public Brush XboxEliteCardBadgeBrush => GetModeBadgeBrush(OutputModeId.XboxElite, managerReady: true);
     public Visibility DualSenseLabVisibility => desiredMode == OutputModeId.DualSenseLike ? Visibility.Visible : Visibility.Collapsed;
     public Visibility Pro2LabVisibility => desiredMode == OutputModeId.Pro2 ? Visibility.Visible : Visibility.Collapsed;
     public Visibility DualSenseLabDisabledVisibility => desiredMode == OutputModeId.Unknown || desiredMode == OutputModeId.Recovery ? Visibility.Visible : Visibility.Collapsed;
-    public Visibility XboxLabVisibility => desiredMode == OutputModeId.Xbox ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility XboxLabVisibility => IsXboxLikeMode(desiredMode) ? Visibility.Visible : Visibility.Collapsed;
     public string XboxToolStateText => DescribeToolState(
-        OutputModeId.Xbox,
-        currentMode == DeviceUiMode.Xbox,
-        "当前 USB 身份是 Xbox / XInput。BLE 输入走同一份 Pro2 state，主机普通震动会被解析并回传到 Pro2。",
-        "已选 Xbox / XInput 面板，但 USB 还没有切到 045E:028E。");
+        desiredMode == OutputModeId.XboxElite ? OutputModeId.XboxElite : OutputModeId.Xbox,
+        desiredMode == OutputModeId.XboxElite ? currentMode == DeviceUiMode.XboxElite : currentMode == DeviceUiMode.Xbox,
+        "当前 USB 身份是 Xbox 系列实验模式。BLE 输入走同一份 Pro2 state，主机普通震动会被解析并回传到 Pro2。",
+        "已选 Xbox 面板，但 USB 还没有切到对应的 045E 设备。");
 
     public ICommand RefreshPortsCommand { get; }
     public ICommand FlashHapticCommand { get; }
@@ -381,6 +396,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public ICommand ActivateDualSenseModeCommand { get; }
     public ICommand ActivatePro2ModeCommand { get; }
     public ICommand ActivateXboxModeCommand { get; }
+    public ICommand ActivateXboxEliteModeCommand { get; }
     public ICommand CheckUsbCommand { get; }
     public ICommand ListAudioCommand { get; }
     public ICommand OpenJoyCommand { get; }
@@ -434,6 +450,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         ActivateDualSenseModeCommand = new RelayCommand(async _ => await ActivateModeAsync(OutputModeCatalog.DualSenseLike));
         ActivatePro2ModeCommand = new RelayCommand(async _ => await ActivateModeAsync(OutputModeCatalog.Pro2));
         ActivateXboxModeCommand = new RelayCommand(async _ => await ActivateModeAsync(OutputModeCatalog.Xbox));
+        ActivateXboxEliteModeCommand = new RelayCommand(async _ => await ActivateModeAsync(OutputModeCatalog.XboxElite));
         CheckUsbCommand = new RelayCommand(async _ => await CheckUsbAsync());
         ListAudioCommand = new RelayCommand(async _ => await ListAudioAsync());
         OpenJoyCommand = new RelayCommand(_ => StartShell("joy.cpl"));
@@ -585,6 +602,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         {
             "pro2_bridge_v5_5" => "mode nintendo",
             "xinput_bridge_v5_8" => "mode xinput",
+            "xinput_elite_bridge_v5_9" => "mode xinput",
             _ => ""
         };
     }
@@ -792,7 +810,11 @@ public sealed class MainViewModel : INotifyPropertyChanged
             AppendLog("desired=" + desiredMode + " current=" + currentMode + " pending_profile=" + settings.PendingProfileId +
                       " pending_marker=" + settings.PendingExpectedUsbMarker);
         }
-        if (UsbStatus.Contains("VID_045E&PID_028E", StringComparison.OrdinalIgnoreCase) ||
+        if (UsbStatus.Contains("VID_045E&PID_02E3", StringComparison.OrdinalIgnoreCase))
+        {
+            NextAction = "当前是新和联胜 / Xbox Elite 身份实验模式。请重点看设备管理器、Steam 输入和背键识别是否有变化。";
+        }
+        else if (UsbStatus.Contains("VID_045E&PID_028E", StringComparison.OrdinalIgnoreCase) ||
             UsbStatus.Contains("XInput", StringComparison.OrdinalIgnoreCase))
         {
             NextAction = "当前是 Xbox / XInput 模式。可以先用网页 tester 或 Steam 验证输入，再运行 XInput 普通震动探针。";
@@ -1755,9 +1777,13 @@ public sealed class MainViewModel : INotifyPropertyChanged
                  string.Equals(mode, "xbox", StringComparison.OrdinalIgnoreCase) ||
                  profile.Contains("xinput", StringComparison.OrdinalIgnoreCase) ||
                  profile.Contains("xbox", StringComparison.OrdinalIgnoreCase) ||
+                 lower.Contains("vid_045e&pid_02e3") ||
                  lower.Contains("vid_045e&pid_028e"))
         {
-            SetCurrentMode(DeviceUiMode.Xbox);
+            SetCurrentMode(profile.Contains("elite", StringComparison.OrdinalIgnoreCase) ||
+                           lower.Contains("vid_045e&pid_02e3")
+                ? DeviceUiMode.XboxElite
+                : DeviceUiMode.Xbox);
         }
         else if (profile.Contains("hid_only", StringComparison.OrdinalIgnoreCase) ||
                  string.Equals(mode, "hid_only", StringComparison.OrdinalIgnoreCase))
@@ -1798,11 +1824,12 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
         bool dualSense = summary.Contains("VID_054C&PID_0CE6", StringComparison.OrdinalIgnoreCase);
         bool pro2 = summary.Contains("VID_057E&PID_2069", StringComparison.OrdinalIgnoreCase);
+        bool xboxElite = summary.Contains("VID_045E&PID_02E3", StringComparison.OrdinalIgnoreCase);
         bool xbox = summary.Contains("VID_045E&PID_028E", StringComparison.OrdinalIgnoreCase) ||
                     summary.Contains("XInput", StringComparison.OrdinalIgnoreCase);
         DeviceUiMode previousMode = currentMode;
 
-        SetUsbDetected(dualSense || pro2 || xbox);
+        SetUsbDetected(dualSense || pro2 || xbox || xboxElite);
         if (dualSense)
         {
             SetCurrentMode(DeviceUiMode.DualSense);
@@ -1810,6 +1837,10 @@ public sealed class MainViewModel : INotifyPropertyChanged
         else if (pro2)
         {
             SetCurrentMode(DeviceUiMode.Pro2);
+        }
+        else if (xboxElite)
+        {
+            SetCurrentMode(DeviceUiMode.XboxElite);
         }
         else if (xbox)
         {
@@ -1873,6 +1904,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             OutputModeId.DualSenseLike => "DualSense-like",
             OutputModeId.Pro2 => "Pro2 / Nintendo",
             OutputModeId.Xbox => "Xbox / XInput",
+            OutputModeId.XboxElite => "新和联胜 / Xbox Elite",
             OutputModeId.Recovery => "HID 纯恢复",
             _ => "未知"
         };
@@ -1885,6 +1917,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             OutputModeId.DualSenseLike => "DualSense-like USB 身份，并保留控制器音频实验链路。",
             OutputModeId.Pro2 => "面向原始 HID 0x02 震动优先路线调好的 Nintendo-like / Pro2 桥接。",
             OutputModeId.Xbox => "真实 Xbox 360 / XInput 风格 USB 后端，普通震动会回传到 Pro2 BLE。",
+            OutputModeId.XboxElite => "Xbox Elite 一代 USB 身份实验入口，观察 Windows / Steam 是否启用 Elite 路径。",
             OutputModeId.Recovery => "用于重刷与 USB 救援的最小恢复固件。",
             _ => "尚未选择目标模式。"
         };
@@ -1944,6 +1977,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
                 OutputModeId.DualSenseLike => new SolidColorBrush(Color.FromRgb(231, 244, 255)),
                 OutputModeId.Pro2 => new SolidColorBrush(Color.FromRgb(255, 241, 242)),
                 OutputModeId.Xbox => new SolidColorBrush(Color.FromRgb(236, 252, 233)),
+                OutputModeId.XboxElite => new SolidColorBrush(Color.FromRgb(236, 253, 245)),
                 _ => Brushes.White
             };
         }
@@ -2013,8 +2047,19 @@ public sealed class MainViewModel : INotifyPropertyChanged
             OutputModeId.DualSenseLike => new SolidColorBrush(Color.FromRgb(37, 99, 235)),
             OutputModeId.Pro2 => new SolidColorBrush(Color.FromRgb(225, 29, 72)),
             OutputModeId.Xbox => new SolidColorBrush(Color.FromRgb(22, 163, 74)),
+            OutputModeId.XboxElite => new SolidColorBrush(Color.FromRgb(21, 128, 61)),
             _ => new SolidColorBrush(Color.FromRgb(100, 116, 139))
         };
+    }
+
+    private static bool IsXboxLikeMode(OutputModeId mode)
+    {
+        return mode == OutputModeId.Xbox || mode == OutputModeId.XboxElite;
+    }
+
+    private bool IsXboxLikeCurrentMode()
+    {
+        return currentMode == DeviceUiMode.Xbox || currentMode == DeviceUiMode.XboxElite;
     }
 
     private bool IsCurrentMode(OutputModeId mode)
@@ -2024,6 +2069,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             OutputModeId.DualSenseLike => currentMode == DeviceUiMode.DualSense,
             OutputModeId.Pro2 => currentMode == DeviceUiMode.Pro2,
             OutputModeId.Xbox => currentMode == DeviceUiMode.Xbox,
+            OutputModeId.XboxElite => currentMode == DeviceUiMode.XboxElite,
             OutputModeId.Recovery => currentMode == DeviceUiMode.Recovery,
             _ => false
         };
@@ -2036,6 +2082,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             DeviceUiMode.DualSense => OutputModeId.DualSenseLike,
             DeviceUiMode.Pro2 => OutputModeId.Pro2,
             DeviceUiMode.Xbox => OutputModeId.Xbox,
+            DeviceUiMode.XboxElite => OutputModeId.XboxElite,
             DeviceUiMode.Recovery => OutputModeId.Recovery,
             _ => OutputModeId.Unknown
         };
@@ -2096,15 +2143,19 @@ public sealed class MainViewModel : INotifyPropertyChanged
         OnPropertyChanged(nameof(DualSenseCardStateText));
         OnPropertyChanged(nameof(Pro2CardStateText));
         OnPropertyChanged(nameof(XboxCardStateText));
+        OnPropertyChanged(nameof(XboxEliteCardStateText));
         OnPropertyChanged(nameof(DualSenseCardBackground));
         OnPropertyChanged(nameof(Pro2CardBackground));
         OnPropertyChanged(nameof(XboxCardBackground));
+        OnPropertyChanged(nameof(XboxEliteCardBackground));
         OnPropertyChanged(nameof(DualSenseCardBorderBrush));
         OnPropertyChanged(nameof(Pro2CardBorderBrush));
         OnPropertyChanged(nameof(XboxCardBorderBrush));
+        OnPropertyChanged(nameof(XboxEliteCardBorderBrush));
         OnPropertyChanged(nameof(DualSenseCardBadgeBrush));
         OnPropertyChanged(nameof(Pro2CardBadgeBrush));
         OnPropertyChanged(nameof(XboxCardBadgeBrush));
+        OnPropertyChanged(nameof(XboxEliteCardBadgeBrush));
         OnPropertyChanged(nameof(DualSenseLabVisibility));
         OnPropertyChanged(nameof(DualSenseLabDisabledVisibility));
         OnPropertyChanged(nameof(XboxLabVisibility));

@@ -9,7 +9,8 @@ public enum OutputModeId
     Recovery,
     Pro2,
     DualSenseLike,
-    Xbox
+    Xbox,
+    XboxElite
 }
 
 public sealed record OutputModeProfile(
@@ -54,12 +55,21 @@ public static class OutputModeCatalog
         true,
         "真实 Xbox 360 / XInput 风格 USB 后端，普通震动回传到 Pro2 BLE。");
 
+    public static readonly OutputModeProfile XboxElite = new(
+        "xinput_elite_bridge_v5_9",
+        OutputModeId.XboxElite,
+        "新和联胜 / Xbox Elite",
+        "VID_045E&PID_02E3",
+        true,
+        "Xbox Elite 一代身份实验入口，复用当前 Pro2 BLE 输入和普通震动桥接。");
+
     public static IReadOnlyList<OutputModeProfile> All { get; } = new[]
     {
         Recovery,
         Pro2,
         DualSenseLike,
-        Xbox
+        Xbox,
+        XboxElite
     };
 
     public static OutputModeProfile? FindByProfileId(string? profileId)
