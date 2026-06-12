@@ -640,13 +640,10 @@ static void log_adv_report(const struct ble_gap_disc_desc *disc)
     bool preferred_match = s_auto_scan_connect &&
         s_auto_scan_preferred_valid &&
         same_addr_value(&disc->addr, &s_auto_scan_preferred);
-    bool candidate_match = s_auto_scan_connect &&
-        !s_auto_scan_preferred_valid &&
-        candidate;
-    if ((preferred_match || candidate_match) && !s_auto_scan_target_valid) {
+    bool candidate_match = s_auto_scan_connect && candidate;
+    if (preferred_match) {
         s_auto_scan_target = disc->addr;
-        snprintf(s_auto_scan_label, sizeof(s_auto_scan_label), "%s #%lu %s %s",
-                 preferred_match ? "saved" : "candidate",
+        snprintf(s_auto_scan_label, sizeof(s_auto_scan_label), "saved #%lu %s %s",
                  (unsigned long)index,
                  addr,
                  name[0] ? name : "<unnamed>");
@@ -657,6 +654,24 @@ static void log_adv_report(const struct ble_gap_disc_desc *disc)
         int cancel_rc = ble_gap_disc_cancel();
         if (cancel_rc != 0) {
             APP_LOGW(TAG, "BLE autoconnect scan cancel rc=%d", cancel_rc);
+        }
+    } else if (candidate_match && !s_auto_scan_target_valid) {
+        s_auto_scan_target = disc->addr;
+        snprintf(s_auto_scan_label,
+                 sizeof(s_auto_scan_label),
+                 "%s #%lu %s %s",
+                 s_auto_scan_preferred_valid ? "candidate-fallback" : "candidate",
+                 (unsigned long)index,
+                 addr,
+                 name[0] ? name : "<unnamed>");
+        s_auto_scan_target_valid = true;
+        APP_LOGI(TAG, "BLE autoconnect wake target selected target=%s", s_auto_scan_label);
+        if (!s_auto_scan_preferred_valid) {
+            s_auto_scan_connect = false;
+            int cancel_rc = ble_gap_disc_cancel();
+            if (cancel_rc != 0) {
+                APP_LOGW(TAG, "BLE autoconnect scan cancel rc=%d", cancel_rc);
+            }
         }
     }
 

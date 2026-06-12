@@ -22,12 +22,10 @@ static void reconnect_watchdog_task(void *arg)
         const char *state = ble_central_state_string();
         if (strcmp(state, "idle") == 0) {
             attempt++;
-            esp_err_t err = ble_central_reconnect_saved_or_scan();
+            ble_central_start_auto_reconnect();
             ESP_LOGI(TAG,
-                     "[PRO2_INPUT] reconnect_attempt=%lu started=%s err=%s",
-                     (unsigned long)attempt,
-                     err == ESP_OK ? "true" : "false",
-                     esp_err_to_name(err));
+                     "[PRO2_INPUT] auto_reconnect_watchdog attempt=%lu",
+                     (unsigned long)attempt);
         }
 
         vTaskDelay(pdMS_TO_TICKS(1500));
@@ -41,11 +39,8 @@ void pro2_input_backend_init(void)
     switch2_state_init();
     ble_central_init();
     if (device_config_get_ble_autoconnect()) {
-        esp_err_t err = ble_central_reconnect_saved_or_scan();
-        ESP_LOGI(TAG,
-                 "[PRO2_INPUT] initial_reconnect started=%s err=%s",
-                 err == ESP_OK ? "true" : "false",
-                 esp_err_to_name(err));
+        ble_central_start_auto_reconnect();
+        ESP_LOGI(TAG, "[PRO2_INPUT] initial_auto_reconnect scheduled");
     }
 
     BaseType_t created = xTaskCreate(reconnect_watchdog_task,

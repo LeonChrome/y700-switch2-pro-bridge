@@ -497,9 +497,11 @@ esp_err_t v55_control_protocol_handle_line(const char *line, char *reply, int re
     }
     if (strcmp(cmd, "ble auto on") == 0 || strcmp(cmd, "ble autoconnect on") == 0) {
         esp_err_t err = device_config_save_ble_autoconnect(true);
-        return err == ESP_OK ?
-            json_ok(reply, reply_len, "ble auto", "\"ble_auto\":\"on\"") :
-            json_error(reply, reply_len, "ble auto", "failed to save BLE autoconnect");
+        if (err != ESP_OK) {
+            return json_error(reply, reply_len, "ble auto", "failed to save BLE autoconnect");
+        }
+        ble_central_start_auto_reconnect();
+        return json_ok(reply, reply_len, "ble auto", "\"ble_auto\":\"on\"");
     }
     if (strcmp(cmd, "ble auto off") == 0 || strcmp(cmd, "ble autoconnect off") == 0) {
         esp_err_t err = device_config_save_ble_autoconnect(false);
