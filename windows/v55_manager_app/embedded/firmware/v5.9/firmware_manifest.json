@@ -25,7 +25,7 @@
                                         {
                                             "offset":  "0x10000",
                                             "path":  "hid_audio_uac1_4ch_ds5like/esp32s3_dualsense_identity_experiment.bin",
-                                            "sha256":  "1bce2b79e927aaef9aa43d7eb517e7ef80131ac08a13a75a2da20dc091e98393"
+                                            "sha256":  "b69afa28a68a5f3abc162b34c921f4416b9f665ab0da364a36580e7328b3cb07"
                                         }
                                     ]
                      },
@@ -47,7 +47,7 @@
                                         {
                                             "offset":  "0x10000",
                                             "path":  "hid_only/esp32s3_dualsense_identity_experiment.bin",
-                                            "sha256":  "33691cb2ac4879aa13fdac9d8fd2c366db97c36ea8df8e9ee0dd64f319d40534"
+                                            "sha256":  "f0f73cb1e142642c091690c264c31b84146a84869bc343fa36bf5719c075cddb"
                                         }
                                     ]
                      },
@@ -69,7 +69,7 @@
                                         {
                                             "offset":  "0x10000",
                                             "path":  "pro2_bridge_v5_5/esp32s3_switch2_bridge.bin",
-                                            "sha256":  "11fd66f5fd2546f55c94c3f2a0ff1e00878005a49273637616fd72cf239c161c"
+                                            "sha256":  "3e9da033c518e01df8bfc34b4aaad45a6efa76f1671d22c96037a3907dc67b82"
                                         }
                                     ]
                      },
@@ -91,7 +91,7 @@
                                         {
                                             "offset":  "0x10000",
                                             "path":  "xinput_bridge_v5_8/esp32s3_switch2_bridge.bin",
-                                            "sha256":  "0f476c9aa1102fe723367989ca2faafe714c836449d23339458bfd84e10427b2"
+                                            "sha256":  "834eb43c6c5dc6d0d9524f4861926849337ef664d08418740b6e3afcab0f0fb6"
                                         }
                                     ]
                      }

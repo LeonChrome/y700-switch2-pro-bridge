@@ -11,6 +11,7 @@
 #include "freertos/task.h"
 
 static const char *TAG = "v5.5_pro2";
+static bool s_seen_connected;
 
 static void reconnect_watchdog_task(void *arg)
 {
@@ -20,17 +21,27 @@ static void reconnect_watchdog_task(void *arg)
     uint32_t attempt = 0;
     while (true) {
         const char *state = ble_central_state_string();
+        if (strcmp(state, "connected") == 0) {
+            s_seen_connected = true;
+        }
         if (strcmp(state, "idle") == 0) {
             attempt++;
-            esp_err_t err = ble_central_reconnect_saved_or_scan();
-            if (err != ESP_OK) {
+            if (s_seen_connected) {
                 ble_central_start_auto_reconnect();
+                ESP_LOGI(TAG,
+                         "[PRO2_INPUT] wake_reconnect_wait attempt=%lu",
+                         (unsigned long)attempt);
+            } else {
+                esp_err_t err = ble_central_reconnect_saved_or_scan();
+                if (err != ESP_OK) {
+                    ble_central_start_auto_reconnect();
+                }
+                ESP_LOGI(TAG,
+                         "[PRO2_INPUT] reconnect_attempt=%lu started=%s err=%s",
+                         (unsigned long)attempt,
+                         err == ESP_OK ? "true" : "false",
+                         esp_err_to_name(err));
             }
-            ESP_LOGI(TAG,
-                     "[PRO2_INPUT] reconnect_attempt=%lu started=%s err=%s",
-                     (unsigned long)attempt,
-                     err == ESP_OK ? "true" : "false",
-                     esp_err_to_name(err));
         }
 
         vTaskDelay(pdMS_TO_TICKS(1500));

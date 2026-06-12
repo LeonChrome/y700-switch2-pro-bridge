@@ -43,11 +43,11 @@ static const char *TAG = "ble";
 #define BLE_FAST_SCAN_WINDOW 16
 #define BLE_AUTO_RECONNECT_INITIAL_DELAY_MS 1500
 #define BLE_AUTO_RECONNECT_AFTER_DROP_DELAY_MS 800
-#define BLE_AUTO_RECONNECT_FAST_WINDOW_MS 30000
+#define BLE_AUTO_RECONNECT_FAST_WINDOW_MS 60000
 #define BLE_AUTO_RECONNECT_FAST_SCAN_MS 3500
 #define BLE_AUTO_RECONNECT_FAST_IDLE_MS 500
-#define BLE_AUTO_RECONNECT_SLOW_SCAN_MS 5000
-#define BLE_AUTO_RECONNECT_SLOW_IDLE_MS 3000
+#define BLE_AUTO_RECONNECT_SLOW_SCAN_MS 8000
+#define BLE_AUTO_RECONNECT_SLOW_IDLE_MS 500
 
 typedef enum {
     BLE_STATE_IDLE = 0,
@@ -612,22 +612,69 @@ static void log_adv_uuids(const struct ble_hs_adv_fields *fields)
     }
 }
 
-static void log_adv_report(const struct ble_gap_disc_desc *disc)
+static void select_auto_scan_target(const struct ble_gap_disc_desc *disc,
+                                    const char *kind,
+                                    uint32_t index,
+                                    const char *addr,
+                                    const char *name,
+                                    bool cancel_scan)
 {
-    struct ble_hs_adv_fields fields;
-    int rc = ble_hs_adv_parse_fields(&fields, disc->data, disc->length_data);
-    if (rc != 0) {
-        char addr[32];
-        format_addr(&disc->addr, addr, sizeof(addr));
-        APP_LOGW(TAG, "BLE scan parse failed addr=%s rssi=%d event=%u len=%u rc=%d",
-                 addr, disc->rssi, disc->event_type, disc->length_data, rc);
+    s_auto_scan_target = disc->addr;
+    snprintf(s_auto_scan_label,
+             sizeof(s_auto_scan_label),
+             "%s #%lu %s %s",
+             kind,
+             (unsigned long)index,
+             addr,
+             name && name[0] ? name : "<unnamed>");
+    s_auto_scan_target_valid = true;
+    APP_LOGI(TAG, "BLE autoconnect wake target selected target=%s", s_auto_scan_label);
+
+    if (!cancel_scan) {
         return;
     }
 
+    s_auto_scan_connect = false;
+    s_auto_scan_preferred_valid = false;
+    int cancel_rc = ble_gap_disc_cancel();
+    if (cancel_rc != 0) {
+        APP_LOGW(TAG, "BLE autoconnect scan cancel rc=%d", cancel_rc);
+    }
+}
+
+static void log_adv_report(const struct ble_gap_disc_desc *disc)
+{
     char addr[32];
+    format_addr(&disc->addr, addr, sizeof(addr));
+    uint32_t index = ++s_scan_seen_count;
+
+    struct ble_hs_adv_fields fields;
+    int rc = ble_hs_adv_parse_fields(&fields, disc->data, disc->length_data);
+    if (rc != 0) {
+        bool directed_wake_match = s_auto_scan_connect &&
+                                   s_auto_scan_preferred_valid &&
+                                   disc->event_type == BLE_HCI_ADV_RPT_EVTYPE_DIR_IND;
+        if (directed_wake_match) {
+            select_auto_scan_target(disc,
+                                    "directed-wake",
+                                    index,
+                                    addr,
+                                    "",
+                                    true);
+        }
+        APP_LOGW(TAG, "BLE scan parse failed #%lu addr=%s rssi=%d event=%u len=%u rc=%d directed_wake=%s",
+                 (unsigned long)index,
+                 addr,
+                 disc->rssi,
+                 disc->event_type,
+                 disc->length_data,
+                 rc,
+                 directed_wake_match ? "yes" : "no");
+        return;
+    }
+
     char name[32];
     char mfg[64];
-    format_addr(&disc->addr, addr, sizeof(addr));
     copy_adv_name(&fields, name, sizeof(name));
     format_hex_preview(fields.mfg_data, fields.mfg_data_len, mfg, sizeof(mfg));
 
@@ -635,54 +682,39 @@ static void log_adv_report(const struct ble_gap_disc_desc *disc)
     bool candidate = adv_event_connectable(disc->event_type) &&
                      (name_looks_like_switch_controller(name) || nintendo_mfg);
 
-    uint32_t index = ++s_scan_seen_count;
     remember_scanned_device(index, &disc->addr, name, candidate, disc->rssi);
     bool preferred_match = s_auto_scan_connect &&
         s_auto_scan_preferred_valid &&
         same_addr_value(&disc->addr, &s_auto_scan_preferred);
     bool candidate_match = s_auto_scan_connect && candidate;
-    if (preferred_match) {
-        s_auto_scan_target = disc->addr;
-        snprintf(s_auto_scan_label, sizeof(s_auto_scan_label), "saved #%lu %s %s",
-                 (unsigned long)index,
-                 addr,
-                 name[0] ? name : "<unnamed>");
-        s_auto_scan_target_valid = true;
-        s_auto_scan_connect = false;
-        s_auto_scan_preferred_valid = false;
-        APP_LOGI(TAG, "BLE autoconnect wake target selected target=%s", s_auto_scan_label);
-        int cancel_rc = ble_gap_disc_cancel();
-        if (cancel_rc != 0) {
-            APP_LOGW(TAG, "BLE autoconnect scan cancel rc=%d", cancel_rc);
-        }
+    bool directed_wake_match = s_auto_scan_connect &&
+                               s_auto_scan_preferred_valid &&
+                               disc->event_type == BLE_HCI_ADV_RPT_EVTYPE_DIR_IND;
+    if (preferred_match || directed_wake_match) {
+        select_auto_scan_target(disc,
+                                preferred_match ? "saved" : "directed-wake",
+                                index,
+                                addr,
+                                name,
+                                true);
     } else if (candidate_match && !s_auto_scan_target_valid) {
-        s_auto_scan_target = disc->addr;
-        snprintf(s_auto_scan_label,
-                 sizeof(s_auto_scan_label),
-                 "%s #%lu %s %s",
-                 s_auto_scan_preferred_valid ? "candidate-fallback" : "candidate",
-                 (unsigned long)index,
-                 addr,
-                 name[0] ? name : "<unnamed>");
-        s_auto_scan_target_valid = true;
-        APP_LOGI(TAG, "BLE autoconnect wake target selected target=%s", s_auto_scan_label);
-        if (!s_auto_scan_preferred_valid) {
-            s_auto_scan_connect = false;
-            int cancel_rc = ble_gap_disc_cancel();
-            if (cancel_rc != 0) {
-                APP_LOGW(TAG, "BLE autoconnect scan cancel rc=%d", cancel_rc);
-            }
-        }
+        select_auto_scan_target(disc,
+                                s_auto_scan_preferred_valid ? "candidate-fallback" : "candidate",
+                                index,
+                                addr,
+                                name,
+                                !s_auto_scan_preferred_valid);
     }
 
     APP_LOGI(TAG,
-             "BLE scan device #%lu addr=%s rssi=%d event=%u name=\"%s\" candidate=%s nintendo_mfg=%s appearance=%s%u mfg_len=%u mfg=\"%s\"",
+             "BLE scan device #%lu addr=%s rssi=%d event=%u name=\"%s\" candidate=%s directed_wake=%s nintendo_mfg=%s appearance=%s%u mfg_len=%u mfg=\"%s\"",
              (unsigned long)index,
              addr,
              disc->rssi,
              disc->event_type,
              name[0] ? name : "<none>",
              candidate ? "yes" : "no",
+             directed_wake_match ? "yes" : "no",
              nintendo_mfg ? "yes" : "no",
              fields.appearance_is_present ? "" : "<none>/",
              fields.appearance_is_present ? fields.appearance : 0,
