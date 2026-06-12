@@ -351,9 +351,11 @@
                         <Grid>
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="16"/>
+                                <ColumnDefinition Width="12"/>
                                 <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="16"/>
+                                <ColumnDefinition Width="12"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="12"/>
                                 <ColumnDefinition Width="*"/>
                             </Grid.ColumnDefinitions>
 
@@ -372,12 +374,12 @@
                                             <ColumnDefinition Width="*"/>
                                             <ColumnDefinition Width="Auto"/>
                                         </Grid.ColumnDefinitions>
-                                        <TextBlock Text="DualSense-like" FontSize="22" FontWeight="SemiBold" Foreground="{StaticResource Ink}"/>
+                                        <TextBlock Text="DualSense-like" FontSize="19" FontWeight="SemiBold" Foreground="{StaticResource Ink}" TextTrimming="CharacterEllipsis" Margin="0,0,8,0"/>
                                         <Border Grid.Column="1" Background="{Binding DualSenseCardBadgeBrush}" CornerRadius="12" Padding="10,4">
                                             <TextBlock Text="{Binding DualSenseCardStateText}" Foreground="#FFFFFF" FontSize="12" FontWeight="SemiBold"/>
                                         </Border>
                                     </Grid>
-                                    <Border Background="#FFFFFF" BorderBrush="#E2E8F0" BorderThickness="1" CornerRadius="16" Padding="10" Height="170">
+                                    <Border Background="#FFFFFF" BorderBrush="#E2E8F0" BorderThickness="1" CornerRadius="16" Padding="10" Height="150">
                                         <Image Source="assets/photos/dualsense.jpg" Stretch="Uniform"/>
                                     </Border>
                                     <TextBlock Style="{StaticResource HintText}"
@@ -401,12 +403,12 @@
                                             <ColumnDefinition Width="*"/>
                                             <ColumnDefinition Width="Auto"/>
                                         </Grid.ColumnDefinitions>
-                                        <TextBlock Text="Pro2 / Nintendo" FontSize="22" FontWeight="SemiBold" Foreground="{StaticResource Ink}"/>
+                                        <TextBlock Text="Pro2 / Nintendo" FontSize="19" FontWeight="SemiBold" Foreground="{StaticResource Ink}" TextTrimming="CharacterEllipsis" Margin="0,0,8,0"/>
                                         <Border Grid.Column="1" Background="{Binding Pro2CardBadgeBrush}" CornerRadius="12" Padding="10,4">
                                             <TextBlock Text="{Binding Pro2CardStateText}" Foreground="#FFFFFF" FontSize="12" FontWeight="SemiBold"/>
                                         </Border>
                                     </Grid>
-                                    <Border Background="#FFFFFF" BorderBrush="#E2E8F0" BorderThickness="1" CornerRadius="16" Padding="10" Height="170">
+                                    <Border Background="#FFFFFF" BorderBrush="#E2E8F0" BorderThickness="1" CornerRadius="16" Padding="10" Height="150">
                                         <Image Source="assets/photos/switch2_pro_controller_front.jpg" Stretch="Uniform"/>
                                     </Border>
                                     <TextBlock Style="{StaticResource HintText}"
@@ -430,12 +432,12 @@
                                             <ColumnDefinition Width="*"/>
                                             <ColumnDefinition Width="Auto"/>
                                         </Grid.ColumnDefinitions>
-                                        <TextBlock Text="Xbox" FontSize="22" FontWeight="SemiBold" Foreground="{StaticResource Ink}"/>
+                                        <TextBlock Text="Xbox" FontSize="19" FontWeight="SemiBold" Foreground="{StaticResource Ink}" TextTrimming="CharacterEllipsis" Margin="0,0,8,0"/>
                                         <Border Grid.Column="1" Background="{Binding XboxCardBadgeBrush}" CornerRadius="12" Padding="10,4">
                                             <TextBlock Text="{Binding XboxCardStateText}" Foreground="#FFFFFF" FontSize="12" FontWeight="SemiBold"/>
                                         </Border>
                                     </Grid>
-                                    <Border Background="#FFFFFF" BorderBrush="#E2E8F0" BorderThickness="1" CornerRadius="16" Padding="10" Height="170">
+                                    <Border Background="#FFFFFF" BorderBrush="#E2E8F0" BorderThickness="1" CornerRadius="16" Padding="10" Height="150">
                                         <Image Source="assets/photos/xbox_controller_black.png" Stretch="Uniform"/>
                                     </Border>
                                     <TextBlock Style="{StaticResource HintText}"
@@ -443,21 +445,36 @@
                                                Text="绿色路线。USB 枚举为 Xbox 360 / XInput，适合 Apex、Steam 和只认 XInput 的普通震动游戏。"/>
                                 </StackPanel>
                             </Button>
-                        </Grid>
-                        <DockPanel Margin="0,14,0,0">
-                            <TextBlock DockPanel.Dock="Left"
-                                       Style="{StaticResource HintText}"
-                                       VerticalAlignment="Center"
-                                       Text="Xbox Elite 身份实验入口，刷入后用 USB 检查确认 045E:02E3。"/>
-                            <Button DockPanel.Dock="Right"
-                                    Style="{StaticResource SubtleButton}"
-                                    Content="新和联胜"
+
+                            <Button Grid.Column="6"
+                                    Style="{StaticResource ModeDeckButton}"
+                                    Background="{Binding XboxEliteCardBackground}"
+                                    BorderBrush="{Binding XboxEliteCardBorderBrush}"
                                     Command="{Binding ActivateXboxEliteModeCommand}"
                                     IsEnabled="{Binding CanSwitchModes}"
-                                    AutomationProperties.AutomationId="ModeButtonXboxElite"
-                                    AutomationProperties.Name="刷入新和联胜 Xbox Elite 身份实验模式"
-                                    ToolTip="{Binding XboxEliteCardTooltip}"/>
-                        </DockPanel>
+                                    AutomationProperties.AutomationId="ModeCardXboxElite"
+                                    AutomationProperties.Name="刷入新和联胜 Xbox Elite 2 / GIP 模式"
+                                    ToolTip="{Binding XboxEliteCardTooltip}">
+                                <StackPanel>
+                                    <Grid Margin="0,0,0,14">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Text="新和联胜" FontSize="19" FontWeight="SemiBold" Foreground="{StaticResource Ink}" TextTrimming="CharacterEllipsis" Margin="0,0,8,0"/>
+                                        <Border Grid.Column="1" Background="{Binding XboxEliteCardBadgeBrush}" CornerRadius="12" Padding="10,4">
+                                            <TextBlock Text="{Binding XboxEliteCardStateText}" Foreground="#FFFFFF" FontSize="12" FontWeight="SemiBold"/>
+                                        </Border>
+                                    </Grid>
+                                    <Border Background="#111827" BorderBrush="#EAB308" BorderThickness="1" CornerRadius="16" Padding="0" Height="150" ClipToBounds="True">
+                                        <Image Source="assets/photos/xin_heliansheng.png" Stretch="UniformToFill"/>
+                                    </Border>
+                                    <TextBlock Style="{StaticResource HintText}"
+                                               Margin="0,14,0,0"
+                                               Text="狠活路线。USB 枚举为 Xbox Elite 2 / GIP，专门测试 Steam、Windows 和背键识别。"/>
+                                </StackPanel>
+                            </Button>
+                        </Grid>
                     </StackPanel>
                 </Border>
 

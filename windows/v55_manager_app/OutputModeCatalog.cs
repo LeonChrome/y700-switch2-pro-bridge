@@ -58,10 +58,10 @@ public static class OutputModeCatalog
     public static readonly OutputModeProfile XboxElite = new(
         "xinput_elite_bridge_v5_9",
         OutputModeId.XboxElite,
-        "新和联胜 / Xbox Elite",
-        "VID_045E&PID_02E3",
+        "新和联胜 / Xbox Elite 2 GIP",
+        "VID_045E&PID_0B00",
         true,
-        "Xbox Elite 一代身份实验入口，复用当前 Pro2 BLE 输入和普通震动桥接。");
+        "Xbox Elite 2 / GIP 身份实验入口，复用当前 Pro2 BLE 输入、普通震动和背键映射。");
 
     public static IReadOnlyList<OutputModeProfile> All { get; } = new[]
     {

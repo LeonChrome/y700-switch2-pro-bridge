@@ -25,6 +25,7 @@
     <Resource Include="assets\photos\dualsense.jpg" />
     <Resource Include="assets\photos\switch2_pro_controller_front.jpg" />
     <Resource Include="assets\photos\xbox_controller_black.png" />
+    <Resource Include="assets\photos\xin_heliansheng.png" />
     <EmbeddedResource Include="embedded\firmware\v5.9\**\*.*" LogicalName="embedded/firmware/v5.9/%(RecursiveDir)%(Filename)%(Extension)" />
     <EmbeddedResource Include="embedded\tools\**\*.*" LogicalName="embedded/tools/%(RecursiveDir)%(Filename)%(Extension)" />
   </ItemGroup>

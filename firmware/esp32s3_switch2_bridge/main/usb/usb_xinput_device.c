@@ -19,7 +19,11 @@ static const char *TAG = "usb_xinput";
 #define XINPUT_OUT_MAX_LEN 64
 #define GIP_PACKET_MAX_LEN 64
 #define GIP_HELLO_INTERVAL_US 500000LL
-#define GIP_INPUT_PACKET_LEN 18
+#define GIP_STATUS_INTERVAL_US 2000000LL
+#define GIP_INPUT_PAYLOAD_LEN 46
+#define GIP_INPUT_PACKET_LEN (4 + GIP_INPUT_PAYLOAD_LEN)
+#define GIP_UNMAPPED_PAYLOAD_LEN 17
+#define GIP_UNMAPPED_PACKET_LEN (4 + GIP_UNMAPPED_PAYLOAD_LEN)
 #define GIP_METADATA_CHUNK_PAYLOAD_MAX 58
 
 static const uint8_t s_gip_gamepad_metadata[] = {
@@ -84,12 +88,17 @@ static uint8_t s_last_right_motor;
 #ifdef XINPUT_ELITE_EXPERIMENT
 static uint8_t s_gip_seq;
 static int64_t s_last_hello_us;
+static int64_t s_last_status_us;
 static bool s_gip_host_seen;
 static bool s_gip_active;
 static bool s_gip_metadata_pending;
 static bool s_gip_metadata_complete_pending;
 static uint16_t s_gip_metadata_offset;
 static uint8_t s_gip_metadata_seq;
+static bool s_gip_have_last_guide;
+static bool s_gip_last_guide;
+static bool s_gip_have_last_paddles;
+static uint8_t s_gip_last_paddles;
 #endif
 
 static bool xinput_mode(void)
@@ -102,12 +111,17 @@ void usb_xinput_device_init(void)
 #ifdef XINPUT_ELITE_EXPERIMENT
     s_gip_seq = 0;
     s_last_hello_us = 0;
+    s_last_status_us = 0;
     s_gip_host_seen = false;
     s_gip_active = false;
     s_gip_metadata_pending = false;
     s_gip_metadata_complete_pending = false;
     s_gip_metadata_offset = 0;
     s_gip_metadata_seq = 0;
+    s_gip_have_last_guide = false;
+    s_gip_last_guide = false;
+    s_gip_have_last_paddles = false;
+    s_gip_last_paddles = 0;
 #endif
 }
 
@@ -155,13 +169,6 @@ static void put_u16_le(uint8_t *dst, uint16_t value)
 static void put_i16_le(uint8_t *dst, int16_t value)
 {
     put_u16_le(dst, (uint16_t)value);
-}
-
-static void put_u64_le(uint8_t *dst, uint64_t value)
-{
-    for (size_t i = 0; i < 8; i++) {
-        dst[i] = (uint8_t)(value >> (8u * i));
-    }
 }
 
 static uint8_t gip_next_seq(void)
@@ -240,14 +247,15 @@ static bool gip_send_hello_if_due(bool force)
 
     uint8_t payload[28];
     memset(payload, 0, sizeof(payload));
-    put_u64_le(payload + 0, 0x45535033474c5032ULL);
+    static const uint8_t address[6] = { 0xe2, 0x17, 0x05, 0x11, 0x0b, 0x00 };
+    memcpy(payload + 0, address, sizeof(address));
     put_u16_le(payload + 8, USB_VID_XINPUT_EXPERIMENT);
     put_u16_le(payload + 10, USB_PID_XINPUT_ELITE_EXPERIMENT);
     put_u16_le(payload + 12, 5);
-    put_u16_le(payload + 14, 9);
-    put_u16_le(payload + 16, 1);
+    put_u16_le(payload + 14, 11);
+    put_u16_le(payload + 16, 3112);
     put_u16_le(payload + 18, 0);
-    put_u16_le(payload + 20, 1);
+    put_u16_le(payload + 20, 5);
     put_u16_le(payload + 22, 0);
     put_u16_le(payload + 24, 0);
     put_u16_le(payload + 26, 0);
@@ -257,6 +265,33 @@ static bool gip_send_hello_if_due(bool force)
         s_last_hello_us = now;
     }
     return ok;
+}
+
+static bool gip_send_status_if_due(bool force)
+{
+    int64_t now = esp_timer_get_time();
+    if (!force && s_last_status_us != 0 &&
+        now - s_last_status_us < GIP_STATUS_INTERVAL_US) {
+        return true;
+    }
+
+    uint8_t payload[4] = { 0x83, 0x00, 0x00, 0x00 };
+    bool ok = gip_write_message(0x03, 0x20, gip_next_seq(), payload, sizeof(payload));
+    if (ok) {
+        s_last_status_us = now;
+    }
+    return ok;
+}
+
+static bool gip_send_serial_number(void)
+{
+    static const uint8_t serial[14] = {
+        '0', '9', '7', '1', '2', '3', '3',
+        '2', '3', '5', '4', '0', '3', '6',
+    };
+    uint8_t payload[16] = { 0x04, 0x00 };
+    memcpy(payload + 2, serial, sizeof(serial));
+    return gip_write_message(0x1e, 0x30, gip_next_seq(), payload, sizeof(payload));
 }
 
 static void gip_start_metadata_transfer(void)
@@ -341,6 +376,22 @@ static uint16_t trigger_to_gip(uint16_t value, bool pressed)
     return scaled > 1023u ? 1023u : (uint16_t)scaled;
 }
 
+static uint8_t gip_elite2_paddle_bits(const internal_gamepad_state_t *state)
+{
+    uint8_t paddles = 0;
+    if (!state) {
+        return paddles;
+    }
+
+    if (internal_gamepad_state_get_button(state, INTERNAL_GAMEPAD_BUTTON_PADDLE_RIGHT)) {
+        paddles |= 0x01; // Elite 2 P1
+    }
+    if (internal_gamepad_state_get_button(state, INTERNAL_GAMEPAD_BUTTON_PADDLE_LEFT)) {
+        paddles |= 0x04; // Elite 2 P3
+    }
+    return paddles;
+}
+
 static void make_gip_input_packet(const internal_gamepad_state_t *state,
                                   uint8_t packet[GIP_INPUT_PACKET_LEN])
 {
@@ -348,7 +399,7 @@ static void make_gip_input_packet(const internal_gamepad_state_t *state,
     packet[0] = 0x20;
     packet[1] = 0x00;
     packet[2] = gip_next_seq();
-    packet[3] = 0x0e;
+    packet[3] = GIP_INPUT_PAYLOAD_LEN;
 
     if (!state) {
         return;
@@ -381,6 +432,56 @@ static void make_gip_input_packet(const internal_gamepad_state_t *state,
     put_i16_le(payload + 8, axis_to_xinput(state->ly, false));
     put_i16_le(payload + 10, axis_to_xinput(state->rx, false));
     put_i16_le(payload + 12, axis_to_xinput(state->ry, false));
+    payload[18] = gip_elite2_paddle_bits(state);
+    payload[19] = 0x00;
+}
+
+static void make_gip_unmapped_packet(const internal_gamepad_state_t *state,
+                                     uint8_t packet[GIP_UNMAPPED_PACKET_LEN])
+{
+    memset(packet, 0, GIP_UNMAPPED_PACKET_LEN);
+    packet[0] = 0x0c;
+    packet[1] = 0x00;
+    packet[2] = gip_next_seq();
+    packet[3] = GIP_UNMAPPED_PAYLOAD_LEN;
+
+    uint8_t *payload = packet + 4;
+    payload[14] = gip_elite2_paddle_bits(state);
+    payload[15] = 0x00;
+}
+
+static bool gip_send_unmapped_if_changed(const internal_gamepad_state_t *state)
+{
+    uint8_t paddles = gip_elite2_paddle_bits(state);
+    if (s_gip_have_last_paddles && s_gip_last_paddles == paddles) {
+        return true;
+    }
+
+    uint8_t packet[GIP_UNMAPPED_PACKET_LEN];
+    make_gip_unmapped_packet(state, packet);
+    bool ok = gip_write_bytes(packet, sizeof(packet));
+    if (ok) {
+        s_gip_have_last_paddles = true;
+        s_gip_last_paddles = paddles;
+    }
+    return ok;
+}
+
+static bool gip_send_guide_if_changed(const internal_gamepad_state_t *state)
+{
+    bool guide = state &&
+        internal_gamepad_state_get_button(state, INTERNAL_GAMEPAD_BUTTON_HOME);
+    if (s_gip_have_last_guide && s_gip_last_guide == guide) {
+        return true;
+    }
+
+    uint8_t payload[2] = { guide ? 0x01 : 0x00, 0x5b };
+    bool ok = gip_write_message(0x07, 0x20, gip_next_seq(), payload, sizeof(payload));
+    if (ok) {
+        s_gip_have_last_guide = true;
+        s_gip_last_guide = guide;
+    }
+    return ok;
 }
 
 static bool gip_service(void)
@@ -393,7 +494,7 @@ static bool gip_service(void)
         return gip_send_hello_if_due(false);
     }
 
-    return true;
+    return gip_send_status_if_due(false);
 }
 
 static bool parse_gip_rumble_out(const uint8_t *data, uint16_t len,
@@ -497,6 +598,8 @@ esp_err_t usb_xinput_device_send_report(const internal_gamepad_state_t *state)
     uint8_t report[GIP_INPUT_PACKET_LEN];
     make_gip_input_packet(state, report);
     bool ok = gip_write_bytes(report, sizeof(report));
+    ok = ok && gip_send_unmapped_if_changed(state);
+    ok = ok && gip_send_guide_if_changed(state);
 #else
     xinput_input_report_t report;
     make_report(state, &report);
@@ -531,7 +634,23 @@ void usb_xinput_device_poll_out(void)
                 gip_start_metadata_transfer();
             } else if (data[0] == 0x05) {
                 s_gip_active = true;
-                APP_LOGI(TAG, "GIP device state/config command len=%u",
+                (void)gip_send_status_if_due(true);
+                APP_LOGI(TAG, "GIP power command len=%u",
+                         (unsigned)read);
+            } else if (data[0] == 0x06) {
+                s_gip_active = true;
+                APP_LOGI(TAG, "GIP auth/security command len=%u",
+                         (unsigned)read);
+            } else if (data[0] == 0x0a) {
+                s_gip_active = true;
+                APP_LOGI(TAG, "GIP LED command len=%u",
+                         (unsigned)read);
+            } else if (data[0] == 0x1e) {
+                s_gip_active = true;
+                (void)gip_send_serial_number();
+            } else if (data[0] == 0x4d) {
+                s_gip_active = true;
+                APP_LOGI(TAG, "GIP Elite 2 paddle-enable command len=%u",
                          (unsigned)read);
             }
             (void)gip_send_ack_for(data, (uint16_t)read);

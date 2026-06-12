@@ -69,7 +69,7 @@
                                         {
                                             "offset":  "0x10000",
                                             "path":  "pro2_bridge_v5_5/esp32s3_switch2_bridge.bin",
-                                            "sha256":  "291e21ebec07831f535b5419e1aa368bcb237e78580b604af07d5cab7d684bd9"
+                                            "sha256":  "69e1d8263f49ad61c0b872efa265081f56e0a79c2a1a83c28a210bcafa44db1c"
                                         }
                                     ]
                      },
@@ -91,13 +91,13 @@
                                         {
                                             "offset":  "0x10000",
                                             "path":  "xinput_bridge_v5_8/esp32s3_switch2_bridge.bin",
-                                            "sha256":  "e64b60dfa3a301f18625cc0a72f5f053061e459cfbbbee798ea819b11c78d9cf"
+                                            "sha256":  "d44935cb9d05158a933ea18252dfdaf53fa1d6a9bad1523f9ebd074b62636a20"
                                         }
                                     ]
                      },
                      {
                          "id":  "xinput_elite_bridge_v5_9",
-                         "label":  "Xbox Elite identity bridge",
+                         "label":  "Xbox Elite 2 GIP bridge",
                          "app":  "esp32s3_switch2_bridge.bin",
                          "assets":  [
                                         {
@@ -113,7 +113,7 @@
                                         {
                                             "offset":  "0x10000",
                                             "path":  "xinput_elite_bridge_v5_9/esp32s3_switch2_bridge.bin",
-                                            "sha256":  "61a10efa45258b2f2959e65404c08ac470bfe74368e30095f8f437ae30d2254e"
+                                            "sha256":  "846bed15a6c169bca1aa0d5fbea6a6fa462a197efde08ee656bec0ece587ac76"
                                         }
                                     ]
                      }

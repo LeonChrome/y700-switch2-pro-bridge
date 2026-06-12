@@ -160,9 +160,13 @@ public static class DeviceInspector
             {
                 identity = "Xbox / XInput VID_045E&PID_028E";
             }
+            else if (deviceId.Contains("VID_045E&PID_0B00", StringComparison.OrdinalIgnoreCase))
+            {
+                identity = "Xbox Elite 2 / GIP VID_045E&PID_0B00";
+            }
             else if (deviceId.Contains("VID_045E&PID_02E3", StringComparison.OrdinalIgnoreCase))
             {
-                identity = "Xbox Elite VID_045E&PID_02E3";
+                identity = "Xbox One S legacy test VID_045E&PID_02E3";
             }
             else
             {
@@ -177,7 +181,7 @@ public static class DeviceInspector
 
         if (lines.Count == 0)
         {
-            return "没有检测到 DualSense-like 054C:0CE6、Nintendo/Pro2 057E:2069、Xbox/XInput 045E:028E 或 Xbox Elite 045E:02E3 设备。如果刚刷完固件，请重新插拔原生 USB / OTG。";
+            return "没有检测到 DualSense-like 054C:0CE6、Nintendo/Pro2 057E:2069、Xbox/XInput 045E:028E 或 Xbox Elite 2/GIP 045E:0B00 设备。如果刚刷完固件，请重新插拔原生 USB / OTG。";
         }
 
         return string.Join(Environment.NewLine, lines);

@@ -221,7 +221,7 @@ function Refresh-EmbeddedAssets {
     $profiles += Add-FirmwareProfilePayload "hid_only" $firmwareRoot
     $profiles += Add-Pro2BridgeProfilePayload $firmwareRoot
     $profiles += Add-XInputBridgeProfilePayload $firmwareRoot
-    $profiles += Add-XInputBridgeProfilePayload $firmwareRoot "xinput_elite_bridge_v5_9" "work\build\v5_9_xinput_elite_bridge" "Xbox Elite identity bridge"
+    $profiles += Add-XInputBridgeProfilePayload $firmwareRoot "xinput_elite_bridge_v5_9" "work\build\v5_9_xinput_elite_bridge" "Xbox Elite 2 GIP bridge"
 
     $manifest = [ordered]@{
         packageVersion = "v5.9.0-aio"
