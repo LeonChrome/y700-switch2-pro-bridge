@@ -26,3 +26,7 @@ Server logs are written under `%LOCALAPPDATA%\PRO2WirelessReceiverControlBoard\v
 Windows still needs `usbip-win2` installed for local USBIP attach:
 
 <https://github.com/vadimgrn/usbip-win2>
+
+The V6 Manager searches PATH, `tools\usbip-win2`, local `usbip-win2` folders,
+and common `Program Files\USBip` paths for `usbip.exe`. Put an installed or
+portable `usbip.exe` under `tools\usbip-win2` if it is not globally on PATH.

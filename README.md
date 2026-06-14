@@ -8,6 +8,8 @@ using VIIPER virtual USB devices. The current preview does not require Windows
 Bluetooth HID pairing: the EXE scans and connects the real Pro2 over BLE/GATT,
 subscribes to FD2 input, feeds the three VIIPER virtual modes, and converts
 host rumble back to the Pro2 BLE cc48 rumble stream.
+Windows still needs `usbip-win2` installed for VIIPER virtual USB attach; the
+V6 EXE now checks for `usbip.exe` before starting its local VIIPER server.
 
 This repository contains the ESP32-S3 firmware and Windows Manager for a three-mode wireless receiver bridge for the real Switch 2 Pro / Pro2 controller.
 

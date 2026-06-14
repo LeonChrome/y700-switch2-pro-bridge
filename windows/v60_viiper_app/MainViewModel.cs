@@ -122,6 +122,15 @@ public sealed class MainViewModel : INotifyPropertyChanged
             return;
         }
 
+        UsbipRuntime? usbip = UsbipRuntimeLocator.Find();
+        if (usbip == null)
+        {
+            Status = "未找到 usbip-win2 的 usbip.exe，VIIPER 无法挂载虚拟 USB 手柄。请安装 usbip-win2 后再启动本地 VIIPER。";
+            AppendLog("[USBIP] usbip.exe not found. VIIPER can answer ping without it, but all three modes will fail during auto-attach.");
+            AppendLog("[USBIP] Install usbip-win2, then restart this EXE or place usbip.exe under tools\\usbip-win2.");
+            return;
+        }
+
         string logRoot = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "PRO2WirelessReceiverControlBoard",
@@ -129,20 +138,27 @@ public sealed class MainViewModel : INotifyPropertyChanged
         Directory.CreateDirectory(logRoot);
         string logPath = Path.Combine(logRoot, "viiper_server_" + DateTime.Now.ToString("yyyyMMdd_HHmmss") + ".log");
         string args = "server --api.addr=127.0.0.1:3242 --usb.addr=127.0.0.1:3241 --log.file=\"" + logPath + "\"";
-        viiperProcess = Process.Start(new ProcessStartInfo
+        ProcessStartInfo startInfo = new()
         {
             FileName = exe,
             Arguments = args,
             UseShellExecute = false,
             CreateNoWindow = true,
             WindowStyle = ProcessWindowStyle.Hidden
-        });
+        };
+        startInfo.Environment["PATH"] = UsbipRuntimeLocator.BuildPathWithUsbipDirectory(
+            startInfo.Environment.TryGetValue("PATH", out string? path) ? path ?? "" : Environment.GetEnvironmentVariable("PATH") ?? "",
+            usbip);
+        startInfo.WorkingDirectory = Path.GetDirectoryName(exe) ?? AppContext.BaseDirectory;
+
+        viiperProcess = Process.Start(startInfo);
         if (viiperProcess == null)
         {
             throw new InvalidOperationException("无法启动 VIIPER server。");
         }
 
         Status = "正在启动本地 VIIPER server，pid=" + viiperProcess.Id;
+        AppendLog("[USBIP] using " + usbip.ExePath);
         AppendLog("[VIIPER_SERVER] started pid=" + viiperProcess.Id + " exe=" + exe + " log=" + logPath);
         await Task.Delay(1000);
         await PingAsync();
@@ -215,7 +231,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         }
         catch (Exception ex)
         {
-            Status = "启动失败：" + FirstLine(ex.Message);
+            Status = "启动失败：" + ExplainStartFailure(ex);
             AppendLog("ERROR start: " + ex);
             await StopAsync();
         }
@@ -358,6 +374,18 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private static string FirstLine(string text)
     {
         return (text ?? "").Replace("\r", "").Split('\n')[0];
+    }
+
+    private static string ExplainStartFailure(Exception ex)
+    {
+        string first = FirstLine(ex.Message);
+        if (first.Contains("usbip", StringComparison.OrdinalIgnoreCase) &&
+            first.Contains("not found", StringComparison.OrdinalIgnoreCase))
+        {
+            return "VIIPER 找不到 usbip.exe。请安装 usbip-win2，或把 usbip.exe 放到 tools\\usbip-win2 后重新点击“启动本地 VIIPER”。";
+        }
+
+        return first;
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;

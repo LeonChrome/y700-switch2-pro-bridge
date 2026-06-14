@@ -19,6 +19,12 @@
   raw02-compatible HID frame shape before conversion.
 - Added raw02-to-Pro2-BLE rumble packet encoding so V6.0 writes the same cc48
   packet shape as the ESP32 route instead of copying HID bytes into BLE.
+- Added a `usbip-win2` preflight for the local VIIPER server: the Manager now
+  locates `usbip.exe`, injects its directory into the VIIPER server PATH, and
+  explains the dependency before all three modes fail with `usbip not found`.
+- Added Pro2 BLE input fallback diagnostics: FD2 remains preferred, but V6.0 now
+  tries the legacy C0F8 notify characteristic if FD2 subscribes without live
+  input, and logs raw notify counts plus rejected packet headers for mapping.
 - Added a bundled VIIPER v0.7.0 Windows runtime under `tools/viiper/v0.7.0`,
   embedded the runtime/license into the V6.0 preview EXE, and added a Manager
   button to start it locally.
@@ -27,7 +33,7 @@
 
 ```text
 release/v6.0/新和联胜VIIPER版本-aio-v6.0.0-preview.exe
-sha256 30ceaecbe94e18261c3b83d8894eebfbe659c43a2116bd62c633aaa4ca8836b5
+sha256 1450931c5de60e76eb5d904c258a3a8ea3510cd2bc88bf40cca6be01ecc90e6f
 ```
 
 ## V5.9.3 新和联胜稳定版

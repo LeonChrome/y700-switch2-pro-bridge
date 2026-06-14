@@ -42,6 +42,11 @@ Manager and feeder code cleanly separated from the GPL server implementation.
 
 The Windows requirement is `usbip-win2`, because Windows needs a signed USBIP
 kernel driver before VIIPER-created USB devices can attach locally.
+The Manager searches for `usbip.exe` in PATH, `tools\usbip-win2`, local
+`usbip-win2` folders, and common `Program Files\USBip` locations. When it finds
+one, it prepends that directory to the local VIIPER server process PATH. If it
+does not find one, the local VIIPER server is not started because it can still
+answer `ping` while every virtual device attach fails later.
 
 ## V6.0 Modes
 
@@ -83,6 +88,9 @@ It can:
   Windows Bluetooth HID pairing;
 - connect the real Pro2 over GATT, subscribe to the FD2 input stream, and reject
   candidates until a live parsed input report arrives;
+- fall back to the legacy C0F8 notify stream when FD2 subscribes but no live
+  packet arrives, while logging raw notify counts and rejected headers for
+  protocol work;
 - create a virtual `dualsense`, `ns2pro`, or `xbox360` device;
 - send live Pro2 input packets when the BLE source is fresh, and fall back to
   neutral input if the source is missing or stale;
@@ -98,7 +106,7 @@ It can:
 
 It does not yet:
 
-- install `usbip-win2`;
+- install the `usbip-win2` kernel driver automatically;
 - guarantee every Bluetooth adapter/driver can open unpaired GATT access to the
   Pro2;
 - expose the V5.9 haptic tuning and arbitration controls in the no-ESP32 route.

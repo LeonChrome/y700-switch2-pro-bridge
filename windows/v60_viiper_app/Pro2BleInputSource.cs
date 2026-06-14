@@ -14,6 +14,7 @@ namespace Y700Switch2V60Viiper;
 public sealed class Pro2BleInputSource : IGamepadInputSource, IGamepadOutputSink
 {
     private static readonly Guid NotifyFd2Uuid = Guid.Parse("ab7de9be-89fe-49ad-828f-118f09df7fd2");
+    private static readonly Guid NotifyLegacyUuid = Guid.Parse("7492866c-ec3e-4619-8258-32755ffcc0f8");
     private static readonly Guid AckUuid = Guid.Parse("c765a961-d9d8-4d36-a20a-5315b111836a");
     private static readonly Guid CmdUuid = Guid.Parse("649d4ac9-8eb7-4e6c-af44-1ea54fe5f005");
     private static readonly Guid RumbleUuid = Guid.Parse("cc483f51-9258-427d-a939-630c31f72b05");
@@ -45,16 +46,20 @@ public sealed class Pro2BleInputSource : IGamepadInputSource, IGamepadOutputSink
     private BluetoothLEAdvertisementWatcher? watcher;
     private BluetoothLEDevice? device;
     private GattCharacteristic? commandCharacteristic;
-    private GattCharacteristic? notifyCharacteristic;
+    private GattCharacteristic? fd2Characteristic;
+    private GattCharacteristic? legacyCharacteristic;
     private GattCharacteristic? ackCharacteristic;
     private GattCharacteristic? rumbleCharacteristic;
     private TaskCompletionSource<byte[]>? ackTcs;
     private GamepadState latest = GamepadState.Neutral();
     private DateTimeOffset latestAt;
     private uint updates;
+    private uint rawNotifyCount;
+    private uint parseFailCount;
     private byte rumblePacketId;
     private string status = "未连接真实 Pro2 BLE。";
     private string connectedLabel = "";
+    private string lastNotifySummary = "";
 
     public bool IsRunning { get; private set; }
     public bool IsOutputReady => IsRunning && rumbleCharacteristic != null;
@@ -261,7 +266,11 @@ public sealed class Pro2BleInputSource : IGamepadInputSource, IGamepadOutputSink
                 }
                 else if (characteristic.Uuid == NotifyFd2Uuid)
                 {
-                    notifyCharacteristic = characteristic;
+                    fd2Characteristic = characteristic;
+                }
+                else if (characteristic.Uuid == NotifyLegacyUuid)
+                {
+                    legacyCharacteristic = characteristic;
                 }
                 else if (characteristic.Uuid == RumbleUuid)
                 {
@@ -270,17 +279,24 @@ public sealed class Pro2BleInputSource : IGamepadInputSource, IGamepadOutputSink
             }
         }
 
-        if (commandCharacteristic == null || ackCharacteristic == null || notifyCharacteristic == null)
+        progress.Report("[PRO2_BLE] gatt chars cmd=" + DescribeCharacteristic(commandCharacteristic) +
+                        " ack=" + DescribeCharacteristic(ackCharacteristic) +
+                        " fd2=" + DescribeCharacteristic(fd2Characteristic) +
+                        " legacy=" + DescribeCharacteristic(legacyCharacteristic) +
+                        " rumble=" + DescribeCharacteristic(rumbleCharacteristic));
+
+        if (commandCharacteristic == null || ackCharacteristic == null ||
+            (fd2Characteristic == null && legacyCharacteristic == null))
         {
             progress.Report("[PRO2_BLE] required GATT chars missing cmd=" + (commandCharacteristic != null) +
                             " ack=" + (ackCharacteristic != null) +
-                            " fd2=" + (notifyCharacteristic != null) +
+                            " fd2=" + (fd2Characteristic != null) +
+                            " legacy=" + (legacyCharacteristic != null) +
                             " rumble=" + (rumbleCharacteristic != null));
             return false;
         }
 
         ackCharacteristic.ValueChanged += OnAckValueChanged;
-        notifyCharacteristic.ValueChanged += OnNotifyValueChanged;
 
         if (!await SubscribeAsync(ackCharacteristic, "ack", progress))
         {
@@ -309,22 +325,62 @@ public sealed class Pro2BleInputSource : IGamepadInputSource, IGamepadOutputSink
         }
 
         ackTcs = null;
-        if (!await SubscribeAsync(notifyCharacteristic, "fd2", progress))
+        if (fd2Characteristic != null)
         {
+            fd2Characteristic.ValueChanged += OnNotifyValueChanged;
+            if (!await SubscribeAsync(fd2Characteristic, "fd2", progress))
+            {
+                return false;
+            }
+
+            progress.Report("[PRO2_BLE] waiting for FD2 live input...");
+            if (await WaitForLiveInputAsync(TimeSpan.FromSeconds(3), cancellationToken))
+            {
+                IsRunning = true;
+                progress.Report("[PRO2_BLE] live input confirmed updates=" + updates +
+                                " raw_notify=" + rawNotifyCount +
+                                " rumble=" + (rumbleCharacteristic != null));
+                return true;
+            }
+
+            progress.Report("[PRO2_BLE] no live FD2 yet; raw_notify=" + rawNotifyCount +
+                            " parse_fail=" + parseFailCount +
+                            " last=" + lastNotifySummary);
+        }
+
+        if (legacyCharacteristic != null)
+        {
+            legacyCharacteristic.ValueChanged += OnNotifyValueChanged;
+            if (!await SubscribeAsync(legacyCharacteristic, "legacy-c0f8", progress))
+            {
+                return false;
+            }
+
+            progress.Report("[PRO2_BLE] waiting for legacy C0F8 live input fallback...");
+            if (await WaitForLiveInputAsync(TimeSpan.FromSeconds(5), cancellationToken))
+            {
+                IsRunning = true;
+                progress.Report("[PRO2_BLE] live input confirmed updates=" + updates +
+                                " raw_notify=" + rawNotifyCount +
+                                " fallback=legacy rumble=" + (rumbleCharacteristic != null));
+                return true;
+            }
+        }
+
+        progress.Report("[PRO2_BLE] no live input after notify subscribe; raw_notify=" + rawNotifyCount +
+                        " parse_fail=" + parseFailCount +
+                        " last=" + lastNotifySummary);
+        if (rawNotifyCount == 0)
+        {
+            progress.Report("[PRO2_BLE] notify subscription succeeded but Windows did not deliver any input notification. Try waking the controller again or power-cycling Bluetooth.");
+        }
+        else if (parseFailCount > 0)
+        {
+            progress.Report("[PRO2_BLE] notifications arrived but parser rejected them; keep this log for protocol mapping.");
             return false;
         }
 
-        progress.Report("[PRO2_BLE] waiting for FD2 live input...");
-        if (!await WaitForLiveInputAsync(TimeSpan.FromSeconds(5), cancellationToken))
-        {
-            progress.Report("[PRO2_BLE] no live FD2 input after subscribe.");
-            return false;
-        }
-
-        IsRunning = true;
-        progress.Report("[PRO2_BLE] live input confirmed updates=" + updates +
-                        " rumble=" + (rumbleCharacteristic != null));
-        return true;
+        return false;
     }
 
     private async Task<List<BleCandidate>> ScanCandidatesAsync(
@@ -446,8 +502,18 @@ public sealed class Pro2BleInputSource : IGamepadInputSource, IGamepadOutputSink
     private void OnNotifyValueChanged(GattCharacteristic sender, GattValueChangedEventArgs args)
     {
         byte[] data = ReadBuffer(args.CharacteristicValue);
+        lock (gate)
+        {
+            rawNotifyCount++;
+            lastNotifySummary = sender.Uuid + " len=" + data.Length + " head=" + ShortHex(data, 24);
+        }
+
         if (!parser.TryParse(data, out GamepadState state, out string source))
         {
+            lock (gate)
+            {
+                parseFailCount++;
+            }
             return;
         }
 
@@ -457,7 +523,8 @@ public sealed class Pro2BleInputSource : IGamepadInputSource, IGamepadOutputSink
             state.Updates = updates;
             latest = state;
             latestAt = DateTimeOffset.UtcNow;
-            status = "真实 Pro2 BLE live，updates=" + updates + " source=" + source;
+            status = "真实 Pro2 BLE live，updates=" + updates + " source=" + source +
+                     " raw_notify=" + rawNotifyCount;
         }
     }
 
@@ -510,13 +577,18 @@ public sealed class Pro2BleInputSource : IGamepadInputSource, IGamepadOutputSink
         {
             ackCharacteristic.ValueChanged -= OnAckValueChanged;
         }
-        if (notifyCharacteristic != null)
+        if (fd2Characteristic != null)
         {
-            notifyCharacteristic.ValueChanged -= OnNotifyValueChanged;
+            fd2Characteristic.ValueChanged -= OnNotifyValueChanged;
+        }
+        if (legacyCharacteristic != null)
+        {
+            legacyCharacteristic.ValueChanged -= OnNotifyValueChanged;
         }
 
         ackCharacteristic = null;
-        notifyCharacteristic = null;
+        fd2Characteristic = null;
+        legacyCharacteristic = null;
         commandCharacteristic = null;
         rumbleCharacteristic = null;
         ackTcs = null;
@@ -535,6 +607,9 @@ public sealed class Pro2BleInputSource : IGamepadInputSource, IGamepadOutputSink
             latest = GamepadState.Neutral();
             latestAt = default;
             updates = 0;
+            rawNotifyCount = 0;
+            parseFailCount = 0;
+            lastNotifySummary = "";
         }
     }
 
@@ -551,6 +626,25 @@ public sealed class Pro2BleInputSource : IGamepadInputSource, IGamepadOutputSink
         DataReader reader = DataReader.FromBuffer(buffer);
         reader.ReadBytes(data);
         return data;
+    }
+
+    private static string DescribeCharacteristic(GattCharacteristic? characteristic)
+    {
+        return characteristic == null
+            ? "missing"
+            : "ok/" + characteristic.CharacteristicProperties;
+    }
+
+    private static string ShortHex(byte[] data, int maxBytes)
+    {
+        if (data.Length == 0)
+        {
+            return "<empty>";
+        }
+
+        int count = Math.Min(data.Length, maxBytes);
+        string hex = Convert.ToHexString(data.AsSpan(0, count));
+        return data.Length > count ? hex + "..." : hex;
     }
 
     private static string DescribeCandidate(BleCandidate candidate)

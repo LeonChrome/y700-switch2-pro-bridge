@@ -181,4 +181,13 @@ Expect(
     "encode stop raw02 to BLE packet: " + stopBleError);
 Expect(!stopBleActive, "BLE stop packet is neutral");
 
+string originalPath = @"C:\Windows\System32";
+string withUsbip = UsbipRuntimeLocator.BuildPathWithUsbipDirectory(
+    originalPath,
+    new UsbipRuntime(@"C:\USBip\usbip.exe", @"C:\USBip"));
+Expect(withUsbip.StartsWith(@"C:\USBip;", StringComparison.OrdinalIgnoreCase), "usbip dir prepended to PATH");
+Expect(
+    UsbipRuntimeLocator.BuildPathWithUsbipDirectory(withUsbip, new UsbipRuntime(@"C:\USBip\usbip.exe", @"C:\USBip")) == withUsbip,
+    "usbip dir is not duplicated in PATH");
+
 Console.WriteLine("v60_packet_mapper_test: passed");
