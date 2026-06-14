@@ -5,7 +5,8 @@ Current release: **V5.9.3 新和联胜版本**
 Next development line: **V6.0 VIIPER Windows-only route**. V6.0 is separate
 from the ESP32-S3 V5.9 series and targets a no-ESP32 Windows Bluetooth feeder
 using VIIPER virtual USB devices. The current preview reads Windows-paired
-Pro2/Switch Pro HID input and feeds the three VIIPER virtual modes.
+Pro2/Switch Pro HID input, feeds the three VIIPER virtual modes, and attempts
+to write host rumble back to the real controller through Windows HID output.
 
 This repository contains the ESP32-S3 firmware and Windows Manager for a three-mode wireless receiver bridge for the real Switch 2 Pro / Pro2 controller.
 

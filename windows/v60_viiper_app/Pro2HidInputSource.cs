@@ -8,7 +8,7 @@ using System.Threading.Tasks;
 
 namespace Y700Switch2V60Viiper;
 
-public sealed class Pro2HidInputSource : IGamepadInputSource
+public sealed class Pro2HidInputSource : IGamepadInputSource, IGamepadOutputSink
 {
     private static readonly (int Vid, int Pid)[] KnownIds =
     [
@@ -17,8 +17,10 @@ public sealed class Pro2HidInputSource : IGamepadInputSource
     ];
 
     private readonly object gate = new();
+    private readonly object writeGate = new();
     private readonly Pro2HidReportParser parser = new();
     private HidStream? stream;
+    private int outputReportLength;
     private CancellationTokenSource? cts;
     private Task? readTask;
     private GamepadState latest = GamepadState.Neutral();
@@ -27,6 +29,7 @@ public sealed class Pro2HidInputSource : IGamepadInputSource
     private string status = "未连接真实 Pro2 输入。";
 
     public bool IsRunning { get; private set; }
+    public bool IsOutputReady => IsRunning && stream != null;
     public string Status
     {
         get { lock (gate) return status; }
@@ -69,10 +72,14 @@ public sealed class Pro2HidInputSource : IGamepadInputSource
 
                 stream = opened;
                 stream.ReadTimeout = 250;
+                stream.WriteTimeout = 80;
+                outputReportLength = device.GetMaxOutputReportLength();
                 cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
                 IsRunning = true;
                 Status = "真实 Pro2 输入已连接：" + DescribeDevice(device);
-                progress.Report("[PRO2_INPUT] opened " + DescribeDevice(device));
+                progress.Report("[PRO2_INPUT] opened " + DescribeDevice(device) +
+                                " input_len=" + device.GetMaxInputReportLength() +
+                                " output_len=" + (outputReportLength > 0 ? outputReportLength.ToString() : "unknown"));
                 readTask = Task.Run(() => ReadLoopAsync(device, opened, progress, cts.Token), CancellationToken.None);
                 return;
             }
@@ -103,12 +110,60 @@ public sealed class Pro2HidInputSource : IGamepadInputSource
         }
     }
 
+    public bool TryWriteOutputReport(ReadOnlySpan<byte> report, out string error)
+    {
+        error = "";
+        HidStream? target = stream;
+        if (!IsRunning || target == null)
+        {
+            error = "真实 Pro2 HID 未连接";
+            return false;
+        }
+
+        int targetLength = outputReportLength > 0 ? outputReportLength : report.Length;
+        if (targetLength < 33)
+        {
+            error = "hid output report len " + targetLength + " is too small";
+            return false;
+        }
+
+        if (report.Length > targetLength)
+        {
+            for (int i = targetLength; i < report.Length; i++)
+            {
+                if (report[i] != 0)
+                {
+                    error = "output report len " + report.Length + " > hid max " + targetLength;
+                    return false;
+                }
+            }
+        }
+
+        byte[] buffer = new byte[targetLength];
+        report[..Math.Min(report.Length, targetLength)].CopyTo(buffer);
+
+        try
+        {
+            lock (writeGate)
+            {
+                target.Write(buffer, 0, buffer.Length);
+            }
+            return true;
+        }
+        catch (Exception ex) when (ex is IOException or TimeoutException or ObjectDisposedException or InvalidOperationException)
+        {
+            error = ex.Message;
+            return false;
+        }
+    }
+
     public async Task StopAsync()
     {
         IsRunning = false;
         cts?.Cancel();
         stream?.Dispose();
         stream = null;
+        outputReportLength = 0;
         if (readTask != null)
         {
             try

@@ -82,4 +82,6 @@ enumerate as Pro2.
 
 ## Controller Sleeps And Does Not Reconnect
 
-Keep `ble_auto` enabled. V5.9 firmware schedules background reconnect attempts after BLE disconnect or failed connection. The Manager is not required for every reconnect.
+Keep `ble_auto` enabled. V5.9 firmware schedules background reconnect attempts
+after BLE disconnect or failed connection. The Manager and CH343P control port
+are not required for every reconnect once the controller address has been saved.

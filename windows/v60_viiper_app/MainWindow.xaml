@@ -42,7 +42,7 @@
             <StackPanel>
                 <TextBlock Style="{StaticResource TitleText}" Text="V6.0 VIIPER Windows-only 三模桥"/>
                 <TextBlock Style="{StaticResource HintText}" Margin="0,8,0,0"
-                           Text="这条路线不依赖 ESP32。当前骨架先控制 VIIPER 创建虚拟 USB 手柄，并读取主机输出震动；真实 Pro2 蓝牙输入源会作为下一阶段接入。"/>
+                           Text="这条路线不依赖 ESP32。当前版本控制 VIIPER 创建虚拟 USB 手柄，读取 Windows 已配对的真实 Pro2 输入，并把 host rumble 尝试写回真实 Pro2。"/>
             </StackPanel>
         </Border>
 
@@ -89,7 +89,7 @@
                     <StackPanel>
                         <TextBlock FontSize="16" FontWeight="SemiBold" Foreground="#0F172A" Text="三模输出"/>
                         <TextBlock Style="{StaticResource HintText}" Margin="0,6,0,12"
-                                   Text="创建虚拟 USB 身份后，窗口会优先发送真实 Pro2 输入；若未连接或输入过期，则回退 neutral，并记录游戏/Steam 发回来的 rumble/LED 输出。"/>
+                                   Text="创建虚拟 USB 身份后，窗口会优先发送真实 Pro2 输入；若未连接或输入过期，则回退 neutral。游戏/Steam 发回来的 Pro2 HD rumble 会原样写回，PS5/Xbox 普通马达会映射为 Pro2 兼容 rumble。"/>
                         <Button Style="{StaticResource ButtonBase}" Content="启动 新和联胜 / PS5" Command="{Binding StartDualSenseCommand}" IsEnabled="{Binding CanStart}"/>
                         <Button Style="{StaticResource ButtonBase}" Content="启动 Pro2 / Nintendo" Command="{Binding StartPro2Command}" IsEnabled="{Binding CanStart}"/>
                         <Button Style="{StaticResource ButtonBase}" Content="启动 Xbox / XInput" Command="{Binding StartXboxCommand}" IsEnabled="{Binding CanStart}"/>

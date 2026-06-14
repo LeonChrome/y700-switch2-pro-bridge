@@ -9,7 +9,9 @@ Use two USB connections when available:
 - CH343P / WCH control port: flashing, logs, BLE commands, Manager control.
 - ESP32-S3 native USB / OTG port: the actual USB gamepad seen by Windows / Steam.
 
-The control port can be unplugged after configuration. Daily use should continue through the native USB gamepad port and BLE auto reconnect.
+The control port can be unplugged after flashing and first pairing are finished.
+Daily play only needs the native USB gamepad port. The firmware stores the
+controller address and keeps BLE auto reconnect active.
 
 ## Flashing a Mode
 
@@ -42,10 +44,14 @@ Use Xbox / XInput for games that behave better with XInput devices.
 1. Turn off other Pro2 controllers nearby.
 2. Make sure the new controller is not connected to a PC, phone, or console.
 3. Wake the controller and keep it available for connection.
-4. Click `首次连接`.
-5. Wait until the Manager shows `手柄连接完成`.
+4. Keep the CH343P control port connected, because `首次连接` is a serial control command.
+5. Keep the native USB / OTG gamepad port connected if you want the Manager to verify the active USB mode while pairing.
+6. Click `首次连接`.
+7. Wait until the Manager shows `手柄连接完成`.
 
-The firmware stores the successful BLE address in NVS and enables automatic reconnect.
+The firmware stores the successful BLE address in NVS and enables automatic
+reconnect. After that, normal power-on, sleep wake, and short disconnect recovery
+do not require the CH343P control port.
 
 ### Reconnect a saved controller
 

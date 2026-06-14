@@ -35,7 +35,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         StartXboxCommand = new RelayCommand(async _ => await StartAsync(ViiperDeviceProfile.Xbox));
         StopCommand = new RelayCommand(async _ => await StopAsync());
         ClearLogCommand = new RelayCommand(_ => ClearLog());
-        AppendLog("V6.0 说明：当前 EXE 已能创建 VIIPER 三模虚拟 USB 手柄，并可读取 Windows 已配对的 Pro2/Switch Pro HID 输入。");
+        AppendLog("V6.0 说明：当前 EXE 已能创建 VIIPER 三模虚拟 USB 手柄，读取 Windows 已配对的 Pro2/Switch Pro HID 输入，并把 host rumble 尝试写回真实 Pro2。");
     }
 
     public string Host
@@ -199,10 +199,11 @@ public sealed class MainViewModel : INotifyPropertyChanged
                 new ViiperProtocolClient(Host, ParsePort()),
                 profile,
                 progress,
+                inputSource.IsRunning ? inputSource : null,
                 inputSource.IsRunning ? inputSource : null);
             await session.StartAsync(CancellationToken.None);
             Status = profile.Label + " 虚拟设备已连接。当前输入源：" +
-                (inputSource.IsRunning ? "Windows HID Pro2" : "neutral/synthetic") + "。";
+                (inputSource.IsRunning ? "Windows HID Pro2，rumble 写回已启用" : "neutral/synthetic") + "。";
         }
         catch (Exception ex)
         {

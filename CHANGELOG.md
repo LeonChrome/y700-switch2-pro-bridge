@@ -11,7 +11,10 @@
   - Xbox / XInput via `xbox360`
 - Added Windows HID Pro2/Switch Pro input scanning through HidSharp, live input
   feeding for all three modes, and neutral fallback when input is stale.
-- Added host feedback logging for all three modes.
+- Added host feedback logging and best-effort writeback to the real Pro2 HID
+  device: Pro2 / Nintendo preserves VIIPER's HD rumble blocks, while 新和联胜 /
+  PS5 and Xbox / XInput map ordinary motors into the V5.9 raw02-compatible HID
+  frame shape.
 - Added a bundled VIIPER v0.7.0 Windows runtime under `tools/viiper/v0.7.0`,
   embedded the runtime/license into the V6.0 preview EXE, and added a Manager
   button to start it locally.
@@ -20,7 +23,7 @@
 
 ```text
 release/v6.0/新和联胜VIIPER版本-aio-v6.0.0-preview.exe
-sha256 916503457bf2ad55e1aa0cde73bf0308bc812d57003bcf415bece23064306ade
+sha256 3fb8dc0e2b197cc9de30aebf285aa9439a3f2db1207db1896276ea66652568b6
 ```
 
 ## V5.9.3 新和联胜稳定版

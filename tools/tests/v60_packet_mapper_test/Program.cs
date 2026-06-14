@@ -101,4 +101,44 @@ Expect(parsed.Lx == GamepadState.AxisCenter && parsed.Ry == GamepadState.AxisCen
 Expect(parsed.AccelValid && parsed.GyroValid, "parsed motion");
 Expect(parsed.AccelX == 1 && parsed.GyroZ == 6, "parsed motion values");
 
+byte[] nsFeedback = new byte[34];
+nsFeedback[0] = 0x50;
+nsFeedback[1] = 0x22;
+nsFeedback[2] = 0x11;
+nsFeedback[3] = 0x44;
+nsFeedback[4] = 0x33;
+nsFeedback[5] = 0x55;
+nsFeedback[16] = 0x50;
+nsFeedback[17] = 0xaa;
+nsFeedback[18] = 0xbb;
+nsFeedback[19] = 0xcc;
+nsFeedback[20] = 0xdd;
+nsFeedback[21] = 0xee;
+nsFeedback[32] = 0x03;
+nsFeedback[33] = 0x0f;
+Expect(Pro2OutputPacketMapper.TryMapFeedback(ViiperDeviceProfile.Pro2, nsFeedback, out Pro2OutputPacket hdPacket, out string hdReason), "map ns2pro feedback");
+Expect(hdPacket.Report.Length == 64, "ns2pro output report length");
+Expect(hdPacket.Report[0] == 0x02, "ns2pro report id");
+Expect(hdPacket.Report[1] == 0x50 && hdPacket.Report[17] == 0x50, "ns2pro motor block headers");
+Expect(hdPacket.Report[2] == 0x22 && hdPacket.Report[18] == 0xaa, "ns2pro motor frames copied");
+Expect(hdPacket.PlayerLedMask == 0x0f, "ns2pro player LED carried");
+Expect(hdPacket.Active, "ns2pro active rumble detected");
+
+byte[] ledOnly = (byte[])nsFeedback.Clone();
+ledOnly[32] = 0x02;
+Expect(!Pro2OutputPacketMapper.TryMapFeedback(ViiperDeviceProfile.Pro2, ledOnly, out _, out string ledReason), "skip led-only ns2pro feedback");
+Expect(ledReason.Contains("led-only", StringComparison.OrdinalIgnoreCase), "led-only skip reason");
+
+byte[] xinputFeedback = [200, 120];
+Expect(Pro2OutputPacketMapper.TryMapFeedback(ViiperDeviceProfile.Xbox, xinputFeedback, out Pro2OutputPacket ordinaryPacket, out _), "map xinput feedback");
+Expect(ordinaryPacket.Report.Length == 64, "ordinary output report length");
+Expect(ordinaryPacket.Report[0] == 0x02, "ordinary report id");
+Expect(ordinaryPacket.Report[1] == 0x50 && ordinaryPacket.Report[17] == 0x50, "ordinary motor block headers");
+Expect(ordinaryPacket.Active, "ordinary active rumble detected");
+Expect(ordinaryPacket.Report[2] != 0 || ordinaryPacket.Report[18] != 0, "ordinary rumble frame populated");
+
+byte[] stopFeedback = [0, 0];
+Expect(Pro2OutputPacketMapper.TryMapFeedback(ViiperDeviceProfile.Xbox, stopFeedback, out Pro2OutputPacket stopPacket, out _), "map xinput stop feedback");
+Expect(!stopPacket.Active, "ordinary stop is neutral");
+
 Console.WriteLine("v60_packet_mapper_test: passed");
