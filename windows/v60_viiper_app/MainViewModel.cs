@@ -14,20 +14,20 @@ namespace Y700Switch2V60Viiper;
 public sealed class MainViewModel : INotifyPropertyChanged
 {
     private readonly StringBuilder log = new();
-    private readonly Pro2HidInputSource inputSource = new();
+    private readonly Pro2BleInputSource inputSource = new();
     private Process? viiperProcess;
     private ViiperBridgeSession? session;
     private string host = "127.0.0.1";
     private string port = "3242";
     private string status = "V6.0 VIIPER Windows-only 技术预览已就绪。请先启动 VIIPER server 和 usbip-win2。";
-    private string inputStatus = "真实 Pro2 输入未连接。";
+    private string inputStatus = "真实 Pro2 BLE 输入未连接。";
     private bool running;
 
     public MainViewModel()
     {
         PingCommand = new RelayCommand(async _ => await PingAsync());
         StartViiperServerCommand = new RelayCommand(async _ => await StartLocalViiperServerAsync());
-        ScanPro2InputCommand = new RelayCommand(_ => ScanPro2Input());
+        ScanPro2InputCommand = new RelayCommand(async _ => await ScanPro2InputAsync());
         ConnectPro2InputCommand = new RelayCommand(async _ => await ConnectPro2InputAsync());
         DisconnectPro2InputCommand = new RelayCommand(async _ => await DisconnectPro2InputAsync());
         StartDualSenseCommand = new RelayCommand(async _ => await StartAsync(ViiperDeviceProfile.DualSenseLike));
@@ -35,7 +35,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         StartXboxCommand = new RelayCommand(async _ => await StartAsync(ViiperDeviceProfile.Xbox));
         StopCommand = new RelayCommand(async _ => await StopAsync());
         ClearLogCommand = new RelayCommand(_ => ClearLog());
-        AppendLog("V6.0 说明：当前 EXE 已能创建 VIIPER 三模虚拟 USB 手柄，读取 Windows 已配对的 Pro2/Switch Pro HID 输入，并把 host rumble 尝试写回真实 Pro2。");
+        AppendLog("V6.0 说明：当前 EXE 已能创建 VIIPER 三模虚拟 USB 手柄，并由 Windows 端 BLE central 直接连接真实 Pro2，不再要求 Windows HID 蓝牙配对。");
     }
 
     public string Host
@@ -148,20 +148,21 @@ public sealed class MainViewModel : INotifyPropertyChanged
         await PingAsync();
     }
 
-    private void ScanPro2Input()
+    private async Task ScanPro2InputAsync()
     {
-        var candidates = inputSource.DescribeCandidates();
+        var progress = new Progress<string>(AppendLog);
+        var candidates = await inputSource.ScanAsync(progress, TimeSpan.FromSeconds(8), CancellationToken.None);
         if (candidates.Count == 0)
         {
-            InputStatus = "没有扫描到真实 Pro2/Switch Pro HID。先在 Windows 蓝牙里配对手柄。";
-            AppendLog("[PRO2_INPUT] scan none");
+            InputStatus = "没有扫描到真实 Pro2 BLE。唤醒手柄并确保没有被 ESP32、Switch、手机或旧进程占用。";
+            AppendLog("[PRO2_BLE] scan none");
             return;
         }
 
-        InputStatus = "发现 " + candidates.Count + " 个 Pro2/Switch Pro HID 候选。";
+        InputStatus = "发现 " + candidates.Count + " 个 Pro2 BLE 候选。";
         foreach (string candidate in candidates)
         {
-            AppendLog("[PRO2_INPUT] candidate " + candidate);
+            AppendLog("[PRO2_BLE] candidate " + candidate);
         }
     }
 
@@ -172,7 +173,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         InputStatus = inputSource.Status;
         if (!inputSource.IsRunning)
         {
-            Status = "真实 Pro2 输入未连接。V6.0 当前依赖 Windows 蓝牙先完成配对。";
+            Status = "真实 Pro2 BLE 未连接。请唤醒手柄，并确认没有被其他设备占用。";
         }
     }
 
@@ -210,7 +211,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
                 inputLive ? inputSource : null);
             await session.StartAsync(CancellationToken.None);
             Status = profile.Label + " 虚拟设备已连接。当前输入源：" +
-                (inputLive ? "Windows HID Pro2 live，rumble 写回已启用" : "neutral/synthetic，尚未确认真实 Pro2 输入") + "。";
+                (inputLive ? "Pro2 BLE live，rumble 写回已启用" : "neutral/synthetic，尚未确认真实 Pro2 BLE 输入") + "。";
         }
         catch (Exception ex)
         {

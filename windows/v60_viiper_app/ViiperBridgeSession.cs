@@ -56,8 +56,8 @@ public sealed class ViiperBridgeSession : IAsyncDisposable
         progress.Report($"[VIIPER] added {profile.Label} device bus={device.BusId} dev={device.DevId} vid={device.Vid} pid={device.Pid}");
         stream = await client.OpenStreamAsync(device.BusId, device.DevId, cancellationToken);
         progress.Report(inputSource is { IsRunning: true }
-            ? "[VIIPER] stream connected; feeding Windows HID Pro2 input."
-            : "[VIIPER] stream connected; feeding neutral input until Pro2 HID source is connected.");
+            ? "[VIIPER] stream connected; feeding Pro2 BLE input."
+            : "[VIIPER] stream connected; feeding neutral input until Pro2 BLE source is connected.");
         progress.Report(outputSink is { IsOutputReady: true }
             ? "[VIIPER] Pro2 output writeback is enabled for rumble."
             : "[VIIPER] Pro2 output writeback is not ready; host rumble will be logged only.");
@@ -127,7 +127,7 @@ public sealed class ViiperBridgeSession : IAsyncDisposable
                 age <= TimeSpan.FromMilliseconds(250))
             {
                 packet = VirtualPadPackets.FromGamepad(profile, state);
-                source = "pro2_hid";
+                source = "pro2_ble";
             }
             else
             {

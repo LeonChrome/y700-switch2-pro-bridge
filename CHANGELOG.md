@@ -9,24 +9,25 @@
   - 新和联胜 / PS5 via `dualsense`
   - Pro2 / Nintendo via `ns2pro`
   - Xbox / XInput via `xbox360`
-- Added Windows HID Pro2/Switch Pro input scanning through HidSharp, live input
-  feeding for all three modes, and neutral fallback when input is stale.
-- Added host feedback logging and best-effort writeback to the real Pro2 HID
-  device: Pro2 / Nintendo preserves VIIPER's HD rumble blocks, while 新和联胜 /
-  PS5 and Xbox / XInput map ordinary motors into the V5.9 raw02-compatible HID
-  frame shape.
-- Fixed a V6.0 real-input false positive: opening a HID candidate no longer
-  counts as connected until a live standard Pro2 report is parsed, and VIIPER
-  virtual `ns2pro` reports are rejected as a real input source.
+- Replaced the incorrect Windows Bluetooth HID pairing path with a direct
+  Windows BLE central path: scan Pro2/Nintendo advertisements, open GATT,
+  send the ESP32-proven init sequence, subscribe to FD2 input, and require live
+  parsed input before a controller is marked connected.
+- Added host feedback logging and writeback to the real Pro2 BLE cc48 rumble
+  characteristic: Pro2 / Nintendo preserves VIIPER's HD rumble blocks, while
+  新和联胜 / PS5 and Xbox / XInput map ordinary motors into the V5.9
+  raw02-compatible HID frame shape before conversion.
+- Added raw02-to-Pro2-BLE rumble packet encoding so V6.0 writes the same cc48
+  packet shape as the ESP32 route instead of copying HID bytes into BLE.
 - Added a bundled VIIPER v0.7.0 Windows runtime under `tools/viiper/v0.7.0`,
   embedded the runtime/license into the V6.0 preview EXE, and added a Manager
   button to start it locally.
 - Documented the 6.0 architecture, VIIPER boundary, GPL/MIT dependency split,
-  usbip-win2 requirement, and BLE Pro2 feeder work that remains.
+  usbip-win2 requirement, and direct BLE Pro2 feeder behavior.
 
 ```text
 release/v6.0/新和联胜VIIPER版本-aio-v6.0.0-preview.exe
-sha256 ba17cedddc8893a18fe75e50dad70470dd6407f180664a1d3de1fd31f9eabd37
+sha256 30ceaecbe94e18261c3b83d8894eebfbe659c43a2116bd62c633aaa4ca8836b5
 ```
 
 ## V5.9.3 新和联胜稳定版

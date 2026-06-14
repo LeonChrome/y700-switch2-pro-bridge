@@ -42,7 +42,7 @@
             <StackPanel>
                 <TextBlock Style="{StaticResource TitleText}" Text="V6.0 VIIPER Windows-only 三模桥"/>
                 <TextBlock Style="{StaticResource HintText}" Margin="0,8,0,0"
-                           Text="这条路线不依赖 ESP32。当前版本控制 VIIPER 创建虚拟 USB 手柄，读取 Windows 已配对的真实 Pro2 输入，并把 host rumble 尝试写回真实 Pro2。"/>
+                           Text="这条路线不依赖 ESP32。当前版本控制 VIIPER 创建虚拟 USB 手柄，并由 EXE 自己作为 BLE central 连接真实 Pro2，再把 host rumble 写回真实手柄。"/>
             </StackPanel>
         </Border>
 
@@ -73,13 +73,13 @@
 
                 <Border Style="{StaticResource Panel}">
                     <StackPanel>
-                        <TextBlock FontSize="16" FontWeight="SemiBold" Foreground="#0F172A" Text="真实 Pro2 输入"/>
+                        <TextBlock FontSize="16" FontWeight="SemiBold" Foreground="#0F172A" Text="真实 Pro2 BLE 输入"/>
                         <TextBlock Style="{StaticResource HintText}" Margin="0,6,0,10"
-                                   Text="先在 Windows 蓝牙里配好并唤醒 Pro2/Switch Pro 手柄。这里必须等到真实标准输入报告到达才算连接成功；VIIPER 虚拟手柄不会被当作真实输入。"/>
+                                   Text="不需要手动和 Windows 蓝牙 HID 配对。唤醒 Pro2 并确保它没有连到 ESP32、Switch、手机或旧进程；EXE 会扫描 BLE、连接 GATT、订阅 FD2 输入流。"/>
                         <WrapPanel>
-                            <Button Style="{StaticResource ButtonBase}" Content="扫描 Pro2 输入" Command="{Binding ScanPro2InputCommand}"/>
-                            <Button Style="{StaticResource ButtonBase}" Content="连接 Pro2 输入" Command="{Binding ConnectPro2InputCommand}"/>
-                            <Button Style="{StaticResource ButtonBase}" Content="断开 Pro2 输入" Command="{Binding DisconnectPro2InputCommand}"/>
+                            <Button Style="{StaticResource ButtonBase}" Content="扫描 Pro2 BLE" Command="{Binding ScanPro2InputCommand}"/>
+                            <Button Style="{StaticResource ButtonBase}" Content="连接 Pro2 BLE" Command="{Binding ConnectPro2InputCommand}"/>
+                            <Button Style="{StaticResource ButtonBase}" Content="断开 Pro2 BLE" Command="{Binding DisconnectPro2InputCommand}"/>
                         </WrapPanel>
                         <TextBlock Style="{StaticResource HintText}" Text="{Binding InputStatus}" Margin="0,4,0,0"/>
                     </StackPanel>

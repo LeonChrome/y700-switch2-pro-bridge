@@ -104,6 +104,23 @@ Expect(parsed.Lx == GamepadState.AxisCenter && parsed.Ry == GamepadState.AxisCen
 Expect(parsed.AccelValid && parsed.GyroValid, "parsed motion");
 Expect(parsed.AccelX == 1 && parsed.GyroZ == 6, "parsed motion values");
 
+byte[] fd2 = new byte[60];
+BinaryPrimitives.WriteUInt32LittleEndian(
+    fd2.AsSpan(4, 4),
+    0x00020000u | 0x00000080u | 0x00000004u);
+Pack12(fd2, 10, 2048, 2048);
+Pack12(fd2, 13, 2048, 2048);
+BinaryPrimitives.WriteInt16LittleEndian(fd2.AsSpan(48, 2), -7);
+BinaryPrimitives.WriteInt16LittleEndian(fd2.AsSpan(58, 2), 77);
+Expect(parser.TryParse(fd2, out GamepadState fd2Parsed, out string fd2Source), "parse FD2 BLE payload");
+Expect(fd2Source == "fd2_payload", "FD2 parse source");
+Expect(fd2Parsed.IsPressed(GamepadButtons.South), "FD2 parsed south");
+Expect(fd2Parsed.IsPressed(GamepadButtons.R2), "FD2 parsed R2");
+Expect(fd2Parsed.IsPressed(GamepadButtons.DPadUp), "FD2 parsed dpad up");
+Expect(fd2Parsed.R2 == GamepadState.TriggerMax, "FD2 parsed analog R2");
+Expect(fd2Parsed.AccelValid && fd2Parsed.GyroValid, "FD2 parsed motion");
+Expect(fd2Parsed.AccelX == -7 && fd2Parsed.GyroZ == 77, "FD2 parsed motion values");
+
 byte[] viiperLikeReport = new byte[64];
 viiperLikeReport[0] = 0x05;
 viiperLikeReport[3] = 0xCF;
@@ -133,6 +150,14 @@ Expect(hdPacket.Report[1] == 0x50 && hdPacket.Report[17] == 0x50, "ns2pro motor 
 Expect(hdPacket.Report[2] == 0x22 && hdPacket.Report[18] == 0xaa, "ns2pro motor frames copied");
 Expect(hdPacket.PlayerLedMask == 0x0f, "ns2pro player LED carried");
 Expect(hdPacket.Active, "ns2pro active rumble detected");
+byte[] blePacket = new byte[Pro2BleRumblePacketEncoder.BlePacketSize];
+Expect(
+    Pro2BleRumblePacketEncoder.TryEncodeRaw02(hdPacket.Report, 0x0a, blePacket, out bool bleActive, out string bleError),
+    "encode raw02 to BLE packet: " + bleError);
+Expect(blePacket[0] == 0x00, "BLE rumble report prefix");
+Expect(blePacket[1] == 0x5a && blePacket[17] == 0x5a, "BLE rumble packet id in motor blocks");
+Expect(bleActive, "BLE rumble active");
+Expect(!hdPacket.Report.AsSpan(1, 32).SequenceEqual(blePacket.AsSpan(1, 32)), "BLE packet is converted, not raw HID copied");
 
 byte[] ledOnly = (byte[])nsFeedback.Clone();
 ledOnly[32] = 0x02;
@@ -150,5 +175,10 @@ Expect(ordinaryPacket.Report[2] != 0 || ordinaryPacket.Report[18] != 0, "ordinar
 byte[] stopFeedback = [0, 0];
 Expect(Pro2OutputPacketMapper.TryMapFeedback(ViiperDeviceProfile.Xbox, stopFeedback, out Pro2OutputPacket stopPacket, out _), "map xinput stop feedback");
 Expect(!stopPacket.Active, "ordinary stop is neutral");
+byte[] stopBle = new byte[Pro2BleRumblePacketEncoder.BlePacketSize];
+Expect(
+    Pro2BleRumblePacketEncoder.TryEncodeRaw02(stopPacket.Report, 0x01, stopBle, out bool stopBleActive, out string stopBleError),
+    "encode stop raw02 to BLE packet: " + stopBleError);
+Expect(!stopBleActive, "BLE stop packet is neutral");
 
 Console.WriteLine("v60_packet_mapper_test: passed");

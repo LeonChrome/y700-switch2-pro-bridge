@@ -6,8 +6,8 @@ firmware line.
 The goal is:
 
 ```text
-Real Pro2 over Windows Bluetooth
-    -> Y700 V6 feeder and Pro2 output writeback
+Real Pro2 over BLE/GATT, captured directly by the V6 EXE
+    -> Y700 V6 feeder and Pro2 BLE rumble writeback
     -> VIIPER virtual USB device
     -> Windows / Steam / games
 ```
@@ -22,14 +22,16 @@ three host-side device identities we need:
 - `xbox360` for Xbox / XInput
 
 VIIPER does not connect to the real Pro2 controller over Bluetooth. The V6.0
-Manager therefore treats Windows as the Bluetooth pairing layer: first pair the
-real controller in Windows, then the Manager reads the resulting HID input
-device through HidSharp, feeds VIIPER, and uses the same HID handle for
-best-effort host rumble writeback.
+Manager therefore owns the real-controller side itself: it scans BLE
+advertisements, opens the Pro2 GATT device, sends the same initialization
+sequence used by the ESP32 route, subscribes to the FD2 input characteristic,
+and writes rumble packets to the cc48 rumble characteristic.
 
 Starting the local VIIPER server does not connect the real Pro2 controller.
-VIIPER only creates virtual USB devices. The real controller must already be
-paired and awake in Windows Bluetooth before `连接 Pro2 输入` can succeed.
+VIIPER only creates virtual USB devices. The real controller should be awake and
+not already connected to ESP32, Switch, a phone, or an older Manager process
+before `连接 Pro2 BLE` can succeed. Do not manually pair the Pro2 as a Windows
+Bluetooth HID controller for this route.
 
 ## Dependency Boundary
 
@@ -56,9 +58,11 @@ kernel driver before VIIPER-created USB devices can attach locally.
 3. Add the selected device type and immediately open its device stream.
 4. Feed input reports at the correct cadence.
 5. Receive feedback reports and route them back to the real controller when the
-   Windows HID stack allows output writes.
-6. Read an already-paired Windows HID Pro2/Switch Pro input source.
-7. Port the V5.9 rumble scheduling ideas:
+   Pro2 BLE rumble characteristic is available.
+6. Scan and connect the real Pro2 directly over BLE/GATT.
+7. Send the ESP32-proven Pro2 initialization command sequence and require a
+   live FD2 input notification before marking the controller connected.
+8. Port the V5.9 rumble scheduling ideas:
    - Pro2 / Nintendo mode: preserve raw `0x02` / HD rumble packets.
    - Xbox mode: map ordinary left/right motors to Pro2 rumble.
    - 新和联胜 mode: treat VIIPER's DualSense output as ordinary rumble first;
@@ -75,29 +79,28 @@ windows/v60_viiper_app/
 It can:
 
 - ping a VIIPER server;
-- scan and open Windows HID Pro2/Switch Pro input devices (`057E:2009` and
-  `057E:2069`);
+- scan BLE advertisements for Nintendo / Pro2 candidates without requiring
+  Windows Bluetooth HID pairing;
+- connect the real Pro2 over GATT, subscribe to the FD2 input stream, and reject
+  candidates until a live parsed input report arrives;
 - create a virtual `dualsense`, `ns2pro`, or `xbox360` device;
-- send live Pro2 input packets when the HID source is fresh, and fall back to
+- send live Pro2 input packets when the BLE source is fresh, and fall back to
   neutral input if the source is missing or stale;
-- write host feedback back to the real Pro2 where Windows exposes a writable
-  HID output report:
+- write host feedback back to the real Pro2 through the BLE cc48 rumble
+  characteristic:
   - Pro2 / Nintendo mode preserves VIIPER's 16+16-byte `0x02` HD rumble blocks.
   - Xbox / XInput maps left/right motors into the same raw02-compatible HID
     frame shape used by the V5.9 haptic path.
   - 新和联胜 / PS5 maps DualSense ordinary motors through that compatible rumble
     shape; VIIPER does not expose DualSense audio haptics.
-- reject input-source false positives: opening a `057E:2009/2069` HID candidate
-  is not enough; V6.0 waits for a live standard Pro2 input report before it marks
-  the real controller connected. VIIPER-created virtual `ns2pro` reports are not
-  accepted as real input.
+- convert raw02 rumble into the same Pro2 BLE vibration packet shape used by
+  the ESP32 cc48 path instead of copying HID bytes directly.
 
 It does not yet:
 
 - install `usbip-win2`;
-- perform Windows Bluetooth pairing itself;
-- guarantee rumble on Windows HID stacks that refuse output writes to the real
-  controller;
+- guarantee every Bluetooth adapter/driver can open unpaired GATT access to the
+  Pro2;
 - expose the V5.9 haptic tuning and arbitration controls in the no-ESP32 route.
 
 The repository carries a VIIPER v0.7.0 Windows runtime under
