@@ -1,6 +1,11 @@
 # PRO2 Wireless Receiver Control Board
 
-Current release: **V5.9.2 新和联胜版本**
+Current release: **V5.9.3 新和联胜版本**
+
+Next development line: **V6.0 VIIPER Windows-only route**. V6.0 is separate
+from the ESP32-S3 V5.9 series and targets a no-ESP32 Windows Bluetooth feeder
+using VIIPER virtual USB devices. The current preview reads Windows-paired
+Pro2/Switch Pro HID input and feeds the three VIIPER virtual modes.
 
 This repository contains the ESP32-S3 firmware and Windows Manager for a three-mode wireless receiver bridge for the real Switch 2 Pro / Pro2 controller.
 
@@ -8,12 +13,12 @@ This repository contains the ESP32-S3 firmware and Windows Manager for a three-m
 
 Use the all-in-one Windows Manager:
 
-[release/v5.9/新和联胜版本-aio-v5.9.2.exe](release/v5.9/%E6%96%B0%E5%92%8C%E8%81%94%E8%83%9C%E7%89%88%E6%9C%AC-aio-v5.9.2.exe)
+[release/v5.9/新和联胜版本-aio-v5.9.3.exe](release/v5.9/%E6%96%B0%E5%92%8C%E8%81%94%E8%83%9C%E7%89%88%E6%9C%AC-aio-v5.9.3.exe)
 
 SHA256:
 
 ```text
-5ca65c85970795fa66fdc88a9fbdac7de0af4daf5407eb2e625a8e710eef806d
+4df0167eaf74c33ada0e4370304e3db5ae3320a1288bd70c8d488b0934290f7a
 ```
 
 The EXE bundles:
@@ -51,6 +56,8 @@ V5.9 focuses on preserving controller feel:
   values cannot override a successful flash.
 - Flashing logs the active serial driver and blocks the reproduced Windows
   26300 + WCH `2.1.2025.7` kernel-hang combination before esptool starts.
+- V5.9.3 adds a Manager-side CH343 driver repair button, serial command
+  watchdogs, shutdown cleanup, and throttled UI logs for BLE-heavy sessions.
 
 ## Hardware
 
@@ -92,18 +99,23 @@ firmware/
 
 windows/
   v55_manager_app/                     Final V5.9 Windows Manager
+  v60_viiper_app/                      V6.0 Windows-only VIIPER Manager preview
 
 tools/
   esp32s3/                             ESP-IDF build/flash helpers
   package_v5_9_manager.ps1             Final all-in-one package script
+  package_v6_0_viiper_manager.ps1      V6.0 VIIPER preview package script
+  viiper/                              Bundled VIIPER runtime notes and exe
 
 release/
   v5.9/                                Final EXE and SHA256
+  v6.0/                                V6.0 VIIPER Windows-only preview EXE
 
 docs/
   USER_GUIDE.md
   TROUBLESHOOTING.md
   TECHNICAL_NOTES.md
+  V6_0_VIIPER_WINDOWS_ONLY.md
 ```
 
 ## Build

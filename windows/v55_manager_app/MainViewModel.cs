@@ -39,12 +39,14 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private readonly FirmwareFlasher flasher = new();
     private readonly ManagerSettings settings = ManagerSettingsStore.Load();
     private readonly StringBuilder log = new();
-    private const int UiLogTrimThreshold = 1000000;
-    private const int UiLogRetainedChars = 600000;
+    private const int UiLogTrimThreshold = 180000;
+    private const int UiLogRetainedChars = 100000;
+    private const int UiLogMaxLineChars = 4096;
     private readonly object logSync = new();
     private readonly SemaphoreSlim serialLock = new(1, 1);
     private readonly SemaphoreSlim flashLock = new(1, 1);
     private readonly DispatcherTimer stateTimer = new();
+    private readonly DispatcherTimer logUiTimer = new();
     private CancellationTokenSource? gameMonitorCts;
     private StreamWriter? diagnosticWriter;
     private string diagnosticLogPath = "";
@@ -93,6 +95,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private bool busy;
     private bool flashInProgress;
     private bool gameMonitorRunning;
+    private bool shutdownStarted;
+    private bool logUiDirty;
     private BleScanItem? selectedBleDevice;
 
     public ObservableCollection<PortItem> Ports { get; } = new();
@@ -129,6 +133,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             OnPropertyChanged(nameof(CanStopMonitorButton));
             OnPropertyChanged(nameof(CanUseAudioPatternButton));
             OnPropertyChanged(nameof(CanSendCustomSerialCommand));
+            OnPropertyChanged(nameof(CanRepairCh343Driver));
             OnPropertyChanged(nameof(DualSenseToolStateText));
             OnPropertyChanged(nameof(Pro2ToolStateText));
         }
@@ -231,7 +236,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         }
     }
 
-    public string FirmwareSummary => "V5.9.2 新和联胜版本内置：新和联胜 / PS5、Pro2 / Nintendo、Xbox / XInput、HID 恢复固件和嵌入式 esptool。";
+    public string FirmwareSummary => "V5.9.3 新和联胜版本内置：新和联胜 / PS5、Pro2 / Nintendo、Xbox / XInput、HID 恢复固件和嵌入式 esptool。";
     public string SafetySummary => "Live 转发默认不自动开启。游戏监听会保持 HD-only 过滤，普通 PCM 只计入 blocked_pcm，不会被盲目推送。";
     public string LogText
     {
@@ -275,6 +280,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public bool CanStopMonitorButton => HasUsableSerialCandidate && desiredMode == OutputModeId.DualSenseLike && GameMonitorRunning;
     public bool CanUseAudioPatternButton => HasUsableSerialCandidate && desiredMode == OutputModeId.DualSenseLike && currentMode == DeviceUiMode.DualSense && !Busy && !flashInProgress && !GameMonitorRunning;
     public bool CanSendCustomSerialCommand => HasUsableSerialCandidate && !Busy && !flashInProgress && !GameMonitorRunning;
+    public bool CanRepairCh343Driver => HasUsableSerialCandidate && !Busy && !flashInProgress && !GameMonitorRunning;
     public string DesiredModeLabel => GetModeLabel(desiredMode);
     public string DesiredModeDescription => GetModeDescription(desiredMode);
     public string ModeDeckHint => desiredMode switch
@@ -298,7 +304,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         DeviceUiMode.DualSense => "USB 当前已枚举为 PS5 / DualSense，可使用新和联胜 HD 震动与普通震动调度工具。",
         DeviceUiMode.Pro2 => "USB 当前已枚举为 Pro2 / Nintendo，适合稳定输入和原始/普通震动测试。",
         DeviceUiMode.Xbox => "USB 当前已枚举为 Xbox / XInput，适合 Steam、Apex 和普通双马达震动兼容性测试。",
-        DeviceUiMode.XboxElite => "检测到旧版 Elite 2 实验固件。V5.9.2 不再提供这个模式，请切换到新和联胜或 Xbox。",
+        DeviceUiMode.XboxElite => "检测到旧版 Elite 2 实验固件。V5.9.3 不再提供这个模式，请切换到新和联胜或 Xbox。",
         DeviceUiMode.Recovery => "当前看起来是最小化 HID 恢复固件，用于救援重刷和枚举恢复。",
         _ => "请先执行 USB 检查。在确认模式前，所有真实震动发送都会保持保守策略。"
     };
@@ -433,6 +439,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public ICommand ListAudioCommand { get; }
     public ICommand OpenJoyCommand { get; }
     public ICommand OpenDeviceManagerCommand { get; }
+    public ICommand RepairCh343DriverCommand { get; }
     public ICommand BleScanCommand { get; }
     public ICommand BleListCommand { get; }
     public ICommand BleReconnectCommand { get; }
@@ -490,6 +497,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         ListAudioCommand = new RelayCommand(async _ => await ListAudioAsync());
         OpenJoyCommand = new RelayCommand(_ => StartShell("joy.cpl"));
         OpenDeviceManagerCommand = new RelayCommand(_ => StartShell("devmgmt.msc"));
+        RepairCh343DriverCommand = new RelayCommand(async _ => await RepairCh343DriverAsync());
         BleScanCommand = new RelayCommand(async _ => await ScanBleAsync());
         BleListCommand = new RelayCommand(async _ => await ListBleAsync());
         BleReconnectCommand = new RelayCommand(async _ => await ReconnectBleAsync());
@@ -526,7 +534,11 @@ public sealed class MainViewModel : INotifyPropertyChanged
         SaveLogCommand = new RelayCommand(_ => SaveLog());
         OpenLogFolderCommand = new RelayCommand(_ => OpenLogFolder());
 
-        AppendLog("PRO2 手柄无线接收器控制板 V5.9.2 新和联胜版本已就绪。此 EXE 内置 PS5 HD 震动固件与连接向导。");
+        logUiTimer.Interval = TimeSpan.FromMilliseconds(180);
+        logUiTimer.Tick += (_, _) => FlushLogTextToUi();
+        logUiTimer.Start();
+
+        AppendLog("PRO2 手柄无线接收器控制板 V5.9.3 新和联胜版本已就绪。此 EXE 内置 PS5 HD 震动固件与连接向导。");
         if (!string.IsNullOrWhiteSpace(settings.LastBleTarget))
         {
             bleTarget = settings.LastBleTarget;
@@ -601,6 +613,136 @@ public sealed class MainViewModel : INotifyPropertyChanged
         return FirstLikelyPort();
     }
 
+    private async Task RepairCh343DriverAsync()
+    {
+        if (Busy || flashInProgress || GameMonitorRunning)
+        {
+            PortStatus = "已有刷写、BLE 操作或诊断监听正在进行，暂时不能修复 CH343 驱动。";
+            return;
+        }
+
+        try
+        {
+            Busy = true;
+            OverallStatus = "修复驱动中";
+            if (SelectedPort == null)
+            {
+                await RefreshPortsAsync(logResult: false);
+            }
+            if (SelectedPort == null)
+            {
+                throw new InvalidOperationException("当前没有可用的 CH343/ESP32 控制板串口。");
+            }
+
+            PortItem port = SelectedPort;
+            PortStatus = "正在读取 " + port.PortName + " 的 CH343 驱动信息。";
+            PortDriverInfo? driver = await Task.Run(() => DeviceInspector.QueryPortDriver(port.PortName));
+            if (driver == null)
+            {
+                throw new InvalidOperationException(
+                    "没有读到 " + port.PortName +
+                    " 的驱动信息。请确认选择的是 CH343P 控制口，而不是原生 USB 手柄口。");
+            }
+
+            AppendLog("[CH343_DRIVER_CHECK] " + driver.Summary + " device_id=" + driver.DeviceId);
+            bool looksLikeCh343 =
+                port.LikelyCh343 ||
+                driver.DeviceId.Contains("VID_1A86&PID_55D3", StringComparison.OrdinalIgnoreCase) ||
+                driver.DeviceName.Contains("CH343", StringComparison.OrdinalIgnoreCase) ||
+                driver.DeviceName.Contains("WCH", StringComparison.OrdinalIgnoreCase);
+            if (!looksLikeCh343)
+            {
+                throw new InvalidOperationException(
+                    "当前选中的 " + port.PortName +
+                    " 看起来不是 CH343P 控制口。为避免误卸载其他串口驱动，已停止。");
+            }
+
+            if (string.Equals(driver.InfName, "usbser.inf", StringComparison.OrdinalIgnoreCase) ||
+                driver.Provider.Contains("Microsoft", StringComparison.OrdinalIgnoreCase))
+            {
+                PortStatus = port.PortName + " 已经使用 Microsoft USB 串行设备驱动。";
+                ModeSwitchStatus = "CH343 驱动检查通过：" + driver.Summary;
+                NextAction = "驱动层已经是 Microsoft usbser；如果刷写仍卡住，请按住 BOOT 重试下载模式，或拔插 CH343P 控制口。";
+                AppendLog("[CH343_DRIVER_REPAIR] already_usbser " + driver.Summary);
+                return;
+            }
+
+            MessageBoxResult confirmation = MessageBox.Show(
+                owner,
+                "即将修复 " + port.PortName + " 的 CH343 驱动。\n\n" +
+                "当前驱动：" + driver.Provider + " " + driver.Version + " / " + driver.InfName + "\n\n" +
+                "程序会请求 UAC 管理员权限，备份当前第三方 WCH 驱动，然后卸载它，让 Windows 重新绑定 Microsoft “USB 串行设备 (usbser.inf)”。\n\n" +
+                "修复完成后请拔插一次 CH343P 控制口，再回来刷机。",
+                "修复 CH343 驱动",
+                MessageBoxButton.OKCancel,
+                MessageBoxImage.Warning);
+            if (confirmation != MessageBoxResult.OK)
+            {
+                PortStatus = "已取消 CH343 驱动修复。";
+                return;
+            }
+
+            if (!await serialLock.WaitAsync(TimeSpan.FromSeconds(3)))
+            {
+                throw new TimeoutException("上一条串口操作仍未释放，暂时无法修复 CH343 驱动。请稍后重试。");
+            }
+            try
+            {
+                if (!await SerialCommandClient.CloseAsync(1500))
+                {
+                    AppendLog("[CH343_DRIVER_REPAIR] serial close timed out; continuing because repair runs out-of-process");
+                }
+            }
+            finally
+            {
+                serialLock.Release();
+            }
+
+            PortStatus = "正在启动管理员驱动修复脚本，请确认 UAC 弹窗。";
+            NextAction = "请确认 UAC 管理员授权。脚本完成后拔插 CH343P 控制口，再点击“刷新串口”。";
+            AppendLog("[CH343_DRIVER_REPAIR] start " + driver.Summary + " device_id=" + driver.DeviceId);
+            Ch343DriverRepairResult result = await Ch343DriverRepair.RunAsync(driver);
+            AppendLog("[CH343_DRIVER_REPAIR] " + result.Message);
+
+            if (result.Completed && result.ExitCode == 0)
+            {
+                PortStatus = "CH343 驱动修复脚本已完成。";
+                ModeSwitchStatus = "CH343 驱动已尝试切换到 Microsoft usbser。";
+                NextAction = "请拔插 CH343P 控制口，然后点击“刷新串口”和“USB 检查”；若仍不是 usbser，请打开日志查看原因。";
+                OverallStatus = "就绪";
+                await Task.Delay(1200);
+                await RefreshPortsAsync(logResult: false);
+                return;
+            }
+
+            OverallStatus = "错误";
+            PortStatus = result.Completed
+                ? "CH343 驱动修复脚本失败，exit=" + result.ExitCode + "。"
+                : "CH343 驱动修复脚本仍在运行，界面已停止等待。";
+            ModeSwitchStatus = PortStatus;
+            NextAction = "查看日志：" + result.LogPath + "。如果脚本已经完成，请拔插 CH343P 控制口后刷新串口。";
+        }
+        catch (OperationCanceledException ex)
+        {
+            OverallStatus = "就绪";
+            PortStatus = "CH343 驱动修复已取消：" + FirstLine(ex.Message);
+            AppendLog("[CH343_DRIVER_REPAIR] canceled " + ex.Message);
+        }
+        catch (Exception ex)
+        {
+            OverallStatus = IsBoardUnavailableException(ex) ? "离线" : "错误";
+            PortStatus = "CH343 驱动修复失败：" + FirstLine(ex.Message);
+            ModeSwitchStatus = "CH343 驱动修复失败：" + FirstLine(ex.Message);
+            NextAction = "可先打开“设备管理器”手动把 CH343 切换为 Microsoft “USB 串行设备”，或者拔插 CH343P 控制口后再点“修复 CH343 驱动”。";
+            AppendLog("ERROR ch343 driver repair: " + ex);
+        }
+        finally
+        {
+            Busy = false;
+            NotifyModeStateChanged();
+        }
+    }
+
     private async Task TryCaptureFirmwareIdentityAfterFlashAsync(string requestedProfile)
     {
         try
@@ -664,7 +806,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             MessageBox.Show(
                 owner,
                 profile.Label + " 目前还是预留位，暂时没有接入完整后端。\n\n管理器已经保留好了模式位和切换语义，后续补固件时不需要再重做界面。",
-                "V5.9.2 模式预留",
+                "V5.9.3 模式预留",
                 MessageBoxButton.OK,
                 MessageBoxImage.Information);
             return;
@@ -818,7 +960,12 @@ public sealed class MainViewModel : INotifyPropertyChanged
             if (ex is DriverCompatibilityException)
             {
                 AppendLog("[FLASH_DRIVER_BLOCK] " + ex.Message);
-                NextAction = "点击“设备管理器”，给 CH343 选择 Microsoft 的“USB 串行设备”驱动，重新插拔控制口后再刷写。";
+                NextAction = "点击“修复 CH343 驱动”自动切换到 Microsoft “USB 串行设备”，完成后拔插 CH343P 控制口再刷写。也可以打开“设备管理器”手动处理。";
+            }
+            else if (ex is DownloadModeException)
+            {
+                AppendLog("[FLASH_DOWNLOAD_MODE] " + ex.Message);
+                NextAction = "按住 ESP32-S3 的 BOOT 键后重试刷机；日志出现 Connecting... 时点按 EN/RST，看到 Chip is ESP32-S3 后松开 BOOT。";
             }
             else if (IsBoardUnavailableException(ex))
             {
@@ -928,7 +1075,11 @@ public sealed class MainViewModel : INotifyPropertyChanged
             AppendLog("ERROR firmware erase: " + ex);
             if (ex is DriverCompatibilityException)
             {
-                NextAction = "点击“设备管理器”，给 CH343 选择 Microsoft 的“USB 串行设备”驱动，重新插拔控制口后再清理。";
+                NextAction = "点击“修复 CH343 驱动”自动切换到 Microsoft “USB 串行设备”，完成后拔插 CH343P 控制口再清理。也可以打开“设备管理器”手动处理。";
+            }
+            else if (ex is DownloadModeException)
+            {
+                NextAction = "按住 ESP32-S3 的 BOOT 键后重试清理；日志出现 Connecting... 时点按 EN/RST，看到 Chip is ESP32-S3 后松开 BOOT。";
             }
         }
         finally
@@ -1717,7 +1868,11 @@ public sealed class MainViewModel : INotifyPropertyChanged
             return "";
         }
 
-        await serialLock.WaitAsync();
+        if (!await serialLock.WaitAsync(TimeSpan.FromSeconds(3)))
+        {
+            PortStatus = "上一条串口操作仍未释放，已跳过本次状态探测。";
+            return "";
+        }
         try
         {
             IProgress<string> progress = logOutput
@@ -1773,7 +1928,13 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private static bool IsBoardUnavailableException(Exception ex)
     {
         string message = ex.Message ?? "";
-        return ex is InvalidOperationException &&
+        return ex is TimeoutException ||
+               ex is IOException ||
+               ex is UnauthorizedAccessException ||
+               message.Contains("Access to the port", StringComparison.OrdinalIgnoreCase) ||
+               message.Contains("拒绝访问", StringComparison.OrdinalIgnoreCase) ||
+               message.Contains("上一条串口", StringComparison.OrdinalIgnoreCase) ||
+               ex is InvalidOperationException &&
                (message.Contains("当前没有可用的 ESP32 控制板串口", StringComparison.OrdinalIgnoreCase) ||
                 message.Contains("暂时无法执行", StringComparison.OrdinalIgnoreCase) ||
                 message.Contains("暂时不能刷写", StringComparison.OrdinalIgnoreCase));
@@ -1782,6 +1943,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private void LogBoardUnavailable(string scope, Exception ex)
     {
         AppendLog("[离线] " + scope + "： " + FirstLine(ex.Message));
+        NextAction = "请拔插 CH343P 控制口，确认只选中 CH343/USB 串口后重试。原生 USB 可以保持连接；如果仍拒绝访问，请关闭旧版 Manager、串口监视器或测试脚本。";
     }
 
     private async Task SendSerialAsync(string command, int readSeconds, Action<string> after)
@@ -1841,7 +2003,12 @@ public sealed class MainViewModel : INotifyPropertyChanged
         }
 
         cancellationToken.ThrowIfCancellationRequested();
-        await serialLock.WaitAsync(cancellationToken);
+        if (!await serialLock.WaitAsync(TimeSpan.FromSeconds(3), cancellationToken))
+        {
+            throw new TimeoutException(
+                "上一条串口操作仍未释放，暂时无法执行“" +
+                LabelForCommand(command) + "”。请等待几秒后重试；如果连续出现，请拔插 CH343P 控制口。");
+        }
         try
         {
             if (SelectedPort == null)
@@ -2163,7 +2330,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             OutputModeId.DualSenseLike => "严格 PS5 / DualSense USB 身份，协调普通震动和四声道 HD 音频转震动链路。",
             OutputModeId.Pro2 => "面向原始 HID 0x02 震动优先路线调好的 Nintendo-like / Pro2 桥接。",
             OutputModeId.Xbox => "真实 Xbox 360 / XInput 风格 USB 后端，普通震动会回传到 Pro2 BLE。",
-            OutputModeId.XboxElite => "旧版 Elite 2 枚举实验固件，V5.9.2 已停止发行。",
+            OutputModeId.XboxElite => "旧版 Elite 2 枚举实验固件，V5.9.3 已停止发行。",
             OutputModeId.Recovery => "用于重刷与 USB 救援的最小恢复固件。",
             _ => "尚未选择目标模式。"
         };
@@ -2374,6 +2541,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         OnPropertyChanged(nameof(CanStopMonitorButton));
         OnPropertyChanged(nameof(CanUseAudioPatternButton));
         OnPropertyChanged(nameof(CanSendCustomSerialCommand));
+        OnPropertyChanged(nameof(CanRepairCh343Driver));
         OnPropertyChanged(nameof(DesiredModeLabel));
         OnPropertyChanged(nameof(DesiredModeDescription));
         OnPropertyChanged(nameof(ModeDeckHint));
@@ -2896,7 +3064,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             Directory.CreateDirectory(LogRootDirectory);
             diagnosticLogPath = Path.Combine(
                 LogRootDirectory,
-                "xin_heliansheng_v5.9.2_" + DateTime.Now.ToString("yyyyMMdd_HHmmss") + ".log");
+                "xin_heliansheng_v5.9.3_" + DateTime.Now.ToString("yyyyMMdd_HHmmss") + ".log");
             diagnosticWriter = new StreamWriter(
                 diagnosticLogPath,
                 append: false,
@@ -2915,7 +3083,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             asset.Path.EndsWith(".bin", StringComparison.OrdinalIgnoreCase) &&
             !asset.Path.Contains("bootloader", StringComparison.OrdinalIgnoreCase) &&
             !asset.Path.Contains("partition", StringComparison.OrdinalIgnoreCase));
-        AppendLog("[DIAG_SESSION_START] app=5.9.2 duration_seconds=" + seconds +
+        AppendLog("[DIAG_SESSION_START] app=5.9.3 duration_seconds=" + seconds +
                   " local_time=" + DateTime.Now.ToString("O") +
                   " utc_time=" + DateTime.UtcNow.ToString("O"));
         AppendLog("[DIAG_PACKAGE] package=" + package.Manifest.PackageVersion +
@@ -3098,6 +3266,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         {
             log.Clear();
         }
+        logUiDirty = false;
         OnPropertyChanged(nameof(LogText));
     }
 
@@ -3134,9 +3303,12 @@ public sealed class MainViewModel : INotifyPropertyChanged
             foreach (string line in text.Replace("\r", "").Split('\n'))
             {
                 if (string.IsNullOrWhiteSpace(line)) continue;
-                string stamped = "[" + DateTime.Now.ToString("HH:mm:ss.fff") + "] " + line;
-                log.AppendLine(stamped);
-                diagnosticWriter?.WriteLine(stamped);
+                string stamped = "[" + DateTime.Now.ToString("HH:mm:ss.fff") + "] ";
+                string uiLine = line.Length <= UiLogMaxLineChars
+                    ? line
+                    : line[..UiLogMaxLineChars] + "... [ui truncated]";
+                log.AppendLine(stamped + uiLine);
+                diagnosticWriter?.WriteLine(stamped + line);
             }
             if (log.Length > UiLogTrimThreshold)
             {
@@ -3144,16 +3316,35 @@ public sealed class MainViewModel : INotifyPropertyChanged
                 log.Remove(0, remove);
                 log.Insert(0, "[UI LOG TRIMMED; complete diagnostic remains in the auto-saved file]\r\n");
             }
+            logUiDirty = true;
         }
+    }
+
+    private void FlushLogTextToUi()
+    {
+        if (!logUiDirty)
+        {
+            return;
+        }
+
+        logUiDirty = false;
         OnPropertyChanged(nameof(LogText));
     }
 
     public void Shutdown()
     {
+        if (shutdownStarted)
+        {
+            return;
+        }
+
+        shutdownStarted = true;
         gameMonitorCts?.Cancel();
         EndDiagnosticCapture("application_closed");
         stateTimer.Stop();
-        SerialCommandClient.Close();
+        logUiTimer.Stop();
+        FlushLogTextToUi();
+        SerialCommandClient.Shutdown();
     }
 
     private static string FirstLine(string text)

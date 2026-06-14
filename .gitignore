@@ -41,4 +41,4 @@ tools/steam_input_probe_runtime/steam_api64.dll
 !release/
 !release/v5.9/
 !release/v5.9/**
-release/v5.9/DualSenseHostTrace-v5.9.2/
+release/v5.9/DualSenseHostTrace-v*/

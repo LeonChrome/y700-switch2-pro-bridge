@@ -24,6 +24,13 @@ public sealed class DriverCompatibilityException : InvalidOperationException
     }
 }
 
+public sealed class DownloadModeException : InvalidOperationException
+{
+    public DownloadModeException(string message) : base(message)
+    {
+    }
+}
+
 public sealed class FirmwareFlasher
 {
     private static readonly TimeSpan PortDriverSettleDelay = TimeSpan.FromMilliseconds(800);
@@ -191,6 +198,7 @@ public sealed class FirmwareFlasher
                 cancellationToken);
         }
         catch (Exception ex) when (ex is not PortBusyException &&
+                                   ex is not DownloadModeException &&
                                    ex is not EsptoolTimeoutException &&
                                    ex is not OperationCanceledException)
         {
@@ -340,6 +348,11 @@ public sealed class FirmwareFlasher
                 await CleanupStaleEsptoolProcessesAsync(esptoolPath, port, progress);
                 throw new PortBusyException(BuildPortBusyMessage(port, combined));
             }
+            if (IsDownloadModeFailure(combined))
+            {
+                throw new DownloadModeException(
+                    BuildDownloadModeMessage(FindPort(args), combined));
+            }
             throw new InvalidOperationException("esptool 失败，exit=" + process.ExitCode + Environment.NewLine + combined);
         }
 
@@ -356,6 +369,12 @@ public sealed class FirmwareFlasher
                output.Contains("could not open port", StringComparison.OrdinalIgnoreCase);
     }
 
+    internal static bool IsDownloadModeFailure(string output)
+    {
+        return output.Contains("Wrong boot mode detected", StringComparison.OrdinalIgnoreCase) ||
+               output.Contains("needs to be in download mode", StringComparison.OrdinalIgnoreCase);
+    }
+
     private static TimeSpan GetCommandTimeout(string command)
     {
         return command switch
@@ -370,6 +389,14 @@ public sealed class FirmwareFlasher
     private static string BuildPortBusyMessage(string port, string detail)
     {
         return "esptool 无法打开 " + port + "：Manager 已关闭自身串口，并清理使用该端口的 DualSenseHostTrace、项目 monitor/send_command 和残留 esptool。若旧进程已进入 CH343 内核终止挂起，Windows 仍会显示进程但无法结束，此时需要拔插 CH343P 控制口后再试。"
+            + Environment.NewLine + detail;
+    }
+
+    private static string BuildDownloadModeMessage(string port, string detail)
+    {
+        string target = string.IsNullOrWhiteSpace(port) ? "所选串口" : port;
+        return target +
+            " 已能打开，但 ESP32-S3 没有进入 ROM 下载模式。通常是开发板自动下载电路、BOOT/EN 按键时序或 CH343 驱动 DTR/RTS 控制不兼容，不是固件包损坏。请按住 BOOT，再点击刷机；日志出现 Connecting... 时点按 EN/RST，看到 Chip is ESP32-S3 后松开 BOOT。若仍失败，请把 CH343 驱动切换为 Microsoft “USB 串行设备”，或更换支持自动下载的 ESP32-S3 开发板。"
             + Environment.NewLine + detail;
     }
 

@@ -68,6 +68,7 @@ public partial class App : Application
 
     protected override void OnExit(ExitEventArgs e)
     {
+        SerialCommandClient.Shutdown();
         if (managerMutexOwned)
         {
             try

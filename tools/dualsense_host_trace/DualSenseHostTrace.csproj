@@ -10,7 +10,7 @@
     <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
     <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
     <AssemblyName>DualSenseHostTrace</AssemblyName>
-    <Version>5.9.2</Version>
+    <Version>5.9.3</Version>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="System.IO.Ports" Version="8.0.0" />

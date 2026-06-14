@@ -2,7 +2,7 @@
 
 ## Firmware Profiles
 
-The V5.9.2 Manager embeds four profiles, including one hidden recovery profile:
+The V5.9.3 Manager embeds four profiles, including one hidden recovery profile:
 
 | Profile ID | Purpose |
 | --- | --- |
@@ -82,7 +82,7 @@ CONFIG_SPIRAM_USE_MEMMAP=y
 The final Manager is a .NET 8 WPF single-file app. It extracts embedded firmware and tools into:
 
 ```text
-%LOCALAPPDATA%\PRO2WirelessReceiverControlBoard\embedded\v5.9.2-aio
+%LOCALAPPDATA%\PRO2WirelessReceiverControlBoard\embedded\v5.9.3-aio
 ```
 
 The flasher closes the Manager serial session, cleans known project serial

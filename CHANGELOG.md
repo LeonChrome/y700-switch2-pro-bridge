@@ -1,5 +1,50 @@
 # Changelog
 
+## V6.0.0-preview VIIPER Windows-only
+
+- Added the first V6.0 Windows-only Manager skeleton in `windows/v60_viiper_app`.
+- Added a lightweight .NET 8 VIIPER TCP client instead of depending on the
+  current .NET 10 generated client package.
+- Added three VIIPER virtual device modes:
+  - 新和联胜 / PS5 via `dualsense`
+  - Pro2 / Nintendo via `ns2pro`
+  - Xbox / XInput via `xbox360`
+- Added Windows HID Pro2/Switch Pro input scanning through HidSharp, live input
+  feeding for all three modes, and neutral fallback when input is stale.
+- Added host feedback logging for all three modes.
+- Added a bundled VIIPER v0.7.0 Windows runtime under `tools/viiper/v0.7.0`,
+  embedded the runtime/license into the V6.0 preview EXE, and added a Manager
+  button to start it locally.
+- Documented the 6.0 architecture, VIIPER boundary, GPL/MIT dependency split,
+  usbip-win2 requirement, and BLE Pro2 feeder work that remains.
+
+```text
+release/v6.0/新和联胜VIIPER版本-aio-v6.0.0-preview.exe
+sha256 916503457bf2ad55e1aa0cde73bf0308bc812d57003bcf415bece23064306ade
+```
+
+## V5.9.3 新和联胜稳定版
+
+- Promoted the latest V5.9.2 stability build to V5.9.3.
+- Added the Manager-side CH343 driver repair flow: detect the selected CH343
+  control port, request UAC, back up the current WCH OEM driver, and rebind to
+  Microsoft `usbser.inf`.
+- Added explicit ESP32-S3 download-mode failure detection for
+  `Wrong boot mode detected (0x24)` so users get BOOT/RST guidance instead of
+  a generic flash failure.
+- Added serial command watchdogs and non-blocking serial shutdown paths so BLE
+  buttons cannot leave the EXE frozen behind a stuck COM handle.
+- Throttled and filtered UI firmware logs; full diagnostics still go to disk,
+  but high-frequency firmware debug lines no longer force WPF TextBox layout
+  on every line.
+- Forced application shutdown on window close and verified that the Manager
+  exits cleanly after startup and BLE first-pair actions.
+
+```text
+release/v5.9/新和联胜版本-aio-v5.9.3.exe
+sha256 4df0167eaf74c33ada0e4370304e3db5ae3320a1288bd70c8d488b0934290f7a
+```
+
 ## V5.9.2 新和联胜版本
 
 - Replaced the old DualSense card and image with the `新和联胜` PS5 mode.

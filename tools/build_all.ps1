@@ -39,7 +39,7 @@ foreach ($profile in @("hid_audio_uac1_4ch_ds5like", "hid_only")) {
 }
 
 if ($Package) {
-    Write-Host "[Y700_BUILD_ALL] package=v5.9.2"
+    Write-Host "[Y700_BUILD_ALL] package=v5.9.3"
     & (Join-Path $RepoRoot "tools\package_v5_9_manager.ps1") `
         -IdfPath $IdfPath `
         -SkipFirmwareBuild

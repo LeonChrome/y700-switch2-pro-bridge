@@ -63,6 +63,22 @@ if (args.Length == 1 &&
     return 0;
 }
 
+if (args.Length == 1 &&
+    string.Equals(args[0], "--download-mode-error-test", StringComparison.Ordinal))
+{
+    const string esptoolOutput =
+        "A fatal error occurred: Failed to connect to ESP32-S3: " +
+        "Wrong boot mode detected (0x24)! The chip needs to be in download mode.";
+    if (!FirmwareFlasher.IsDownloadModeFailure(esptoolOutput))
+    {
+        Console.Error.WriteLine("download mode failure signature was not detected");
+        return 11;
+    }
+
+    Console.WriteLine("download mode error detection test passed");
+    return 0;
+}
+
 if (args.Length == 2 &&
     string.Equals(args[0], "--watchdog-test", StringComparison.Ordinal))
 {
@@ -138,6 +154,7 @@ if (args.Length != 2)
         "Usage: firmware_flasher_smoke <COM port> <profile id>\n" +
         "   or: firmware_flasher_smoke --erase <COM port>\n" +
         "   or: firmware_flasher_smoke --erase-args-test\n" +
+        "   or: firmware_flasher_smoke --download-mode-error-test\n" +
         "   or: firmware_flasher_smoke --driver-risk-test\n" +
         "   or: firmware_flasher_smoke --driver-query-test <COM port>\n" +
         "   or: firmware_flasher_smoke --watchdog-test <fixture exe>");

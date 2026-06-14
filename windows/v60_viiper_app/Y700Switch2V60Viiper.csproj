@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>Y700Switch2V60Viiper</AssemblyName>
+    <AssemblyTitle>PRO2 手柄无线接收器控制板 V6.0 VIIPER Windows 版</AssemblyTitle>
+    <Product>PRO2 手柄无线接收器控制板</Product>
+    <Description>V6.0 Windows-only VIIPER route for Pro2 wireless three-mode emulation.</Description>
+    <Version>6.0.0-preview.1</Version>
+    <AssemblyVersion>6.0.0.0</AssemblyVersion>
+    <FileVersion>6.0.0.1</FileVersion>
+    <InformationalVersion>6.0.0-preview.1-viiper-windows</InformationalVersion>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <PublishSingleFile>true</PublishSingleFile>
+    <SelfContained>true</SelfContained>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="HidSharp" Version="2.1.0" />
+  </ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="..\..\tools\viiper\v0.7.0\viiper.exe" LogicalName="Embedded.viiper.exe" />
+    <EmbeddedResource Include="..\..\tools\viiper\v0.7.0\licenses.txt" LogicalName="Embedded.viiper.licenses.txt" />
+  </ItemGroup>
+</Project>

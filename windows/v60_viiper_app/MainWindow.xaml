@@ -1,0 +1,131 @@
+<Window x:Class="Y700Switch2V60Viiper.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="PRO2 手柄无线接收器控制板 V6.0 VIIPER Windows 版"
+        Width="1120"
+        Height="760"
+        MinWidth="920"
+        MinHeight="620"
+        Background="#F8FAFC">
+    <Window.Resources>
+        <Style x:Key="Panel" TargetType="Border">
+            <Setter Property="Background" Value="White"/>
+            <Setter Property="CornerRadius" Value="14"/>
+            <Setter Property="Padding" Value="16"/>
+            <Setter Property="Margin" Value="0,0,0,14"/>
+            <Setter Property="BorderBrush" Value="#E2E8F0"/>
+            <Setter Property="BorderThickness" Value="1"/>
+        </Style>
+        <Style x:Key="TitleText" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="#0F172A"/>
+            <Setter Property="FontSize" Value="22"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+        </Style>
+        <Style x:Key="HintText" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="#475569"/>
+            <Setter Property="TextWrapping" Value="Wrap"/>
+        </Style>
+        <Style x:Key="ButtonBase" TargetType="Button">
+            <Setter Property="Padding" Value="14,8"/>
+            <Setter Property="Margin" Value="0,0,8,8"/>
+            <Setter Property="MinWidth" Value="128"/>
+        </Style>
+    </Window.Resources>
+
+    <Grid Margin="18">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+        <Border Style="{StaticResource Panel}">
+            <StackPanel>
+                <TextBlock Style="{StaticResource TitleText}" Text="V6.0 VIIPER Windows-only 三模桥"/>
+                <TextBlock Style="{StaticResource HintText}" Margin="0,8,0,0"
+                           Text="这条路线不依赖 ESP32。当前骨架先控制 VIIPER 创建虚拟 USB 手柄，并读取主机输出震动；真实 Pro2 蓝牙输入源会作为下一阶段接入。"/>
+            </StackPanel>
+        </Border>
+
+        <Grid Grid.Row="1">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="360"/>
+                <ColumnDefinition Width="16"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+
+            <StackPanel Grid.Column="0">
+                <Border Style="{StaticResource Panel}">
+                    <StackPanel>
+                        <TextBlock FontSize="16" FontWeight="SemiBold" Foreground="#0F172A" Text="VIIPER Server"/>
+                        <TextBlock Style="{StaticResource HintText}" Margin="0,6,0,10"
+                                   Text="默认连接 localhost:3242。Windows 需要先安装 usbip-win2，并运行 VIIPER server。"/>
+                        <TextBlock Text="Host" Foreground="#334155"/>
+                        <TextBox Text="{Binding Host, UpdateSourceTrigger=PropertyChanged}" Margin="0,3,0,8"/>
+                        <TextBlock Text="Port" Foreground="#334155"/>
+                        <TextBox Text="{Binding Port, UpdateSourceTrigger=PropertyChanged}" Margin="0,3,0,12"/>
+                        <WrapPanel>
+                            <Button Style="{StaticResource ButtonBase}" Content="启动本地 VIIPER" Command="{Binding StartViiperServerCommand}"/>
+                            <Button Style="{StaticResource ButtonBase}" Content="Ping VIIPER" Command="{Binding PingCommand}"/>
+                            <Button Style="{StaticResource ButtonBase}" Content="停止虚拟设备" Command="{Binding StopCommand}"/>
+                        </WrapPanel>
+                    </StackPanel>
+                </Border>
+
+                <Border Style="{StaticResource Panel}">
+                    <StackPanel>
+                        <TextBlock FontSize="16" FontWeight="SemiBold" Foreground="#0F172A" Text="真实 Pro2 输入"/>
+                        <TextBlock Style="{StaticResource HintText}" Margin="0,6,0,10"
+                                   Text="先在 Windows 蓝牙里配好 Pro2/Switch Pro 手柄。这里读取真实 HID 输入，再喂给 VIIPER 三模虚拟设备。"/>
+                        <WrapPanel>
+                            <Button Style="{StaticResource ButtonBase}" Content="扫描 Pro2 输入" Command="{Binding ScanPro2InputCommand}"/>
+                            <Button Style="{StaticResource ButtonBase}" Content="连接 Pro2 输入" Command="{Binding ConnectPro2InputCommand}"/>
+                            <Button Style="{StaticResource ButtonBase}" Content="断开 Pro2 输入" Command="{Binding DisconnectPro2InputCommand}"/>
+                        </WrapPanel>
+                        <TextBlock Style="{StaticResource HintText}" Text="{Binding InputStatus}" Margin="0,4,0,0"/>
+                    </StackPanel>
+                </Border>
+
+                <Border Style="{StaticResource Panel}">
+                    <StackPanel>
+                        <TextBlock FontSize="16" FontWeight="SemiBold" Foreground="#0F172A" Text="三模输出"/>
+                        <TextBlock Style="{StaticResource HintText}" Margin="0,6,0,12"
+                                   Text="创建虚拟 USB 身份后，窗口会优先发送真实 Pro2 输入；若未连接或输入过期，则回退 neutral，并记录游戏/Steam 发回来的 rumble/LED 输出。"/>
+                        <Button Style="{StaticResource ButtonBase}" Content="启动 新和联胜 / PS5" Command="{Binding StartDualSenseCommand}" IsEnabled="{Binding CanStart}"/>
+                        <Button Style="{StaticResource ButtonBase}" Content="启动 Pro2 / Nintendo" Command="{Binding StartPro2Command}" IsEnabled="{Binding CanStart}"/>
+                        <Button Style="{StaticResource ButtonBase}" Content="启动 Xbox / XInput" Command="{Binding StartXboxCommand}" IsEnabled="{Binding CanStart}"/>
+                    </StackPanel>
+                </Border>
+
+                <Border Style="{StaticResource Panel}">
+                    <StackPanel>
+                        <TextBlock FontSize="16" FontWeight="SemiBold" Foreground="#0F172A" Text="状态"/>
+                        <TextBlock Style="{StaticResource HintText}" Text="{Binding Status}" Margin="0,8,0,0"/>
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+
+            <Border Grid.Column="2" Style="{StaticResource Panel}">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+                    <DockPanel>
+                        <TextBlock DockPanel.Dock="Left" FontSize="16" FontWeight="SemiBold" Foreground="#0F172A" Text="日志"/>
+                        <Button DockPanel.Dock="Right" Content="清空" Command="{Binding ClearLogCommand}" Padding="10,5"/>
+                    </DockPanel>
+                    <TextBox Grid.Row="1"
+                             Margin="0,10,0,0"
+                             Text="{Binding LogText, Mode=OneWay}"
+                             FontFamily="Consolas"
+                             FontSize="12"
+                             IsReadOnly="True"
+                             IsUndoEnabled="False"
+                             TextWrapping="NoWrap"
+                             VerticalScrollBarVisibility="Auto"
+                             HorizontalScrollBarVisibility="Auto"/>
+                </Grid>
+            </Border>
+        </Grid>
+    </Grid>
+</Window>

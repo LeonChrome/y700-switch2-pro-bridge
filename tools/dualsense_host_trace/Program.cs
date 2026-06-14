@@ -41,7 +41,7 @@ internal static class Program
         }
 
         Log("trace_start",
-            ("version", "5.9.2"),
+            ("version", "5.9.3"),
             ("pid", Environment.ProcessId),
             ("duration_seconds", options.DurationSeconds),
             ("rumble_test", options.RumbleTest),

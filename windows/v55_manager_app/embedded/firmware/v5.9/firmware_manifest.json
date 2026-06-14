@@ -1,6 +1,6 @@
 ﻿{
-    "packageVersion":  "v5.9.2-aio",
-    "firmwareVersion":  "5.9.2-manager",
+    "packageVersion":  "v5.9.3-aio",
+    "firmwareVersion":  "5.9.3-manager",
     "target":  "esp32s3",
     "flashMode":  "dio",
     "flashFreq":  "80m",
@@ -25,7 +25,7 @@
                                         {
                                             "offset":  "0x10000",
                                             "path":  "hid_audio_uac1_4ch_ds5like/esp32s3_dualsense_identity_experiment.bin",
-                                            "sha256":  "18017d23be9544879a9493cf1e6556dee700fc0325ead41ec610cd975c7a76ec"
+                                            "sha256":  "726d8c1e81736eb3742777e49309618209c86213a92910933ff702ac91e9677f"
                                         }
                                     ]
                      },
@@ -47,7 +47,7 @@
                                         {
                                             "offset":  "0x10000",
                                             "path":  "hid_only/esp32s3_dualsense_identity_experiment.bin",
-                                            "sha256":  "297d4e8631872a633c6cf99d1f65b1c740a69f5d6df524b955ed1234cf5a44f7"
+                                            "sha256":  "f3cf9ffb56d95c9be8761a2e621ba466f40072dabe9de321d1bda1ea0105437c"
                                         }
                                     ]
                      },
@@ -96,5 +96,5 @@
                                     ]
                      }
                  ],
-    "notes":  "V5.9.2 Xin He Lian Sheng bundle: PS5-compatible HID and four-channel HD haptics, ordinary-rumble arbitration, guided first pairing/reconnect/controller replacement, Pro2/Nintendo, Xbox/XInput, embedded esptool, and XInput probe."
+    "notes":  "V5.9.3 Xin He Lian Sheng bundle: PS5-compatible HID and four-channel HD haptics, ordinary-rumble arbitration, guided first pairing/reconnect/controller replacement, Pro2/Nintendo, Xbox/XInput, embedded esptool, XInput probe, CH343 driver repair, serial watchdogs, and UI log throttling."
 }

@@ -13,11 +13,11 @@ $ReleaseRoot = Join-Path $RepoRoot "release\v5.9"
 $PublishRoot = Join-Path $ReleaseRoot "publish"
 $SingleExeName = [System.Text.Encoding]::UTF8.GetString([byte[]](
     0xE6,0x96,0xB0,0xE5,0x92,0x8C,0xE8,0x81,0x94,0xE8,0x83,0x9C,0xE7,0x89,0x88,
-    0xE6,0x9C,0xAC,0x2D,0x61,0x69,0x6F,0x2D,0x76,0x35,0x2E,0x39,0x2E,0x32,0x2E,
+    0xE6,0x9C,0xAC,0x2D,0x61,0x69,0x6F,0x2D,0x76,0x35,0x2E,0x39,0x2E,0x33,0x2E,
     0x65,0x78,0x65))
 $SingleExe = Join-Path $ReleaseRoot $SingleExeName
-$LegacySingleExe = Join-Path $ReleaseRoot "Y700Switch2V55Manager-aio-v5.9.2.exe"
-$HashFile = Join-Path $ReleaseRoot "SHA256SUMS-v5.9.2.txt"
+$LegacySingleExe = Join-Path $ReleaseRoot "Y700Switch2V55Manager-aio-v5.9.3.exe"
+$HashFile = Join-Path $ReleaseRoot "SHA256SUMS-v5.9.3.txt"
 $DotnetRoot = Join-Path $RepoRoot "work\dotnet"
 . (Join-Path $RepoRoot "tools\esp32s3\idf_environment.ps1")
 
@@ -246,15 +246,15 @@ function Refresh-EmbeddedAssets {
     $profiles += Add-XInputBridgeProfilePayload $firmwareRoot
 
     $manifest = [ordered]@{
-        packageVersion = "v5.9.2-aio"
-        firmwareVersion = "5.9.2-manager"
+        packageVersion = "v5.9.3-aio"
+        firmwareVersion = "5.9.3-manager"
         target = "esp32s3"
         flashMode = "dio"
         flashFreq = "80m"
         flashSize = "16MB"
         defaultProfile = "pro2_bridge_v5_5"
         profiles = $profiles
-        notes = "V5.9.2 Xin He Lian Sheng bundle: PS5-compatible HID and four-channel HD haptics, ordinary-rumble arbitration, guided first pairing/reconnect/controller replacement, Pro2/Nintendo, Xbox/XInput, embedded esptool, and XInput probe."
+        notes = "V5.9.3 Xin He Lian Sheng bundle: PS5-compatible HID and four-channel HD haptics, ordinary-rumble arbitration, guided first pairing/reconnect/controller replacement, Pro2/Nintendo, Xbox/XInput, embedded esptool, XInput probe, CH343 driver repair, serial watchdogs, and UI log throttling."
     }
     $manifest | ConvertTo-Json -Depth 8 | Set-Content -Encoding UTF8 -Path (Join-Path $firmwareRoot "firmware_manifest.json")
 
@@ -337,7 +337,7 @@ if (!$DryRun) {
     }
     Copy-Item -LiteralPath $publishedExe -Destination $SingleExe -Force
 
-    $verifyLog = Join-Path $RepoRoot "work\v5_9_2_manager_package_verify.txt"
+    $verifyLog = Join-Path $RepoRoot "work\v5_9_3_manager_package_verify.txt"
     Remove-Item -LiteralPath $verifyLog -Force -ErrorAction SilentlyContinue
     $verifyProcess = Start-Process -FilePath $SingleExe `
         -ArgumentList @("--verify-package", ('"{0}"' -f $verifyLog)) `

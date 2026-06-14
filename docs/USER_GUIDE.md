@@ -1,6 +1,6 @@
 # User Guide
 
-This guide is for the V5.9.2 新和联胜 all-in-one Manager.
+This guide is for the V5.9.3 新和联胜 all-in-one Manager.
 
 ## Hardware Setup
 
@@ -15,7 +15,7 @@ The control port can be unplugged after configuration. Daily use should continue
 
 1. Close older Manager windows and serial monitors.
 2. Connect the CH343P control port.
-3. Open `新和联胜版本-aio-v5.9.2.exe`.
+3. Open `新和联胜版本-aio-v5.9.3.exe`.
 4. Click refresh serial if the COM port is not selected.
 5. Click the desired mode card.
 6. Wait for flashing to finish.
@@ -25,7 +25,7 @@ The control port can be unplugged after configuration. Daily use should continue
 If Windows reports that the COM port is busy or names an esptool PID that
 cannot be terminated, unplug the CH343P control cable for 3-5 seconds, plug it
 back in, refresh serial, and try again. Do not repeatedly click the mode card;
-V5.9.2 will refuse to stack another flashing process.
+V5.9.3 will refuse to stack another flashing process.
 
 ## Recommended Mode
 
