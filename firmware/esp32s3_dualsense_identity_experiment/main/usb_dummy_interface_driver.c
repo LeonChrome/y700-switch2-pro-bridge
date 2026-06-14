@@ -2,6 +2,7 @@
 #include <stdint.h>
 
 #include "device/usbd_pvt.h"
+#include "dualsense_runtime_stats.h"
 #include "esp_log.h"
 #include "tusb.h"
 #include "usb_dualsense_descriptor.h"
@@ -26,6 +27,7 @@ static bool dummy_deinit(void)
 static void dummy_reset(uint8_t rhport)
 {
     (void)rhport;
+    dualsense_runtime_usb_configuration_reset();
 }
 
 static uint16_t dummy_open(uint8_t rhport,

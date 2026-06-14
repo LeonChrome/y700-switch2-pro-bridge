@@ -1,6 +1,6 @@
 ﻿{
-    "packageVersion":  "v5.9.0-aio",
-    "firmwareVersion":  "5.9.0-manager",
+    "packageVersion":  "v5.9.2-aio",
+    "firmwareVersion":  "5.9.2-manager",
     "target":  "esp32s3",
     "flashMode":  "dio",
     "flashFreq":  "80m",
@@ -15,7 +15,7 @@
                                         {
                                             "offset":  "0x0",
                                             "path":  "hid_audio_uac1_4ch_ds5like/bootloader/bootloader.bin",
-                                            "sha256":  "14464100b7a4042a423f652b3ec5e87e113af76bdd0e8107701fe7bb2f797190"
+                                            "sha256":  "d1fe2389bb853d9198e952de248680f8215d93d69c75592bfc724ace1648268c"
                                         },
                                         {
                                             "offset":  "0x8000",
@@ -25,7 +25,7 @@
                                         {
                                             "offset":  "0x10000",
                                             "path":  "hid_audio_uac1_4ch_ds5like/esp32s3_dualsense_identity_experiment.bin",
-                                            "sha256":  "c525696a0e62b9933df207668e7c6398d3e90ff9fe9f2c3f26aebfbdbde56282"
+                                            "sha256":  "18017d23be9544879a9493cf1e6556dee700fc0325ead41ec610cd975c7a76ec"
                                         }
                                     ]
                      },
@@ -37,7 +37,7 @@
                                         {
                                             "offset":  "0x0",
                                             "path":  "hid_only/bootloader/bootloader.bin",
-                                            "sha256":  "365fc2f2d70f303c689c42023a98f6a05070f359fed5d10bb6f4aec750902836"
+                                            "sha256":  "8671f4242b692d915e62248fd27136ec99a0fc18e6316677840019516c83a269"
                                         },
                                         {
                                             "offset":  "0x8000",
@@ -47,7 +47,7 @@
                                         {
                                             "offset":  "0x10000",
                                             "path":  "hid_only/esp32s3_dualsense_identity_experiment.bin",
-                                            "sha256":  "21c71b396f797b9dd26b6ce8961e40caf94ebd2e5b0cfe82cb9348af98a1116c"
+                                            "sha256":  "297d4e8631872a633c6cf99d1f65b1c740a69f5d6df524b955ed1234cf5a44f7"
                                         }
                                     ]
                      },
@@ -59,7 +59,7 @@
                                         {
                                             "offset":  "0x0",
                                             "path":  "pro2_bridge_v5_5/bootloader/bootloader.bin",
-                                            "sha256":  "ffc507ca6d7e39799eebdd806e61b57086cbc6db8cdc83aca93088860ff6be6c"
+                                            "sha256":  "bf08ef177665c0492a65a7f73f7d582031c6669f00e87a96346e789e836a85dd"
                                         },
                                         {
                                             "offset":  "0x8000",
@@ -69,7 +69,7 @@
                                         {
                                             "offset":  "0x10000",
                                             "path":  "pro2_bridge_v5_5/esp32s3_switch2_bridge.bin",
-                                            "sha256":  "6994ab64a9f2016ad10bc275fde89c156dd1eca35e8078b7438a121663c6648a"
+                                            "sha256":  "60847f1dcf495a4b829f5fc2ae0f6321d0d9ada9d9f68fb87f99ded42265b24f"
                                         }
                                     ]
                      },
@@ -81,7 +81,7 @@
                                         {
                                             "offset":  "0x0",
                                             "path":  "xinput_bridge_v5_8/bootloader/bootloader.bin",
-                                            "sha256":  "9a9a28b6ae72d211ca14e359aaca575e82c90d9ca31024df70408e87306f849d"
+                                            "sha256":  "23608f3392c92e47acf0390c01ff9b875b9bedc2abbc70f5bce68ec9e8ecbb43"
                                         },
                                         {
                                             "offset":  "0x8000",
@@ -91,32 +91,10 @@
                                         {
                                             "offset":  "0x10000",
                                             "path":  "xinput_bridge_v5_8/esp32s3_switch2_bridge.bin",
-                                            "sha256":  "a010afb379b623b82b0aa90611af5036fff6728110f17f928ad225694de91c68"
-                                        }
-                                    ]
-                     },
-                     {
-                         "id":  "xinput_elite_bridge_v5_9",
-                         "label":  "Xbox Elite 2 GIP enumeration bring-up",
-                         "app":  "esp32s3_switch2_bridge.bin",
-                         "assets":  [
-                                        {
-                                            "offset":  "0x0",
-                                            "path":  "xinput_elite_bridge_v5_9/bootloader/bootloader.bin",
-                                            "sha256":  "615ad4aaf73f74e003c85efd3075053ce24a71481ee9f069681b5d47360677ad"
-                                        },
-                                        {
-                                            "offset":  "0x8000",
-                                            "path":  "xinput_elite_bridge_v5_9/partition_table/partition-table.bin",
-                                            "sha256":  "7f00b6c042a89b15b0cac534f82ed988caf29278ff5700b0c511eb1b5bb7c820"
-                                        },
-                                        {
-                                            "offset":  "0x10000",
-                                            "path":  "xinput_elite_bridge_v5_9/esp32s3_switch2_bridge.bin",
-                                            "sha256":  "1b09d9da4bc74bc41015e3d1d2366ec4bda48bf9e57e8d6c5a19149088ac76a4"
+                                            "sha256":  "e01fcd32e8a394704f2bdba04954bb0c1e6518d502bd1e5a6eac3de5e8b2efae"
                                         }
                                     ]
                      }
                  ],
-    "notes":  "V5.9 manager bundle for PRO2 wireless receiver control board: Pro2 / Nintendo bridge, Xbox/XInput bridge, Xbox Elite 2 GIP enumeration bring-up with XGIP10 and extensions paused, DualSense-like bridge, HID-only recovery, embedded esptool, and XInput host rumble probe."
+    "notes":  "V5.9.2 Xin He Lian Sheng bundle: PS5-compatible HID and four-channel HD haptics, ordinary-rumble arbitration, guided first pairing/reconnect/controller replacement, Pro2/Nintendo, Xbox/XInput, embedded esptool, and XInput probe."
 }

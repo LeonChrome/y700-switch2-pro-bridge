@@ -5,6 +5,10 @@ logs/
 bin/
 obj/
 .vs/
+.toolchain/
+__pycache__/
+_handoff/
+CODEX_HANDOFF_*.md
 
 # Generated ESP-IDF state
 firmware/esp32s3_switch2_bridge/build/
@@ -37,3 +41,4 @@ tools/steam_input_probe_runtime/steam_api64.dll
 !release/
 !release/v5.9/
 !release/v5.9/**
+release/v5.9/DualSenseHostTrace-v5.9.2/

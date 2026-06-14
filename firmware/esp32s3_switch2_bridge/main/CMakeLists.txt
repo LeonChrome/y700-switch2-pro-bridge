@@ -10,6 +10,7 @@ idf_component_register(
         "ble/switch2_gatt.c"
         "bridge/switch2_state.c"
         "bridge/internal_gamepad_state.c"
+        "bridge/gamepad_axis_math.c"
         "bridge/normalized_rumble.c"
         "bridge/report_mapper.c"
         "bridge/report_rate_stats.c"
@@ -33,7 +34,12 @@ idf_component_register(
 )
 
 if(DEFINED DEVICE_DEFAULT_MODE AND NOT "${DEVICE_DEFAULT_MODE}" STREQUAL "")
-    target_compile_definitions(${COMPONENT_LIB} PRIVATE DEVICE_DEFAULT_MODE=${DEVICE_DEFAULT_MODE})
+    target_compile_definitions(
+        ${COMPONENT_LIB}
+        PRIVATE
+            DEVICE_DEFAULT_MODE=${DEVICE_DEFAULT_MODE}
+            DEVICE_PROFILE_LOCKED_MODE=1
+    )
 endif()
 
 if(DEFINED XINPUT_ELITE_EXPERIMENT AND XINPUT_ELITE_EXPERIMENT)

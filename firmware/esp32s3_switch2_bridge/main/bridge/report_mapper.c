@@ -1,5 +1,6 @@
 #include <string.h>
 #include "esp_timer.h"
+#include "gamepad_axis_math.h"
 #include "report_mapper.h"
 
 static uint8_t s_nintendo_input_seq;
@@ -406,13 +407,6 @@ void report_mapper_state_to_generic_report(const switch2_state_t *state,
     report_mapper_internal_to_generic_report(&internal, report);
 }
 
-static void pack12_pair(uint8_t *out, int offset, uint16_t x, uint16_t y)
-{
-    out[offset] = (uint8_t)(x & 0xff);
-    out[offset + 1] = (uint8_t)(((x >> 8) & 0x0f) | ((y & 0x0f) << 4));
-    out[offset + 2] = (uint8_t)((y >> 4) & 0xff);
-}
-
 void report_mapper_internal_to_nintendo_report(const internal_gamepad_state_t *state,
                                                uint8_t report[NINTENDO_REPORT_SIZE])
 {
@@ -451,8 +445,8 @@ void report_mapper_internal_to_nintendo_report(const internal_gamepad_state_t *s
     if (internal_gamepad_state_get_button(state, INTERNAL_GAMEPAD_BUTTON_PADDLE_RIGHT)) report[8] |= 0x01;
     if (internal_gamepad_state_get_button(state, INTERNAL_GAMEPAD_BUTTON_PADDLE_LEFT)) report[8] |= 0x02;
 
-    pack12_pair(report, 11, state->lx, state->ly);
-    pack12_pair(report, 14, state->rx, state->ry);
+    gamepad_axis_pack_12bit_pair(report + 11, state->lx, state->ly);
+    gamepad_axis_pack_12bit_pair(report + 14, state->rx, state->ry);
 
     write_sensor_timestamp(report);
 

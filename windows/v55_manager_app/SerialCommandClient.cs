@@ -76,17 +76,20 @@ public static class SerialCommandClient
         string portName,
         string command,
         int readSeconds,
-        IProgress<string> progress)
+        IProgress<string> progress,
+        CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(portName)) throw new InvalidOperationException("请先选择 ESP32 控制板对应的串口。");
         if (PortGate.CurrentCount == 0)
         {
             progress.Report("[SERIAL] waiting for " + portName);
         }
-        await PortGate.WaitAsync();
+        await PortGate.WaitAsync(cancellationToken);
         try
         {
-            return await Task.Run(() => SendLocked(portName, command, readSeconds, progress));
+            return await Task.Run(
+                () => SendLocked(portName, command, readSeconds, progress, cancellationToken),
+                cancellationToken);
         }
         finally
         {
@@ -98,10 +101,12 @@ public static class SerialCommandClient
         string portName,
         string command,
         int readSeconds,
-        IProgress<string> progress)
+        IProgress<string> progress,
+        CancellationToken cancellationToken)
     {
         for (int attempt = 1; ; attempt++)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             try
             {
                 var builder = new StringBuilder();
@@ -114,6 +119,7 @@ public static class SerialCommandClient
                 DateTime? responseSeenAt = null;
                 while (DateTime.UtcNow < deadline)
                 {
+                    cancellationToken.ThrowIfCancellationRequested();
                     string chunk = port.ReadExisting();
                     if (!string.IsNullOrEmpty(chunk))
                     {
@@ -134,7 +140,7 @@ public static class SerialCommandClient
                     {
                         break;
                     }
-                    Thread.Sleep(75);
+                    cancellationToken.WaitHandle.WaitOne(75);
                 }
                 return builder.ToString();
             }
@@ -142,7 +148,7 @@ public static class SerialCommandClient
             {
                 progress.Report("[SERIAL] port error, reopening " + portName + ": " + ex.Message);
                 CloseActivePort();
-                Thread.Sleep(250);
+                cancellationToken.WaitHandle.WaitOne(250);
             }
         }
     }

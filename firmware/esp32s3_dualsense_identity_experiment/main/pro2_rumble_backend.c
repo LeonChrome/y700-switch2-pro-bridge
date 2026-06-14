@@ -3,6 +3,7 @@
 #include <string.h>
 
 #include "ble_central.h"
+#include "dualsense_rumble_intent.h"
 #include "esp_err.h"
 #include "esp_log.h"
 #include "esp_timer.h"
@@ -13,13 +14,10 @@
 #include "pro2_input_backend.h"
 
 #define DS5_OUTPUT_REPORT_ID 0x02
-#define DS5_OUTPUT_MIN_PAYLOAD 4
-#define DS5_RUMBLE_ENABLE_MASK 0x03
-#define DS5_IMPROVED_RUMBLE_OFFSET 38
-#define DS5_IMPROVED_RUMBLE_MASK 0x04
-#define PRO2_RUMBLE_TICK_MS 20
+#define PRO2_RUMBLE_TICK_MS 12
 #define PRO2_RUMBLE_HOLD_MS 250
 #define PRO2_RAW02_HOLD_MS 120
+#define PRO2_RAW02_REPEAT_MS 24
 #define PRO2_RUMBLE_STOP_PACKETS 3
 #define PRO2_RUMBLE_MAX_AMPLITUDE 640
 #define RAW02_LEFT_FRAME_OFFSET 2
@@ -30,20 +28,60 @@
 static const char *TAG = "v5.5_rumble";
 static portMUX_TYPE s_lock = portMUX_INITIALIZER_UNLOCKED;
 static bool s_task_started;
-static bool s_active;
-static int64_t s_active_until_us;
+static pro2_rumble_arbiter_t s_arbiter;
 static normalized_rumble_t s_rumble;
 static uint8_t s_packet_id;
-static uint8_t s_stop_packets_pending;
-static bool s_raw02_active;
-static int64_t s_raw02_active_until_us;
 static uint8_t s_raw02_left[5];
 static uint8_t s_raw02_right[5];
+static int64_t s_raw02_last_write_us;
+static int64_t s_ordinary_last_update_us;
+static int64_t s_raw02_last_update_us;
 static uint8_t s_last_right;
 static uint8_t s_last_left;
 static uint32_t s_updates;
 static uint32_t s_writes;
 static uint32_t s_errors;
+static uint32_t s_active_updates;
+static uint32_t s_non_rumble_updates;
+static uint32_t s_ignored_nonzero_updates;
+static uint32_t s_ordinary_writes;
+static uint32_t s_ordinary_errors;
+static uint32_t s_raw02_submissions;
+static uint32_t s_raw02_writes;
+static uint32_t s_raw02_errors;
+static uint32_t s_stop_writes;
+static uint32_t s_ordinary_updates_while_hd;
+static bool s_last_compatibility_selected;
+static bool s_last_compatibility_v1;
+static bool s_last_compatibility_v2;
+static bool s_last_audio_haptics_allowed = true;
+static bool s_last_enabled;
+static bool s_last_active;
+static uint8_t s_last_valid_flag0;
+static uint8_t s_last_valid_flag1;
+static uint8_t s_last_valid_flag2;
+static uint8_t s_last_preview_len;
+static uint8_t s_last_preview[PRO2_RUMBLE_OUTPUT_PREVIEW_BYTES];
+static int64_t s_raw02_next_log_us;
+static TaskHandle_t s_rumble_task_handle;
+
+const char *pro2_rumble_backend_source_string(pro2_rumble_source_t source)
+{
+    switch (source) {
+    case PRO2_RUMBLE_SOURCE_HD:
+        return "hd";
+    case PRO2_RUMBLE_SOURCE_ORDINARY:
+        return "ordinary";
+    default:
+        return "none";
+    }
+}
+
+const char *pro2_rumble_backend_host_mode_string(
+    pro2_rumble_host_mode_t mode)
+{
+    return pro2_rumble_arbiter_host_mode_string(mode);
+}
 
 static void write_motor_block(uint8_t *out, uint16_t offset, uint8_t packet_id,
                               const uint8_t vibration[5],
@@ -193,6 +231,9 @@ esp_err_t pro2_rumble_backend_send_raw02_payload(const uint8_t *payload, uint16_
                  payload[1]);
         return ESP_ERR_INVALID_ARG;
     }
+    if (strcmp(pro2_input_backend_state(), "connected") != 0) {
+        return ESP_ERR_INVALID_STATE;
+    }
 
     uint8_t left[5];
     uint8_t right[5];
@@ -208,47 +249,28 @@ esp_err_t pro2_rumble_backend_send_raw02_payload(const uint8_t *payload, uint16_
         raw02_build_zero_ble_vibration(right);
     }
 
-    uint8_t packet[33];
-    uint8_t packet_id;
+    int64_t now_us = esp_timer_get_time();
     portENTER_CRITICAL(&s_lock);
-    packet_id = s_packet_id++ & 0x0f;
-    s_active = false;
-    s_active_until_us = 0;
+    s_raw02_submissions++;
+    s_raw02_last_update_us = now_us;
     if (active) {
         memcpy(s_raw02_left, left, sizeof(s_raw02_left));
         memcpy(s_raw02_right, right, sizeof(s_raw02_right));
-        s_raw02_active = true;
-        s_raw02_active_until_us =
-            esp_timer_get_time() + (int64_t)PRO2_RAW02_HOLD_MS * 1000LL;
-        s_stop_packets_pending = 0;
-    } else {
-        s_raw02_active = false;
-        s_raw02_active_until_us = 0;
-        s_stop_packets_pending = PRO2_RUMBLE_STOP_PACKETS;
     }
-    portEXIT_CRITICAL(&s_lock);
-    raw02_build_pro2_packet(packet_id, left, right, packet);
-
-    esp_err_t err = ble_central_send_rumble(packet, sizeof(packet));
-    portENTER_CRITICAL(&s_lock);
-    if (err == ESP_OK) {
-        s_writes++;
-    } else if (err != ESP_ERR_INVALID_STATE) {
-        s_errors++;
-    }
+    pro2_rumble_arbiter_update_hd(
+        &s_arbiter, active, now_us, PRO2_RAW02_HOLD_MS);
     portEXIT_CRITICAL(&s_lock);
 
-    if (err == ESP_OK) {
+    if (now_us >= s_raw02_next_log_us) {
+        s_raw02_next_log_us = now_us + 5000000LL;
         ESP_LOGI(TAG,
-                 "[RUMBLE_RAW02] sent=true active=%s hold_ms=%u left=%02x%02x%02x%02x%02x right=%02x%02x%02x%02x%02x",
+                 "[RUMBLE_RAW02] queued=true active=%s hold_ms=%u single_writer=true left=%02x%02x%02x%02x%02x right=%02x%02x%02x%02x%02x",
                  active ? "true" : "false",
                  active ? PRO2_RAW02_HOLD_MS : 0,
                  left[0], left[1], left[2], left[3], left[4],
                  right[0], right[1], right[2], right[3], right[4]);
-    } else {
-        ESP_LOGW(TAG, "[RUMBLE_RAW02] sent=false error=%s", esp_err_to_name(err));
     }
-    return err;
+    return ESP_OK;
 }
 static void rumble_task(void *arg)
 {
@@ -265,35 +287,43 @@ static void rumble_task(void *arg)
         uint8_t raw02_left[5];
         uint8_t raw02_right[5];
         bool active;
-        bool raw02_active;
-        bool send_stop = false;
+        bool raw02_due;
+        pro2_rumble_arbiter_decision_t decision;
+        pro2_rumble_host_mode_t host_mode;
+        bool hd_candidate_active;
+        bool ordinary_candidate_active;
         int64_t now_us = esp_timer_get_time();
 
         portENTER_CRITICAL(&s_lock);
-        raw02_active = s_raw02_active && now_us <= s_raw02_active_until_us;
         memcpy(raw02_left, s_raw02_left, sizeof(raw02_left));
         memcpy(raw02_right, s_raw02_right, sizeof(raw02_right));
-        if (s_raw02_active && !raw02_active) {
-            s_raw02_active = false;
-            s_stop_packets_pending = PRO2_RUMBLE_STOP_PACKETS;
-        }
-        active = !raw02_active && s_active && now_us <= s_active_until_us;
         rumble = s_rumble;
-        if (s_active && !active) {
-            s_active = false;
-            s_stop_packets_pending = PRO2_RUMBLE_STOP_PACKETS;
+        decision = pro2_rumble_arbiter_tick(
+            &s_arbiter, now_us, PRO2_RUMBLE_STOP_PACKETS);
+        if (decision.source_changed &&
+            decision.selected_source == PRO2_RUMBLE_SOURCE_HD) {
+            s_raw02_last_write_us = 0;
         }
-        if (!active && s_stop_packets_pending > 0) {
-            s_stop_packets_pending--;
-            send_stop = true;
+
+        raw02_due =
+            decision.selected_source == PRO2_RUMBLE_SOURCE_HD &&
+            (s_raw02_last_write_us == 0 ||
+             now_us - s_raw02_last_write_us >=
+                 (int64_t)PRO2_RAW02_REPEAT_MS * 1000LL);
+        active =
+            decision.selected_source == PRO2_RUMBLE_SOURCE_ORDINARY;
+        host_mode = s_arbiter.host_mode;
+        hd_candidate_active = s_arbiter.hd_active;
+        ordinary_candidate_active = s_arbiter.ordinary_active;
+        if (decision.send_stop) {
             normalized_rumble_reset(&rumble);
         }
         uint8_t packet_id = s_packet_id++ & 0x0f;
         portEXIT_CRITICAL(&s_lock);
 
-        if (raw02_active || active || send_stop) {
+        if (raw02_due || active || decision.send_stop) {
             uint8_t packet[33];
-            if (raw02_active) {
+            if (raw02_due) {
                 raw02_build_pro2_packet(packet_id, raw02_left, raw02_right, packet);
             } else {
                 build_packet(packet_id, &rumble, packet);
@@ -303,18 +333,46 @@ static void rumble_task(void *arg)
             portENTER_CRITICAL(&s_lock);
             if (err == ESP_OK) {
                 s_writes++;
+                if (!raw02_due) {
+                    if (decision.send_stop) {
+                        s_stop_writes++;
+                    } else {
+                        s_ordinary_writes++;
+                    }
+                } else {
+                    s_raw02_last_write_us = now_us;
+                    s_raw02_writes++;
+                }
             } else if (err != ESP_ERR_INVALID_STATE) {
                 s_errors++;
+                if (!raw02_due) {
+                    s_ordinary_errors++;
+                } else {
+                    s_raw02_errors++;
+                }
             }
             uint32_t writes = s_writes;
             uint32_t errors = s_errors;
             portEXIT_CRITICAL(&s_lock);
 
-            if (err == ESP_OK && (raw02_active || active) && now_us >= next_log_us) {
+            if (decision.source_changed) {
+                ESP_LOGI(TAG,
+                         "[DS5_RUMBLE_SOURCE] from=%s to=%s host_mode=%s hd_candidate_active=%s ordinary_active=%s",
+                         pro2_rumble_backend_source_string(
+                             decision.previous_source),
+                         pro2_rumble_backend_source_string(
+                             decision.selected_source),
+                         pro2_rumble_backend_host_mode_string(
+                             host_mode),
+                         hd_candidate_active ? "true" : "false",
+                         ordinary_candidate_active ? "true" : "false");
+            }
+
+            if (err == ESP_OK && (raw02_due || active) && now_us >= next_log_us) {
                 uint8_t preview_left[5];
                 uint8_t preview_right[5];
-                next_log_us = now_us + 500000LL;
-                if (raw02_active) {
+                next_log_us = now_us + 5000000LL;
+                if (raw02_due) {
                     memcpy(preview_left, raw02_left, sizeof(preview_left));
                 } else {
                     normalized_rumble_build_pro2_pair(&rumble,
@@ -324,7 +382,7 @@ static void rumble_task(void *arg)
                 }
                 ESP_LOGI(TAG,
                          "[DS5_RUMBLE] tick=true source=%s writes=%lu errors=%lu data=%02x%02x%02x%02x%02x",
-                         raw02_active ? "raw02" : "ordinary",
+                         raw02_due ? "raw02" : "ordinary",
                          (unsigned long)writes,
                          (unsigned long)errors,
                          preview_left[0],
@@ -337,7 +395,7 @@ static void rumble_task(void *arg)
                          "[DS5_RUMBLE] tick=false error=%s active=%s stop=%s",
                          esp_err_to_name(err),
                          active ? "true" : "false",
-                         send_stop ? "true" : "false");
+                         decision.send_stop ? "true" : "false");
             }
         }
 
@@ -348,20 +406,22 @@ static void rumble_task(void *arg)
 void pro2_rumble_backend_init(void)
 {
     normalized_rumble_reset(&s_rumble);
+    pro2_rumble_arbiter_init(&s_arbiter);
     if (!s_task_started) {
         BaseType_t created = xTaskCreate(rumble_task,
                                          "ds5_rumble",
                                          4096,
                                          NULL,
                                          4,
-                                         NULL);
+                                         &s_rumble_task_handle);
         ESP_ERROR_CHECK(created == pdPASS ? ESP_OK : ESP_FAIL);
         s_task_started = true;
     }
     ESP_LOGI(TAG,
-             "[DS5_RUMBLE] initialized=true mode=ordinary_compat normalized=true max_amp=%u hold_ms=%u",
+             "[DS5_RUMBLE] initialized=true policy=dualsense_host_intent single_ble_writer=true default_host_mode=audio_haptics max_amp=%u ordinary_hold_ms=%u hd_hold_ms=%u",
              PRO2_RUMBLE_MAX_AMPLITUDE,
-             PRO2_RUMBLE_HOLD_MS);
+             PRO2_RUMBLE_HOLD_MS,
+             PRO2_RAW02_HOLD_MS);
 }
 
 bool pro2_rumble_backend_handle_dualsense_output(
@@ -383,62 +443,166 @@ bool pro2_rumble_backend_handle_dualsense_output(
         payload = buffer + 1;
         payload_len--;
     }
-    if (payload_len < DS5_OUTPUT_MIN_PAYLOAD) {
+    dualsense_rumble_intent_t intent;
+    if (!dualsense_rumble_intent_parse(payload, payload_len, &intent)) {
         ESP_LOGW(TAG,
                  "[DS5_RUMBLE] handled=false error=short_payload len=%u",
                  (unsigned)payload_len);
         return false;
     }
 
-    bool enabled = (payload[0] & DS5_RUMBLE_ENABLE_MASK) != 0;
-    if (payload_len > DS5_IMPROVED_RUMBLE_OFFSET) {
-        enabled = enabled ||
-                  (payload[DS5_IMPROVED_RUMBLE_OFFSET] &
-                   DS5_IMPROVED_RUMBLE_MASK) != 0;
-    }
-
-    uint8_t right_light = payload[2];
-    uint8_t left_heavy = payload[3];
-    bool active = enabled && (right_light != 0 || left_heavy != 0);
+    bool nonzero =
+        intent.right_light != 0 || intent.left_heavy != 0;
     bool changed;
     uint32_t updates;
     int64_t now_us = esp_timer_get_time();
+    uint8_t preview_len = payload_len < PRO2_RUMBLE_OUTPUT_PREVIEW_BYTES ?
+        (uint8_t)payload_len : PRO2_RUMBLE_OUTPUT_PREVIEW_BYTES;
+    uint8_t log_preview[8] = {0};
+    uint8_t log_preview_len = payload_len < sizeof(log_preview) ? (uint8_t)payload_len : sizeof(log_preview);
+    memcpy(log_preview, payload, log_preview_len);
 
     portENTER_CRITICAL(&s_lock);
-    s_raw02_active = false;
-    s_raw02_active_until_us = 0;
-    changed = right_light != s_last_right ||
-              left_heavy != s_last_left ||
-              active != s_active;
-    s_last_right = right_light;
-    s_last_left = left_heavy;
+    changed = intent.right_light != s_last_right ||
+              intent.left_heavy != s_last_left ||
+              intent.compatibility_selected !=
+                  s_last_compatibility_selected ||
+              intent.ordinary_active != s_arbiter.ordinary_active;
+    s_last_right = intent.right_light;
+    s_last_left = intent.left_heavy;
+    s_last_compatibility_selected =
+        intent.compatibility_selected;
+    s_last_compatibility_v1 = intent.compatibility_v1;
+    s_last_compatibility_v2 = intent.compatibility_v2;
+    s_last_audio_haptics_allowed =
+        intent.audio_haptics_allowed;
+    s_last_enabled = intent.ordinary_valid;
+    s_last_active = intent.ordinary_active;
+    s_last_valid_flag0 = intent.valid_flag0;
+    s_last_valid_flag1 = intent.valid_flag1;
+    s_last_valid_flag2 = intent.valid_flag2;
+    s_last_preview_len = preview_len;
+    memset(s_last_preview, 0, sizeof(s_last_preview));
+    memcpy(s_last_preview, payload, preview_len);
     s_updates++;
     updates = s_updates;
-    if (active) {
-        normalized_rumble_from_dualsense_motors(right_light,
-                                                left_heavy,
+    pro2_rumble_arbiter_set_host_mode(
+        &s_arbiter,
+        intent.compatibility_selected
+            ? PRO2_RUMBLE_HOST_COMPATIBILITY
+            : PRO2_RUMBLE_HOST_AUDIO_HAPTICS);
+    if (!intent.ordinary_valid) {
+        s_non_rumble_updates++;
+        if (nonzero) {
+            s_ignored_nonzero_updates++;
+        }
+        s_ordinary_last_update_us = now_us;
+        pro2_rumble_arbiter_update_ordinary(
+            &s_arbiter, false, now_us, PRO2_RUMBLE_HOLD_MS);
+        normalized_rumble_reset(&s_rumble);
+    } else if (intent.ordinary_active) {
+        s_active_updates++;
+        if (s_arbiter.hd_active) {
+            s_ordinary_updates_while_hd++;
+        }
+        normalized_rumble_from_dualsense_motors(intent.right_light,
+                                                intent.left_heavy,
                                                 PRO2_RUMBLE_HOLD_MS,
                                                 &s_rumble);
-        s_active_until_us =
-            now_us + (int64_t)s_rumble.duration_ms * 1000LL;
-        s_active = true;
-        s_stop_packets_pending = 0;
+        s_ordinary_last_update_us = now_us;
+        pro2_rumble_arbiter_update_ordinary(
+            &s_arbiter, true, now_us, s_rumble.duration_ms);
     } else {
-        s_active = false;
-        s_active_until_us = 0;
-        s_stop_packets_pending = PRO2_RUMBLE_STOP_PACKETS;
+        if (s_arbiter.hd_active) {
+            s_ordinary_updates_while_hd++;
+        }
+        s_ordinary_last_update_us = now_us;
+        pro2_rumble_arbiter_update_ordinary(
+            &s_arbiter, false, now_us, PRO2_RUMBLE_HOLD_MS);
         normalized_rumble_reset(&s_rumble);
     }
     portEXIT_CRITICAL(&s_lock);
 
     if (changed || updates == 1) {
         ESP_LOGI(TAG,
-                 "[DS5_RUMBLE] handled=true enabled=%s active=%s right_light=%u left_heavy=%u updates=%lu",
-                 enabled ? "true" : "false",
-                 active ? "true" : "false",
-                 right_light,
-                 left_heavy,
-                 (unsigned long)updates);
+                 "[DS5_RUMBLE] handled=true host_mode=%s compatibility=%s v1=%s v2=%s ordinary_valid=%s active=%s flags=%02x/%02x/%02x right_light=%u left_heavy=%u updates=%lu data=%02x%02x%02x%02x%02x%02x%02x%02x",
+                 intent.compatibility_selected
+                     ? "compatibility"
+                     : "audio_haptics",
+                 intent.compatibility_selected ? "true" : "false",
+                 intent.compatibility_v1 ? "true" : "false",
+                 intent.compatibility_v2 ? "true" : "false",
+                 intent.ordinary_valid ? "true" : "false",
+                 intent.ordinary_active ? "true" : "false",
+                 intent.valid_flag0,
+                 intent.valid_flag1,
+                 intent.valid_flag2,
+                 intent.right_light,
+                 intent.left_heavy,
+                 (unsigned long)updates,
+                 log_preview[0], log_preview[1], log_preview[2], log_preview[3],
+                 log_preview[4], log_preview[5], log_preview[6], log_preview[7]);
     }
     return true;
+}
+
+void pro2_rumble_backend_snapshot(pro2_rumble_backend_stats_t *out)
+{
+    if (!out) {
+        return;
+    }
+
+    int64_t now_us = esp_timer_get_time();
+    portENTER_CRITICAL(&s_lock);
+    memset(out, 0, sizeof(*out));
+    out->output_updates = s_updates;
+    out->active_updates = s_active_updates;
+    out->non_rumble_updates = s_non_rumble_updates;
+    out->ignored_nonzero_updates = s_ignored_nonzero_updates;
+    out->ordinary_ble_writes = s_ordinary_writes;
+    out->ordinary_ble_errors = s_ordinary_errors;
+    out->raw02_submissions = s_raw02_submissions;
+    out->raw02_ble_writes = s_raw02_writes;
+    out->raw02_ble_errors = s_raw02_errors;
+    out->stop_ble_writes = s_stop_writes;
+    out->source_transitions = s_arbiter.source_transitions;
+    out->host_mode_transitions =
+        s_arbiter.host_mode_transitions;
+    out->audio_haptics_updates =
+        s_arbiter.audio_haptics_updates;
+    out->compatibility_updates =
+        s_arbiter.compatibility_updates;
+    out->hd_updates_blocked_by_compatibility =
+        s_arbiter.hd_updates_blocked_by_compatibility;
+    out->hd_preemptions = s_arbiter.hd_preemptions;
+    out->ordinary_fallbacks = s_arbiter.ordinary_fallbacks;
+    out->ordinary_updates_while_hd = s_ordinary_updates_while_hd;
+    out->task_stack_high_watermark_bytes =
+        s_rumble_task_handle ? uxTaskGetStackHighWaterMark(s_rumble_task_handle) : 0;
+    out->ordinary_age_us =
+        s_ordinary_last_update_us > 0 ? now_us - s_ordinary_last_update_us : -1;
+    out->raw02_age_us =
+        s_raw02_last_update_us > 0 ? now_us - s_raw02_last_update_us : -1;
+    out->host_mode = s_arbiter.host_mode;
+    out->selected_source = s_arbiter.selected_source;
+    out->ordinary_source_active =
+        s_arbiter.ordinary_active && now_us <= s_arbiter.ordinary_until_us;
+    out->raw02_source_active =
+        s_arbiter.hd_active && now_us <= s_arbiter.hd_until_us;
+    out->compatibility_selected =
+        s_last_compatibility_selected;
+    out->compatibility_v1 = s_last_compatibility_v1;
+    out->compatibility_v2 = s_last_compatibility_v2;
+    out->audio_haptics_allowed =
+        s_last_audio_haptics_allowed;
+    out->enabled = s_last_enabled;
+    out->active = s_last_active;
+    out->valid_flag0 = s_last_valid_flag0;
+    out->valid_flag1 = s_last_valid_flag1;
+    out->valid_flag2 = s_last_valid_flag2;
+    out->right_light = s_last_right;
+    out->left_heavy = s_last_left;
+    out->preview_len = s_last_preview_len;
+    memcpy(out->preview, s_last_preview, sizeof(out->preview));
+    portEXIT_CRITICAL(&s_lock);
 }

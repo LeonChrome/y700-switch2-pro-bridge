@@ -1,6 +1,6 @@
 # User Guide
 
-This guide is for the final V5.9 all-in-one Manager.
+This guide is for the V5.9.2 新和联胜 all-in-one Manager.
 
 ## Hardware Setup
 
@@ -15,28 +15,50 @@ The control port can be unplugged after configuration. Daily use should continue
 
 1. Close older Manager windows and serial monitors.
 2. Connect the CH343P control port.
-3. Open `PRO2手柄无线接收器控制板-aio-v5.9.0.exe`.
+3. Open `新和联胜版本-aio-v5.9.2.exe`.
 4. Click refresh serial if the COM port is not selected.
 5. Click the desired mode card.
 6. Wait for flashing to finish.
 7. Replug the native USB / OTG gamepad cable.
 8. Click USB check.
 
-If Windows reports that the COM port is busy, unplug the CH343P control cable for a few seconds, plug it back in, refresh serial, and try again.
+If Windows reports that the COM port is busy or names an esptool PID that
+cannot be terminated, unplug the CH343P control cable for 3-5 seconds, plug it
+back in, refresh serial, and try again. Do not repeatedly click the mode card;
+V5.9.2 will refuse to stack another flashing process.
 
 ## Recommended Mode
 
-Use Pro2 / Nintendo mode for normal Steam usage. It exposes a Nintendo Switch Pro style HID identity and keeps raw Pro2 rumble report `0x02` as the authoritative path.
+Use 新和联胜 / PS5 for games with native DualSense support or controller-audio HD haptics. It also accepts valid ordinary DualSense motor commands; firmware selects the active source from host intent instead of classifying games by name.
+
+Use Pro2 / Nintendo for Steam Input and native Pro2-style behavior.
 
 Use Xbox / XInput for games that behave better with XInput devices.
 
-Use DualSense-like only when testing DualSense-style compatibility or the experimental audio/haptic path.
+## Connecting the Pro2
 
-## BLE Use
+### First connection after flashing
 
-The Manager can scan, list, connect, disconnect, and reconnect the controller. With `ble_auto` enabled, firmware retries in the background after sleep or disconnect.
+1. Turn off other Pro2 controllers nearby.
+2. Make sure the new controller is not connected to a PC, phone, or console.
+3. Wake the controller and keep it available for connection.
+4. Click `首次连接`.
+5. Wait until the Manager shows `手柄连接完成`.
 
-Control port commands are mainly for setup and debugging. Normal play should not require opening the Manager every time.
+The firmware stores the successful BLE address in NVS and enables automatic reconnect.
+
+### Reconnect a saved controller
+
+Wake the same controller. Firmware normally reconnects automatically after sleep or a temporary disconnect. Click `重连已配对` only when you want to request it immediately.
+
+### Replace the controller
+
+1. Turn off the old controller.
+2. Wake the new controller.
+3. Click `更换手柄` and confirm.
+4. The Manager disconnects the old target, clears its saved address, scans, connects, and stores the new address.
+
+If automatic selection cannot finish, open `高级连接工具`, scan, select the correct result, and click `连接所选目标`.
 
 ## Steam Check
 

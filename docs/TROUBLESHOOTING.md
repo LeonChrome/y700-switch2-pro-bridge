@@ -12,11 +12,39 @@ Try:
 4. Plug it back in.
 5. Refresh serial in the Manager and retry.
 
-V5.9 avoids repeated esptool retries when this happens, so it should fail quickly instead of freezing the UI.
+V5.9.2 refuses to start a second esptool while an older matching process still
+exists. `chip_id` also has a 20-second watchdog, so a blocked CH343 driver is
+reported instead of leaving the UI waiting indefinitely.
+
+### Windows 26300 And WCH Driver 2.1.2025.7
+
+This exact combination was reproduced blocking both esptool and espflash
+inside the CH343 kernel driver. The process could not be terminated until the
+CH343 control cable was unplugged.
+
+V5.9.2 reads the active driver before flashing and refuses to launch esptool
+for this known-risk combination. Open Device Manager, choose the CH343 port,
+use `Update driver` / `Let me pick`, and select Microsoft's `USB Serial Device`
+driver. Replug the CH343 control cable and refresh the Manager.
+
+For development machines, the repository also includes:
+
+```powershell
+.\tools\diagnostics\switch_ch343_to_usbser.ps1
+```
+
+Run it from an elevated PowerShell. It backs up the WCH package before
+switching. A physical replug may still be required if the old driver already
+has a kernel-stuck process.
 
 ## Manager Freezes When Both USB Cables Are Connected
 
-Use the final V5.9 EXE. The flashing flow was moved off the UI thread and CH343 preflight has a timeout. If the UI still stalls, unplug the CH343P control port, wait a few seconds, and reconnect.
+Use the final V5.9.2 EXE. The flashing flow runs off the UI thread and each
+esptool command has its own timeout. The Manager deliberately does not probe
+COM by calling `SerialPort.Open()` before flashing because a blocked CH343
+driver open cannot be cancelled safely. If Windows leaves a process in an
+uninterruptible serial open, unplug the CH343P control port, wait a few
+seconds, and reconnect it.
 
 ## Board Reboots Before Firmware Logs
 
@@ -47,6 +75,10 @@ Check:
 - HID input report should use report ID `0x05`.
 - Replug the native USB / OTG cable after flashing.
 - Restart Steam if it cached the previous mode.
+
+V5.9.2 release profiles lock their compiled USB identity. Old NVS mode values
+can no longer make a Pro2 flash enumerate as Xbox or make an Xbox flash
+enumerate as Pro2.
 
 ## Controller Sleeps And Does Not Reconnect
 

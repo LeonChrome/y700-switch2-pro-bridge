@@ -10,8 +10,8 @@ namespace Y700Switch2V55Manager;
 
 public static class EmbeddedAssets
 {
-    public const string BundledPackageVersion = "v5.9.0-aio";
-    public const string BundledFirmwareVersion = "5.9.0-manager";
+    public const string BundledPackageVersion = "v5.9.2-aio";
+    public const string BundledFirmwareVersion = "5.9.2-manager";
     private static readonly object ExtractLock = new();
     private static readonly JsonSerializerOptions ManifestJsonOptions = new()
     {

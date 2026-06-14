@@ -1,6 +1,31 @@
 # Changelog
 
-## V5.9.0 Final
+## V5.9.2 新和联胜版本
+
+- Replaced the old DualSense card and image with the `新和联胜` PS5 mode.
+- Reduced the user-facing release to three modes: 新和联胜 / PS5, Pro2 / Nintendo, and Xbox / XInput.
+- Removed the Xbox Elite 2 / GIP bring-up profile from the release bundle.
+- Added guided controller workflows for first pairing, reconnecting the saved controller, and replacing it.
+- Added the common `ble forget` firmware command to clear the saved BLE target safely.
+- Preserved automatic reconnect after controller sleep or transient disconnect.
+- Updated all firmware and Manager version reporting to V5.9.2.
+- Fixed Pro2 status compatibility: Manager now accepts both `live_*` and PS5 `input_*` freshness fields.
+- Pro2 status reads and tuning no longer require a live controller; physical rumble tests still require fresh BLE input.
+- `重连已配对` now rebuilds a connected link when input notifications are stale.
+- Added per-flash CH343 driver/version logging and a preflight block for the
+  reproduced Windows 26300 + WCH `2.1.2025.7` kernel-hang combination.
+- Locked Pro2 and Xbox release profiles to their compiled USB identities so a
+  stale NVS mode cannot override a successful mode flash.
+- Fixed whole-chip erase on ESP32-S3 by using the esptool RAM stub.
+- Completed a real hardware matrix covering Pro2 `057E:2069`, Xbox
+  `045E:028E`, 新和联胜 `054C:0CE6`, whole-chip erase, and PS5 restore.
+
+```text
+release/v5.9/新和联胜版本-aio-v5.9.2.exe
+sha256 5ca65c85970795fa66fdc88a9fbdac7de0af4daf5407eb2e625a8e710eef806d
+```
+
+## V5.9.1 Final
 
 This is the final archived release of the ESP32-S3 Switch 2 / Pro2 bridge.
 
@@ -15,13 +40,17 @@ This is the final archived release of the ESP32-S3 Switch 2 / Pro2 bridge.
 - Microsoft OS descriptor / BOS exposure for Nintendo mode WinUSB interface binding.
 - BLE background auto reconnect after controller sleep or disconnect, with wake-scan matching for the saved Pro2 address.
 - Manager-side protections against repeated flash clicks, stale esptool processes, busy COM ports, and UI stalls when both USB cables are connected.
+- DualSense host-trace diagnostics identified HID IN endpoint submission failure after a USB bus reset while BLE and PnP remained healthy.
+- HID submission is now gated from TinyUSB's DCD bus-reset event until configuration and endpoint reopening complete.
+- Immediate HID submit failures and asynchronous transfer failures are tracked separately.
+- Persistent HID IN failure triggers one cooldown-protected USB re-enumeration instead of retrying every 4 ms forever.
 - V5.9-only repository cleanup: old release artifacts, prototype scripts, temporary references, and outdated docs removed.
 
 ### Final Release Artifact
 
 ```text
-release/v5.9/PRO2手柄无线接收器控制板-aio-v5.9.0.exe
-sha256 dc9e211631786cd05bd04211130a1d0e8bbb249badfc8a277f339d909d19d405
+release/v5.9/PRO2手柄无线接收器控制板-aio-v5.9.1.exe
+sha256 04513580f0fce83ccde22fad7b2aed8731eaf37146b310f2ae13f88747de8edd
 ```
 
 No further feature releases are planned.

@@ -401,6 +401,14 @@ esp_err_t control_protocol_handle_line(const char *line, char *reply, int reply_
         }
         return json_ok(reply, reply_len, "ble auto", "\"ble_auto\":\"off\"");
     }
+    if (strcmp(cmd, "ble forget") == 0 || strcmp(cmd, "ble target clear") == 0) {
+        ble_central_disconnect();
+        esp_err_t err = device_config_save_ble_target("");
+        if (err != ESP_OK) {
+            return json_error(reply, reply_len, "ble forget", "failed to clear BLE target");
+        }
+        return json_ok(reply, reply_len, "ble forget", "\"ble\":\"idle\",\"ble_target\":\"\"");
+    }
     if (strncmp(cmd, "ble target ", 11) == 0) {
         char target[96];
         if (!copy_trimmed_arg(cmd + 11, target, sizeof(target))) {

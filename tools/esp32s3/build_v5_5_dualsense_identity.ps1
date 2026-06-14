@@ -18,7 +18,8 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
+. (Join-Path $PSScriptRoot "idf_environment.ps1")
+$RepoRoot = Get-Y700ShortRepoRoot
 $FirmwareRoot = Join-Path $RepoRoot "firmware\esp32s3_dualsense_identity_experiment"
 $RequestedProfile = $Profile
 if ($Profile -eq "hid_audio_uac2") {
@@ -29,41 +30,13 @@ if ($Profile -eq "hid_audio_uac1_fallback") {
     Write-Warning "hid_audio_uac1_fallback is an alias for hid_audio_uac1_2ch"
     $Profile = "hid_audio_uac1_2ch"
 }
-$BuildRoot = Join-Path $RepoRoot ("work\build\v5_5_dualsense_identity\{0}" -f $Profile)
+$BuildRoot = Join-Path $RepoRoot ("work\b\ds5\{0}" -f $Profile)
 
-function Import-IdfEnvironment {
-    param([string]$Path)
-    if (!$Path) { return }
-
-    $idfRoot = Split-Path -Parent $Path
-    $versionName = Split-Path -Leaf $idfRoot
-    $toolsPath = if ($env:IDF_TOOLS_PATH) {
-        $env:IDF_TOOLS_PATH
-    } else {
-        Join-Path $env:SystemDrive "Espressif\tools"
-    }
-    $eimProfile = Join-Path $toolsPath ("Microsoft.{0}.PowerShell_profile.ps1" -f $versionName)
-    if (Test-Path -LiteralPath $eimProfile) {
-        Write-Output "[V5_5_DS5_BUILD] idf_profile=$eimProfile"
-        . $eimProfile
-        return
-    }
-
-    $exportScript = Join-Path $Path "export.ps1"
-    if (!(Test-Path -LiteralPath $exportScript)) {
-        throw "ESP-IDF export.ps1 not found: $exportScript"
-    }
-    . $exportScript
-}
-
-Import-IdfEnvironment -Path $IdfPath
-
-if (!(Get-Command idf.py -ErrorAction SilentlyContinue)) {
-    throw "idf.py not found. Open an ESP-IDF PowerShell or pass -IdfPath <path-to-esp-idf>."
-}
+$IdfPath = Resolve-Y700IdfPath -RequestedPath $IdfPath
+Import-Y700IdfEnvironment -IdfPath $IdfPath
 
 Write-Output "[V5_5_DS5_BUILD] firmware=firmware/esp32s3_dualsense_identity_experiment"
-Write-Output "[V5_5_DS5_BUILD] build_dir=work/build/v5_5_dualsense_identity/$Profile"
+Write-Output "[V5_5_DS5_BUILD] build_dir=work/b/ds5/$Profile"
 Write-Output "[V5_5_DS5_BUILD] identity=dualsense_experimental"
 Write-Output "[V5_5_DS5_BUILD] requested_profile=$RequestedProfile"
 Write-Output "[V5_5_DS5_BUILD] profile=$Profile"

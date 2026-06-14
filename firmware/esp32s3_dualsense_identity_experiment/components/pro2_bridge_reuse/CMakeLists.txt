@@ -6,6 +6,7 @@ idf_component_register(
         "${BRIDGE_MAIN}/ble/switch2_gatt.c"
         "${BRIDGE_MAIN}/bridge/switch2_state.c"
         "${BRIDGE_MAIN}/bridge/internal_gamepad_state.c"
+        "${BRIDGE_MAIN}/bridge/gamepad_axis_math.c"
         "${BRIDGE_MAIN}/bridge/normalized_rumble.c"
         "${BRIDGE_MAIN}/config/device_config.c"
         "${BRIDGE_MAIN}/log/app_log.c"

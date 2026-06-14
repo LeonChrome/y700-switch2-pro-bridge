@@ -2,8 +2,9 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
-using System.IO.Ports;
+using System.Linq;
 using System.Management;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -16,8 +17,21 @@ public enum FlashMode
     EraseAndFlash
 }
 
+public sealed class DriverCompatibilityException : InvalidOperationException
+{
+    public DriverCompatibilityException(string message) : base(message)
+    {
+    }
+}
+
 public sealed class FirmwareFlasher
 {
+    private static readonly TimeSpan PortDriverSettleDelay = TimeSpan.FromMilliseconds(800);
+    private static readonly TimeSpan ChipProbeTimeout = TimeSpan.FromSeconds(20);
+    private static readonly TimeSpan EraseTimeout = TimeSpan.FromSeconds(75);
+    private static readonly TimeSpan WriteTimeout = TimeSpan.FromSeconds(120);
+    private static readonly TimeSpan DefaultCommandTimeout = TimeSpan.FromSeconds(30);
+
     public async Task FlashAsync(
         string port,
         string profileId,
@@ -35,33 +49,14 @@ public sealed class FirmwareFlasher
         int firstBaud = mode == FlashMode.Repair ? 115200 : 460800;
         bool firstNoStub = mode == FlashMode.Repair;
 
-        if (!await SerialCommandClient.CloseAsync(5000))
-        {
-            throw new InvalidOperationException("刷写前无法释放 " + port + "。请关闭串口监视器、旧版 Manager、PowerShell send_command/monitor，或拔插 CH343P 控制口后重试。");
-        }
-        await CleanupStaleEsptoolProcessesAsync(package.EsptoolPath, port, progress);
-        await EnsurePortCanOpenAsync(port);
+        await PreparePortAsync(package.EsptoolPath, port, progress, cancellationToken);
 
         progress.Report("内置固件: " + package.Manifest.FirmwareVersion + " / " + profile.Label);
         progress.Report("工具: " + package.EsptoolPath);
         progress.Report("目标: " + port + ", baud " + firstBaud);
 
-        string chipOutput;
-        try
-        {
-            chipOutput = await RunEsptoolAsync(package.EsptoolPath,
-                CommonArgs(port, firstBaud, firstNoStub, "chip_id"), progress, cancellationToken);
-        }
-        catch (PortBusyException)
-        {
-            throw;
-        }
-        catch
-        {
-            progress.Report("chip_id 高速探测失败，切到 115200 + --no-stub 重试。");
-            chipOutput = await RunEsptoolAsync(package.EsptoolPath,
-                CommonArgs(port, 115200, true, "chip_id"), progress, cancellationToken);
-        }
+        string chipOutput = await ProbeChipAsync(
+            package.EsptoolPath, port, progress, cancellationToken);
 
         if (!chipOutput.Contains("ESP32-S3", StringComparison.OrdinalIgnoreCase))
         {
@@ -88,6 +83,128 @@ public sealed class FirmwareFlasher
         progress.Report("刷入完成。请重新插拔原生 USB / OTG，然后点击“USB 检查”。");
     }
 
+    public async Task EraseFlashAsync(
+        string port,
+        IProgress<string> progress,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(port))
+        {
+            throw new InvalidOperationException("请先选择 CH343P 对应的 COM 串口。");
+        }
+
+        FirmwarePackage package = EmbeddedAssets.EnsurePackage();
+        await PreparePortAsync(package.EsptoolPath, port, progress, cancellationToken);
+
+        progress.Report("清理目标: " + port);
+        progress.Report("正在确认 ESP32-S3 芯片。");
+        string chipOutput = await ProbeChipAsync(
+            package.EsptoolPath, port, progress, cancellationToken);
+        if (!chipOutput.Contains("ESP32-S3", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException("所选串口没有识别为 ESP32-S3，已拒绝擦除。");
+        }
+
+        progress.Report("正在整片擦除 Flash。固件、NVS、BLE 配对和模式设置都会被清空。");
+        await RunEsptoolAsync(
+            package.EsptoolPath,
+            CommonArgs(port, 115200, false, "erase_flash"),
+            progress,
+            cancellationToken);
+        progress.Report("Flash 已完整清理。控制板现在没有应用固件，可作为全新 ESP32-S3 演示。");
+    }
+
+    private static async Task PreparePortAsync(
+        string esptoolPath,
+        string port,
+        IProgress<string> progress,
+        CancellationToken cancellationToken)
+    {
+        if (!await SerialCommandClient.CloseAsync(5000))
+        {
+            throw new InvalidOperationException(
+                "刷写前无法释放 " + port +
+                "。请等待当前串口操作结束，或关闭串口监视器后重试。");
+        }
+
+        await CheckPortDriverAsync(port, progress, cancellationToken);
+        await CleanupKnownSerialConsumersAsync(port, progress);
+        await CleanupStaleEsptoolProcessesAsync(esptoolPath, port, progress);
+        progress.Report(
+            "[FLASH_PORT] 已完成 " + port +
+            " 的项目进程清理，等待 CH343 驱动稳定后交给 esptool 探测。");
+        await Task.Delay(PortDriverSettleDelay, cancellationToken);
+    }
+
+    private static async Task CheckPortDriverAsync(
+        string port,
+        IProgress<string> progress,
+        CancellationToken cancellationToken)
+    {
+        Task<PortDriverInfo?> query =
+            Task.Run(() => DeviceInspector.QueryPortDriver(port), cancellationToken);
+        Task completed = await Task.WhenAny(
+            query,
+            Task.Delay(TimeSpan.FromSeconds(2), cancellationToken));
+        if (completed != query)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            progress.Report(
+                "[FLASH_DRIVER] " + port +
+                " driver query timed out; continuing with process safeguards.");
+            return;
+        }
+
+        PortDriverInfo? driver = await query;
+        if (driver == null)
+        {
+            progress.Report(
+                "[FLASH_DRIVER] " + port +
+                " driver metadata unavailable; continuing with process safeguards.");
+            return;
+        }
+
+        progress.Report("[FLASH_DRIVER] " + driver.Summary);
+        if (driver.IsKnownKernelHangRisk)
+        {
+            throw new DriverCompatibilityException(
+                "检测到 Windows build " + driver.WindowsBuild +
+                " 与 WCH CH343 驱动 " + driver.Version +
+                " 的高风险组合。本机实测该组合会让刷写器卡在内核且无法结束。" +
+                "为避免再次锁死串口，本次尚未启动 esptool。" +
+                "请在设备管理器中为 CH343 选择“USB 串行设备 (Microsoft usbser)”后重新插拔控制口，再重试。");
+        }
+    }
+
+    private static async Task<string> ProbeChipAsync(
+        string esptoolPath,
+        string port,
+        IProgress<string> progress,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await RunEsptoolAsync(
+                esptoolPath,
+                CommonArgs(port, 115200, true, "chip_id"),
+                progress,
+                cancellationToken);
+        }
+        catch (Exception ex) when (ex is not PortBusyException &&
+                                   ex is not EsptoolTimeoutException &&
+                                   ex is not OperationCanceledException)
+        {
+            progress.Report(
+                "chip_id 首次探测失败，等待控制板复位后使用稳定参数重试一次。");
+            await Task.Delay(700, cancellationToken);
+            return await RunEsptoolAsync(
+                esptoolPath,
+                CommonArgs(port, 115200, true, "chip_id"),
+                progress,
+                cancellationToken);
+        }
+    }
+
     private static async Task WriteFlashAsync(
         FirmwarePackage package,
         FirmwareProfile profile,
@@ -112,7 +229,7 @@ public sealed class FirmwareFlasher
         await RunEsptoolAsync(package.EsptoolPath, args, progress, cancellationToken);
     }
 
-    private static List<string> CommonArgs(string port, int baud, bool noStub, string command)
+    internal static List<string> CommonArgs(string port, int baud, bool noStub, string command)
     {
         var args = new List<string> { "--chip", "esp32s3" };
         if (noStub)
@@ -126,24 +243,27 @@ public sealed class FirmwareFlasher
             "-b", baud.ToString(),
             "--before", "default_reset",
             "--after", "hard_reset",
+            "--connect-attempts", "5",
             command
         });
         return args;
     }
 
-    private static async Task<string> RunEsptoolAsync(
+    internal static async Task<string> RunEsptoolAsync(
         string esptoolPath,
         IReadOnlyList<string> args,
         IProgress<string> progress,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        TimeSpan? timeoutOverride = null)
     {
         string targetPort = FindPort(args);
         if (!string.IsNullOrWhiteSpace(targetPort))
         {
             await CleanupStaleEsptoolProcessesAsync(esptoolPath, targetPort, progress);
-            await EnsurePortCanOpenAsync(targetPort);
         }
 
+        string command = FindCommand(args);
+        TimeSpan commandTimeout = timeoutOverride ?? GetCommandTimeout(command);
         var lines = new List<string>();
         var psi = new ProcessStartInfo(esptoolPath)
         {
@@ -158,6 +278,9 @@ public sealed class FirmwareFlasher
         }
 
         progress.Report("esptool " + string.Join(" ", args));
+        progress.Report(
+            "[ESPTOOL_WATCHDOG] command=" + command +
+            " timeout_seconds=" + commandTimeout.TotalSeconds.ToString("F1"));
         using var process = new Process { StartInfo = psi, EnableRaisingEvents = true };
         process.OutputDataReceived += (_, e) => Capture(e.Data, lines, progress);
         process.ErrorDataReceived += (_, e) => Capture(e.Data, lines, progress);
@@ -172,28 +295,42 @@ public sealed class FirmwareFlasher
         process.BeginOutputReadLine();
         process.BeginErrorReadLine();
 
-        using CancellationTokenRegistration registration = cancellationToken.Register(() =>
-        {
-            try
-            {
-                if (!process.HasExited)
-                {
-                    process.Kill(entireProcessTree: true);
-                }
-            }
-            catch
-            {
-            }
-        });
-
+        Task exitTask = process.WaitForExitAsync(CancellationToken.None);
+        Task timeoutTask = Task.Delay(commandTimeout, cancellationToken);
+        Task completed;
         try
         {
-            await process.WaitForExitAsync(cancellationToken);
+            completed = await Task.WhenAny(exitTask, timeoutTask);
         }
-        finally
+        catch (OperationCanceledException)
         {
-            CleanupEsptoolChildren(processId, progress);
+            TerminateEsptoolTree(process, processId, progress);
+            throw;
         }
+
+        if (completed != exitTask)
+        {
+            bool callerCancelled = cancellationToken.IsCancellationRequested;
+            progress.Report(
+                "[ESPTOOL_WATCHDOG] " + command +
+                (callerCancelled ? " cancelled" : " timed out") +
+                "; terminating process tree pid=" + processId);
+            TerminateEsptoolTree(process, processId, progress);
+            await Task.WhenAny(exitTask, Task.Delay(TimeSpan.FromSeconds(2)));
+            await EnsureNoMatchingEsptoolProcessesAsync(
+                esptoolPath, targetPort, progress);
+            if (callerCancelled)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+            }
+            throw new EsptoolTimeoutException(
+                "esptool " + command + " 在 " +
+                commandTimeout.TotalSeconds.ToString("F1") +
+                " 秒内没有结束。已停止刷写，避免留下更多占用进程。");
+        }
+
+        await exitTask;
+        CleanupEsptoolChildren(processId, progress);
         string combined = string.Join(Environment.NewLine, lines);
         if (process.ExitCode != 0)
         {
@@ -219,71 +356,203 @@ public sealed class FirmwareFlasher
                output.Contains("could not open port", StringComparison.OrdinalIgnoreCase);
     }
 
-    private static async Task EnsurePortCanOpenAsync(string port)
+    private static TimeSpan GetCommandTimeout(string command)
     {
-        Task<Exception?> openTask = Task.Run(() => TryOpenPort(port));
-        Task completed = await Task.WhenAny(openTask, Task.Delay(TimeSpan.FromMilliseconds(1800)));
-        if (completed != openTask)
+        return command switch
         {
-            throw new PortBusyException(BuildPortBusyMessage(port, "串口打开预检超时：CH343 驱动没有在 1.8 秒内返回。"));
-        }
-
-        Exception? error = await openTask;
-        if (error != null)
-        {
-            throw new PortBusyException(BuildPortBusyMessage(port, error.Message));
-        }
-    }
-
-    private static Exception? TryOpenPort(string port)
-    {
-        try
-        {
-            using var serial = new SerialPort(port, 115200, Parity.None, 8, StopBits.One)
-            {
-                DtrEnable = false,
-                RtsEnable = false,
-                Handshake = Handshake.None,
-                ReadTimeout = 200,
-                WriteTimeout = 500
-            };
-            serial.Open();
-            serial.DtrEnable = false;
-            serial.RtsEnable = false;
-            return null;
-        }
-        catch (Exception ex) when (ex is IOException ||
-                                   ex is UnauthorizedAccessException ||
-                                   ex is InvalidOperationException)
-        {
-            return ex;
-        }
+            "chip_id" => ChipProbeTimeout,
+            "erase_flash" => EraseTimeout,
+            "write_flash" => WriteTimeout,
+            _ => DefaultCommandTimeout
+        };
     }
 
     private static string BuildPortBusyMessage(string port, string detail)
     {
-        return "esptool 无法打开 " + port + "：串口被占用，或 CH343 驱动里有未释放的句柄。已停止自动重试，避免留下多个 esptool。请关闭旧版 Manager、串口监视器、PowerShell send_command/monitor、ESP-IDF monitor；如果仍然拒绝访问，请拔插 CH343P 控制口，或用管理员权限重启该设备后再试。"
+        return "esptool 无法打开 " + port + "：Manager 已关闭自身串口，并清理使用该端口的 DualSenseHostTrace、项目 monitor/send_command 和残留 esptool。若旧进程已进入 CH343 内核终止挂起，Windows 仍会显示进程但无法结束，此时需要拔插 CH343P 控制口后再试。"
             + Environment.NewLine + detail;
     }
 
-    private static void CleanupStaleEsptoolProcesses(string esptoolPath, string port, IProgress<string> progress)
+    private static void CleanupStaleEsptoolProcesses(
+        string esptoolPath,
+        string port,
+        IProgress<string> progress)
     {
-        foreach (int pid in FindMatchingEsptoolProcesses(esptoolPath, port))
+        int[] matching = FindMatchingEsptoolProcesses(esptoolPath, port).ToArray();
+        foreach (int pid in matching)
         {
             KillProcess(pid, "[FLASH_CLEANUP] stale esptool", progress);
         }
     }
 
-    private static async Task CleanupStaleEsptoolProcessesAsync(string esptoolPath, string port, IProgress<string> progress)
+    private static async Task CleanupStaleEsptoolProcessesAsync(
+        string esptoolPath,
+        string port,
+        IProgress<string> progress)
     {
         Task cleanupTask = Task.Run(() => CleanupStaleEsptoolProcesses(esptoolPath, port, progress));
         Task completed = await Task.WhenAny(cleanupTask, Task.Delay(TimeSpan.FromMilliseconds(1200)));
         if (completed != cleanupTask)
         {
-            progress.Report("[FLASH_CLEANUP] stale esptool cleanup timed out; continuing with port preflight");
-            return;
+            throw new PortBusyException(
+                "检查残留 esptool 进程超时。为避免叠加占用，已取消本次刷写。");
         }
         await cleanupTask;
+        await EnsureNoMatchingEsptoolProcessesAsync(esptoolPath, port, progress);
+    }
+
+    private static async Task EnsureNoMatchingEsptoolProcessesAsync(
+        string esptoolPath,
+        string port,
+        IProgress<string> progress)
+    {
+        await Task.Delay(250);
+        int[] remaining = FindMatchingEsptoolProcesses(esptoolPath, port).ToArray();
+        if (remaining.Length == 0)
+        {
+            return;
+        }
+
+        string pids = string.Join(",", remaining);
+        progress.Report(
+            "[FLASH_CLEANUP] esptool processes still present: " + pids);
+        throw new PortBusyException(
+            "检测到无法结束的 esptool 进程 pid=" + pids +
+            "。它可能卡在 CH343 驱动内核调用中。请拔插一次 CH343P 控制口，再重新刷写；Manager 不会继续启动新的 esptool。");
+    }
+
+    private static async Task CleanupKnownSerialConsumersAsync(
+        string port,
+        IProgress<string> progress)
+    {
+        Task cleanupTask = Task.Run(() =>
+        {
+            foreach ((int pid, string name, string commandLine) in
+                     FindKnownSerialConsumerProcesses(port))
+            {
+                progress.Report("[FLASH_PORT_OWNER] " + port +
+                                " held by " + name +
+                                " pid=" + pid +
+                                " command=" + CompactCommandLine(commandLine));
+                KillProcess(
+                    pid,
+                    "[FLASH_CLEANUP] project serial consumer",
+                    progress);
+            }
+        });
+        Task completed = await Task.WhenAny(
+            cleanupTask,
+            Task.Delay(TimeSpan.FromMilliseconds(1800)));
+        if (completed != cleanupTask)
+        {
+            throw new PortBusyException(
+                "检查项目串口占用进程超时。为避免叠加占用，已取消本次刷写。");
+        }
+        await cleanupTask;
+
+        string[] remaining = FindKnownSerialConsumerProcesses(port)
+            .Select(item => item.Name + " pid=" + item.Pid)
+            .ToArray();
+        if (remaining.Length > 0)
+        {
+            throw new PortBusyException(
+                "以下项目进程仍未结束：" + string.Join(", ", remaining) +
+                "。请拔插一次 CH343P 控制口后重试。");
+        }
+    }
+
+    private static IEnumerable<(int Pid, string Name, string CommandLine)>
+        FindKnownSerialConsumerProcesses(string port)
+    {
+        using var searcher = new ManagementObjectSearcher(
+            "SELECT ProcessId,Name,CommandLine FROM Win32_Process");
+        foreach (ManagementObject item in searcher.Get())
+        {
+            int pid;
+            try
+            {
+                pid = Convert.ToInt32(item["ProcessId"]);
+            }
+            catch
+            {
+                continue;
+            }
+
+            if (pid == Environment.ProcessId)
+            {
+                continue;
+            }
+
+            string name = Convert.ToString(item["Name"]) ?? "";
+            string commandLine = Convert.ToString(item["CommandLine"]) ?? "";
+            if (!CommandTargetsPort(commandLine, port) ||
+                !IsKnownProjectSerialConsumer(name, commandLine))
+            {
+                continue;
+            }
+
+            yield return (pid, name, commandLine);
+        }
+    }
+
+    private static bool CommandTargetsPort(string commandLine, string port)
+    {
+        if (string.IsNullOrWhiteSpace(commandLine) ||
+            string.IsNullOrWhiteSpace(port))
+        {
+            return false;
+        }
+
+        return Regex.IsMatch(
+            commandLine,
+            @"(?<![A-Z0-9])" + Regex.Escape(port) + @"(?![A-Z0-9])",
+            RegexOptions.IgnoreCase);
+    }
+
+    private static bool IsKnownProjectSerialConsumer(
+        string processName,
+        string commandLine)
+    {
+        if (processName.Equals(
+                "DualSenseHostTrace.exe",
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        bool shellOrPython =
+            processName.Equals(
+                "powershell.exe",
+                StringComparison.OrdinalIgnoreCase) ||
+            processName.Equals(
+                "pwsh.exe",
+                StringComparison.OrdinalIgnoreCase) ||
+            processName.Equals(
+                "python.exe",
+                StringComparison.OrdinalIgnoreCase) ||
+            processName.Equals(
+                "python3.exe",
+                StringComparison.OrdinalIgnoreCase);
+        if (!shellOrPython)
+        {
+            return false;
+        }
+
+        return commandLine.Contains(
+                   "tools\\esp32s3\\send_command.ps1",
+                   StringComparison.OrdinalIgnoreCase) ||
+               commandLine.Contains(
+                   "tools\\esp32s3\\monitor.ps1",
+                   StringComparison.OrdinalIgnoreCase) ||
+               commandLine.Contains(
+                   "idf_monitor.py",
+                   StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string CompactCommandLine(string commandLine)
+    {
+        string compact = Regex.Replace(commandLine, @"\s+", " ").Trim();
+        return compact.Length <= 240 ? compact : compact[..240] + "...";
     }
 
     private static void CleanupEsptoolChildren(int parentPid, IProgress<string> progress)
@@ -307,6 +576,29 @@ public sealed class FirmwareFlasher
         catch
         {
         }
+    }
+
+    private static void TerminateEsptoolTree(
+        Process process,
+        int parentPid,
+        IProgress<string> progress)
+    {
+        try
+        {
+            if (!process.HasExited)
+            {
+                process.Kill(entireProcessTree: true);
+            }
+        }
+        catch (Exception ex)
+        {
+            progress.Report(
+                "[FLASH_CLEANUP] esptool tree pid=" + parentPid +
+                " kill request failed: " + ex.Message);
+        }
+
+        CleanupEsptoolChildren(parentPid, progress);
+        KillProcess(parentPid, "[FLASH_CLEANUP] esptool parent", progress);
     }
 
     private static IEnumerable<int> FindMatchingEsptoolProcesses(string esptoolPath, string port)
@@ -365,9 +657,32 @@ public sealed class FirmwareFlasher
                 progress.Report(label + " pid=" + pid + " did not exit; unplug/replug CH343P if COM remains busy");
             }
         }
-        catch (Exception ex)
+        catch
         {
-            progress.Report(label + " pid=" + pid + " cleanup failed: " + ex.Message);
+            if (ProcessStillListed(pid))
+            {
+                progress.Report(
+                    label + " pid=" + pid +
+                    " termination pending in CH343 driver; unplug/replug the control port if esptool still reports access denied");
+            }
+            else
+            {
+                progress.Report(label + " pid=" + pid + " already exited");
+            }
+        }
+    }
+
+    private static bool ProcessStillListed(int pid)
+    {
+        try
+        {
+            using var searcher = new ManagementObjectSearcher(
+                "SELECT ProcessId FROM Win32_Process WHERE ProcessId=" + pid);
+            return searcher.Get().Count > 0;
+        }
+        catch
+        {
+            return false;
         }
     }
 
@@ -382,6 +697,29 @@ public sealed class FirmwareFlasher
             }
         }
         return "所选串口";
+    }
+
+    private static string FindCommand(IReadOnlyList<string> args)
+    {
+        string[] commands =
+        {
+            "chip_id",
+            "erase_flash",
+            "write_flash",
+            "flash_id",
+            "read_mac"
+        };
+        foreach (string arg in args)
+        {
+            foreach (string command in commands)
+            {
+                if (string.Equals(arg, command, StringComparison.OrdinalIgnoreCase))
+                {
+                    return command;
+                }
+            }
+        }
+        return "unknown";
     }
 
     private static void Capture(string? line, List<string> lines, IProgress<string> progress)
@@ -401,6 +739,13 @@ public sealed class FirmwareFlasher
     private sealed class PortBusyException : InvalidOperationException
     {
         public PortBusyException(string message) : base(message)
+        {
+        }
+    }
+
+    private sealed class EsptoolTimeoutException : TimeoutException
+    {
+        public EsptoolTimeoutException(string message) : base(message)
         {
         }
     }

@@ -7,13 +7,38 @@
 
 typedef struct {
     bool connected;
+    bool scanning;
+    bool connecting;
+    bool reconnect_task_running;
+    bool auto_scan_connect;
     uint16_t conn_handle;
     uint16_t interval_units;
     uint16_t latency;
     uint16_t supervision_timeout;
     int last_update_start_rc;
     int last_update_event_status;
+    int last_scan_start_rc;
+    int last_scan_complete_reason;
+    int last_connect_start_rc;
+    int last_connect_status;
+    int last_disconnect_reason;
     uint32_t update_request_count;
+    uint32_t scan_start_count;
+    uint32_t scan_complete_count;
+    uint32_t reconnect_schedule_count;
+    uint32_t reconnect_attempt_count;
+    uint32_t connect_start_count;
+    uint32_t connect_success_count;
+    uint32_t connect_failure_count;
+    uint32_t disconnect_count;
+    uint32_t stale_recovery_count;
+    uint32_t notify_rx_count;
+    uint32_t notify_parsed_count;
+    int64_t last_connect_us;
+    int64_t last_disconnect_us;
+    int64_t last_stale_recovery_us;
+    int64_t last_notify_us;
+    int64_t last_parsed_notify_us;
 } ble_central_conn_metrics_t;
 
 void ble_central_init(void);
@@ -22,6 +47,7 @@ esp_err_t ble_central_connect(const char *address_or_name);
 esp_err_t ble_central_reconnect_saved_or_scan(void);
 void ble_central_start_auto_reconnect(void);
 void ble_central_disconnect(void);
+esp_err_t ble_central_recover_stale_link(void);
 esp_err_t ble_central_request_fast_params(void);
 void ble_central_get_conn_metrics(ble_central_conn_metrics_t *out_metrics);
 void ble_central_format_scan_results_json(char *out, size_t out_len);

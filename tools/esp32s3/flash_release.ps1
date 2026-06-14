@@ -1,12 +1,14 @@
 param(
     [string]$Port,
+    [string]$IdfPath,
     [int]$Baud = 460800,
     [switch]$NoStub
 )
 
 $ErrorActionPreference = "Stop"
-$Root = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
-$Build = Join-Path $Root "firmware\esp32s3_switch2_bridge\build"
+. (Join-Path $PSScriptRoot "idf_environment.ps1")
+$Root = Get-Y700ShortRepoRoot
+$Build = Join-Path $Root "work\b\pro2"
 $Bootloader = Join-Path $Build "bootloader\bootloader.bin"
 $Partition = Join-Path $Build "partition_table\partition-table.bin"
 $App = Join-Path $Build "esp32s3_switch2_bridge.bin"
@@ -27,22 +29,9 @@ if (-not $Port) {
 }
 if (-not $Port) { throw "No COM port supplied." }
 
-function Get-IdfPython {
-    if ($env:IDF_PYTHON_ENV_PATH) {
-        $candidate = Join-Path $env:IDF_PYTHON_ENV_PATH "Scripts\python.exe"
-        if (Test-Path -LiteralPath $candidate) { return $candidate }
-    }
-
-    $candidate = Join-Path $env:SystemDrive "Espressif\tools\python\v5.3.3\venv\Scripts\python.exe"
-    if (Test-Path -LiteralPath $candidate) { return $candidate }
-
-    $python = Get-Command python -ErrorAction SilentlyContinue
-    if ($python) { return $python.Source }
-
-    throw "Python/esptool environment not found. Install ESP-IDF tools or use tools\esp32s3\flash.ps1 with -IdfPath."
-}
-
-$Python = Get-IdfPython
+$IdfPath = Resolve-Y700IdfPath -RequestedPath $IdfPath
+Import-Y700IdfEnvironment -IdfPath $IdfPath
+$Python = Get-Y700IdfPython
 $args = @(
     "-m", "esptool",
     "--chip", "esp32s3"

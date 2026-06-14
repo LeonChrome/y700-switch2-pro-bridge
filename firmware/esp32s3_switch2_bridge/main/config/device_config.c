@@ -5,7 +5,9 @@
 
 static const char *TAG = "config";
 static const char *NVS_NAMESPACE = "bridge";
+#ifndef DEVICE_PROFILE_LOCKED_MODE
 static const char *NVS_KEY_MODE = "mode";
+#endif
 static const char *NVS_KEY_REPORT_RATE = "rate_hz";
 static const char *NVS_KEY_BLE_AUTO = "ble_auto";
 static const char *NVS_KEY_BLE_TARGET = "ble_target";
@@ -48,6 +50,10 @@ void device_config_init(void)
     nvs_handle_t handle;
     esp_err_t err = nvs_open(NVS_NAMESPACE, NVS_READONLY, &handle);
     if (err == ESP_OK) {
+#ifdef DEVICE_PROFILE_LOCKED_MODE
+        APP_LOGI(TAG, "release profile locks device mode to %s",
+                 device_mode_to_string(s_mode));
+#else
         uint8_t stored_mode = (uint8_t)DEVICE_DEFAULT_MODE;
         err = nvs_get_u8(handle, NVS_KEY_MODE, &stored_mode);
 
@@ -64,6 +70,7 @@ void device_config_init(void)
                      (unsigned)stored_mode,
                      device_mode_to_string(s_mode));
         }
+#endif
 
         uint16_t stored_rate = DEFAULT_REPORT_RATE_HZ;
         err = nvs_get_u16(handle, NVS_KEY_REPORT_RATE, &stored_rate);
@@ -132,6 +139,16 @@ esp_err_t device_config_save_mode(device_mode_t mode)
         return ESP_ERR_INVALID_ARG;
     }
 
+#ifdef DEVICE_PROFILE_LOCKED_MODE
+    if (mode != DEVICE_DEFAULT_MODE) {
+        APP_LOGW(TAG, "release profile rejected mode change from %s to %s",
+                 device_mode_to_string(DEVICE_DEFAULT_MODE),
+                 device_mode_to_string(mode));
+        return ESP_ERR_NOT_SUPPORTED;
+    }
+    s_mode = DEVICE_DEFAULT_MODE;
+    return ESP_OK;
+#else
     nvs_handle_t handle;
     esp_err_t err = nvs_open(NVS_NAMESPACE, NVS_READWRITE, &handle);
     if (err != ESP_OK) {
@@ -152,6 +169,7 @@ esp_err_t device_config_save_mode(device_mode_t mode)
         APP_LOGW(TAG, "failed to save mode err=%d", (int)err);
     }
     return err;
+#endif
 }
 
 const char *device_mode_to_string(device_mode_t mode)
@@ -308,5 +326,5 @@ esp_err_t device_config_save_ble_target(const char *target)
 
 const char *device_config_get_version(void)
 {
-    return "5.9.0";
+    return "5.9.2";
 }

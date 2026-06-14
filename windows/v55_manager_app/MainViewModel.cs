@@ -1,5 +1,6 @@
 ﻿using Microsoft.Win32;
 using System;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Diagnostics;
@@ -38,10 +39,17 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private readonly FirmwareFlasher flasher = new();
     private readonly ManagerSettings settings = ManagerSettingsStore.Load();
     private readonly StringBuilder log = new();
+    private const int UiLogTrimThreshold = 1000000;
+    private const int UiLogRetainedChars = 600000;
+    private readonly object logSync = new();
     private readonly SemaphoreSlim serialLock = new(1, 1);
     private readonly SemaphoreSlim flashLock = new(1, 1);
     private readonly DispatcherTimer stateTimer = new();
     private CancellationTokenSource? gameMonitorCts;
+    private StreamWriter? diagnosticWriter;
+    private string diagnosticLogPath = "";
+    private readonly HashSet<string> firmwareCriticalLinesSeen =
+        new(StringComparer.Ordinal);
     private bool stateRefreshInProgress;
     private DateTime nextUsbAutoCheck = DateTime.MinValue;
     private DateTime nextSerialAutoProbeAt = DateTime.MinValue;
@@ -62,7 +70,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private string audioIntensity = "48";
     private string audioDurationMs = "600";
     private string audioDeviceName = "Wireless Controller";
-    private string gameMonitorSeconds = "300";
+    private string gameMonitorSeconds = "900";
     private string xInputProbeSeconds = "8";
     private string xInputProbeLow = "32000";
     private string xInputProbeHigh = "52000";
@@ -70,7 +78,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private string pro2RumbleHoldMs = "220";
     private string pro2RumbleTickMs = "12";
     private string pro2RumbleStopPackets = "3";
-    private string monitorStatus = "监听未启动。开始后会保持 Live raw02 + HD-only 过滤，并记录游戏是否真的打开了独立的 DualSense 控制器音频流。";
+    private string monitorStatus = "诊断未启动。开始后会持续记录 BLE、USB、HID、音频、震动和 Windows PnP 状态，并自动保存到日志文件。";
     private string xboxStatus = "Xbox / XInput 模式会枚举为 045E:028E，并将普通双马达震动回传到真实 Pro2。";
     private string pro2RumbleStatus = "这里提供 Pro2 / Nintendo 固件的普通震动自检。先确认 BLE 已连接，再做轻震、重震和停止。";
     private DeviceUiMode currentMode = DeviceUiMode.Unknown;
@@ -79,6 +87,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private bool bleConnected;
     private string bleTransportState = "unknown";
     private bool bleInputHealthy;
+    private string bleSavedTarget = "";
     private bool serialBoardReady;
     private bool desiredModeAutoAligned;
     private bool busy;
@@ -222,9 +231,18 @@ public sealed class MainViewModel : INotifyPropertyChanged
         }
     }
 
-    public string FirmwareSummary => "V5.9 管理器内置：Pro2 / Nintendo、Xbox / XInput、新和联胜 / Xbox Elite 2 GIP、DualSense-like、HID 纯恢复固件、嵌入式 esptool 和 XInput 震动探针。";
+    public string FirmwareSummary => "V5.9.2 新和联胜版本内置：新和联胜 / PS5、Pro2 / Nintendo、Xbox / XInput、HID 恢复固件和嵌入式 esptool。";
     public string SafetySummary => "Live 转发默认不自动开启。游戏监听会保持 HD-only 过滤，普通 PCM 只计入 blocked_pcm，不会被盲目推送。";
-    public string LogText => log.ToString();
+    public string LogText
+    {
+        get
+        {
+            lock (logSync)
+            {
+                return log.ToString();
+            }
+        }
+    }
     public Brush OverallBrush => Busy || GameMonitorRunning
         ? new SolidColorBrush(Color.FromRgb(245, 158, 11))
         : OverallStatus.Contains("错误", StringComparison.OrdinalIgnoreCase)
@@ -261,27 +279,26 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public string DesiredModeDescription => GetModeDescription(desiredMode);
     public string ModeDeckHint => desiredMode switch
     {
-        OutputModeId.DualSenseLike => "点击卡片可切换到 DualSense-like 模式。刷写后管理器会等待 USB 重新枚举并校验身份。",
+        OutputModeId.DualSenseLike => "点击卡片可切换到新和联胜模式。刷写后管理器会等待 PS5 USB 身份重新枚举并校验音频与 HID 链路。",
         OutputModeId.Pro2 => "点击卡片可切换到 Pro2 / Nintendo 模式。这是当前最稳定的原始 HID 0x02 震动优先路线。",
         OutputModeId.Xbox => "点击卡片可切换到 Xbox / XInput 模式。刷写后 USB 应枚举为 045E:028E，普通震动会回传到 Pro2。",
-        OutputModeId.XboxElite => "点击“新和联胜”刷入 GIP 枚举 bring-up。刷写后先验证 045E:0B00、XGIP10、xboxgip.sys 和 Active 状态。",
         _ => "点击手柄卡片即可设置目标模式；如果校验失败，界面会保留回退提示。"
     };
     public string CurrentModeLabel => currentMode switch
     {
-        DeviceUiMode.DualSense => "DualSense-like 模式",
+        DeviceUiMode.DualSense => "新和联胜 / PS5 模式",
         DeviceUiMode.Pro2 => "Pro2 / Nintendo 模式",
         DeviceUiMode.Xbox => "Xbox / XInput 模式",
-        DeviceUiMode.XboxElite => "新和联胜 / Xbox Elite 2 GIP 模式",
+        DeviceUiMode.XboxElite => "旧版 Xbox Elite 2 实验固件",
         DeviceUiMode.Recovery => "HID 纯恢复模式",
         _ => "USB 模式未知"
     };
     public string CurrentModeDescription => currentMode switch
     {
-        DeviceUiMode.DualSense => "USB 当前已枚举为 DualSense-like，可使用 DualSense 实验工具。",
+        DeviceUiMode.DualSense => "USB 当前已枚举为 PS5 / DualSense，可使用新和联胜 HD 震动与普通震动调度工具。",
         DeviceUiMode.Pro2 => "USB 当前已枚举为 Pro2 / Nintendo，适合稳定输入和原始/普通震动测试。",
         DeviceUiMode.Xbox => "USB 当前已枚举为 Xbox / XInput，适合 Steam、Apex 和普通双马达震动兼容性测试。",
-        DeviceUiMode.XboxElite => "USB 已看到 Xbox Elite 2 / GIP 身份；这轮只检查 Windows 绑定与 GIP Active，扩展输入和震动暂时停用。",
+        DeviceUiMode.XboxElite => "检测到旧版 Elite 2 实验固件。V5.9.2 不再提供这个模式，请切换到新和联胜或 Xbox。",
         DeviceUiMode.Recovery => "当前看起来是最小化 HID 恢复固件，用于救援重刷和枚举恢复。",
         _ => "请先执行 USB 检查。在确认模式前，所有真实震动发送都会保持保守策略。"
     };
@@ -292,8 +309,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public string DualSenseToolStateText => DescribeToolState(
         OutputModeId.DualSenseLike,
         currentMode == DeviceUiMode.DualSense,
-        "当前 USB 身份支持 DualSense-like 震动 / 音频实验链路。",
-        "已选 DualSense-like 面板，但 USB 还没有切到 DualSense-like。");
+        "当前 USB 身份支持新和联胜的 PS5 HID、普通震动与四声道 HD 震动链路。",
+        "已选新和联胜面板，但 USB 还没有切到 PS5 身份。");
     public string Pro2ToolStateText => DescribeToolState(
         OutputModeId.Pro2,
         currentMode == DeviceUiMode.Pro2,
@@ -302,11 +319,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public string DualSenseCardStateText => GetModeStateText(OutputModeId.DualSenseLike, managerReady: true);
     public string Pro2CardStateText => GetModeStateText(OutputModeId.Pro2, managerReady: true);
     public string XboxCardStateText => GetModeStateText(OutputModeId.Xbox, managerReady: true);
-    public string XboxEliteCardStateText => GetModeStateText(OutputModeId.XboxElite, managerReady: true);
-    public string DualSenseCardTooltip => "点击切换到 DualSense-like 模式";
+    public string DualSenseCardTooltip => "点击切换到新和联胜 / PS5 模式";
     public string Pro2CardTooltip => "点击切换到 Pro2 / Nintendo 模式";
     public string XboxCardTooltip => "点击切换到 Xbox / XInput 模式";
-    public string XboxEliteCardTooltip => "点击刷入新和联胜 / Xbox Elite 2 GIP 实验模式";
     public Brush UsbIndicatorBrush => currentMode switch
     {
         DeviceUiMode.DualSense => new SolidColorBrush(Color.FromRgb(29, 78, 216)),
@@ -369,35 +384,51 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public Brush DualSenseCardBackground => GetModeCardBackground(OutputModeId.DualSenseLike);
     public Brush Pro2CardBackground => GetModeCardBackground(OutputModeId.Pro2);
     public Brush XboxCardBackground => GetModeCardBackground(OutputModeId.Xbox);
-    public Brush XboxEliteCardBackground => GetModeCardBackground(OutputModeId.XboxElite);
     public Brush DualSenseCardBorderBrush => GetModeCardBorderBrush(OutputModeId.DualSenseLike, managerReady: true);
     public Brush Pro2CardBorderBrush => GetModeCardBorderBrush(OutputModeId.Pro2, managerReady: true);
     public Brush XboxCardBorderBrush => GetModeCardBorderBrush(OutputModeId.Xbox, managerReady: true);
-    public Brush XboxEliteCardBorderBrush => GetModeCardBorderBrush(OutputModeId.XboxElite, managerReady: true);
     public Brush DualSenseCardBadgeBrush => GetModeBadgeBrush(OutputModeId.DualSenseLike, managerReady: true);
     public Brush Pro2CardBadgeBrush => GetModeBadgeBrush(OutputModeId.Pro2, managerReady: true);
     public Brush XboxCardBadgeBrush => GetModeBadgeBrush(OutputModeId.Xbox, managerReady: true);
-    public Brush XboxEliteCardBadgeBrush => GetModeBadgeBrush(OutputModeId.XboxElite, managerReady: true);
     public Visibility DualSenseLabVisibility => desiredMode == OutputModeId.DualSenseLike ? Visibility.Visible : Visibility.Collapsed;
     public Visibility Pro2LabVisibility => desiredMode == OutputModeId.Pro2 ? Visibility.Visible : Visibility.Collapsed;
     public Visibility DualSenseLabDisabledVisibility => desiredMode == OutputModeId.Unknown || desiredMode == OutputModeId.Recovery ? Visibility.Visible : Visibility.Collapsed;
-    public Visibility XboxLabVisibility => IsXboxLikeMode(desiredMode) ? Visibility.Visible : Visibility.Collapsed;
-    public string XboxToolStateText => desiredMode == OutputModeId.XboxElite
-        ? "Elite 2 当前为 GIP 枚举 bring-up：只验证 0xEE/XGIP10、xboxgip.sys 与 Arrival → Metadata → Idle → Active；震动探针、背键和扩展包已停用。"
-        : DescribeToolState(
+    public Visibility XboxLabVisibility => desiredMode == OutputModeId.Xbox ? Visibility.Visible : Visibility.Collapsed;
+    public string XboxToolStateText => DescribeToolState(
             OutputModeId.Xbox,
             currentMode == DeviceUiMode.Xbox,
             "当前 USB 身份是 Xbox / XInput。BLE 输入走同一份 Pro2 state，主机普通震动会被解析并回传到 Pro2。",
             "已选 Xbox 面板，但 USB 还没有切到 045E:028E。");
+    public string ConnectionGuideTitle => bleTransportState switch
+    {
+        "connected" when bleInputHealthy => "手柄连接完成",
+        "connected" => "手柄已连上，正在恢复实时输入",
+        "connecting" => "正在连接手柄",
+        "scanning" => "正在寻找手柄",
+        _ when string.IsNullOrWhiteSpace(bleSavedTarget) => "尚未绑定 Pro2 手柄",
+        _ => "已记住手柄，当前等待唤醒"
+    };
+    public string ConnectionGuideDetail => bleTransportState switch
+    {
+        "connected" when bleInputHealthy => "实时输入正常。以后手柄休眠或短暂断联，固件会优先寻找这个已保存地址并自动恢复。",
+        "connected" => "BLE 链路存在，但输入暂时不新鲜。请保持手柄唤醒，固件会继续自动修复。",
+        "connecting" => "请保持目标手柄唤醒，不要让它同时连接电脑、手机或其他主机。",
+        "scanning" => "正在扫描附近候选设备。首次连接时请只开启要绑定的那一只 Pro2。",
+        _ when string.IsNullOrWhiteSpace(bleSavedTarget) => "全新使用请点“首次连接”；已有手柄休眠后重连请点“重连已配对”；换另一只手柄请点“更换手柄”。",
+        _ => "已保存目标 " + bleSavedTarget + "。唤醒原手柄会自动连接，也可以点“重连已配对”。"
+    };
+    public string ConnectionTargetText => string.IsNullOrWhiteSpace(bleSavedTarget)
+        ? "当前没有保存手柄地址"
+        : "已保存手柄：" + bleSavedTarget;
 
     public ICommand RefreshPortsCommand { get; }
     public ICommand FlashHapticCommand { get; }
     public ICommand FlashHidOnlyCommand { get; }
     public ICommand FlashPro2Command { get; }
+    public ICommand EraseFirmwareCommand { get; }
     public ICommand ActivateDualSenseModeCommand { get; }
     public ICommand ActivatePro2ModeCommand { get; }
     public ICommand ActivateXboxModeCommand { get; }
-    public ICommand ActivateXboxEliteModeCommand { get; }
     public ICommand CheckUsbCommand { get; }
     public ICommand ListAudioCommand { get; }
     public ICommand OpenJoyCommand { get; }
@@ -405,6 +436,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public ICommand BleScanCommand { get; }
     public ICommand BleListCommand { get; }
     public ICommand BleReconnectCommand { get; }
+    public ICommand BleFirstPairCommand { get; }
+    public ICommand BleReplaceControllerCommand { get; }
     public ICommand BleAutoOnCommand { get; }
     public ICommand BleAutoOffCommand { get; }
     public ICommand BleDisconnectCommand { get; }
@@ -434,6 +467,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public ICommand SendCustomCommand { get; }
     public ICommand ClearLogCommand { get; }
     public ICommand SaveLogCommand { get; }
+    public ICommand OpenLogFolderCommand { get; }
 
     public MainViewModel(Window owner)
     {
@@ -448,21 +482,23 @@ public sealed class MainViewModel : INotifyPropertyChanged
         FlashHapticCommand = new RelayCommand(async _ => await FlashAsync("hid_audio_uac1_4ch_ds5like", FlashMode.Upgrade));
         FlashHidOnlyCommand = new RelayCommand(async _ => await FlashAsync("hid_only", FlashMode.Repair));
         FlashPro2Command = new RelayCommand(async _ => await FlashAsync("pro2_bridge_v5_5", FlashMode.Upgrade));
+        EraseFirmwareCommand = new RelayCommand(async _ => await EraseFirmwareAsync());
         ActivateDualSenseModeCommand = new RelayCommand(async _ => await ActivateModeAsync(OutputModeCatalog.DualSenseLike));
         ActivatePro2ModeCommand = new RelayCommand(async _ => await ActivateModeAsync(OutputModeCatalog.Pro2));
         ActivateXboxModeCommand = new RelayCommand(async _ => await ActivateModeAsync(OutputModeCatalog.Xbox));
-        ActivateXboxEliteModeCommand = new RelayCommand(async _ => await ActivateModeAsync(OutputModeCatalog.XboxElite));
         CheckUsbCommand = new RelayCommand(async _ => await CheckUsbAsync());
         ListAudioCommand = new RelayCommand(async _ => await ListAudioAsync());
         OpenJoyCommand = new RelayCommand(_ => StartShell("joy.cpl"));
         OpenDeviceManagerCommand = new RelayCommand(_ => StartShell("devmgmt.msc"));
         BleScanCommand = new RelayCommand(async _ => await ScanBleAsync());
         BleListCommand = new RelayCommand(async _ => await ListBleAsync());
-        BleReconnectCommand = new RelayCommand(async _ => await SendSerialAsync("ble reconnect", 20, s => BleStatus = "已请求重连上一次 BLE 目标。"));
+        BleReconnectCommand = new RelayCommand(async _ => await ReconnectBleAsync());
+        BleFirstPairCommand = new RelayCommand(async _ => await StartFreshPairingAsync(replacing: false));
+        BleReplaceControllerCommand = new RelayCommand(async _ => await StartFreshPairingAsync(replacing: true));
         BleAutoOnCommand = new RelayCommand(async _ => await SendSerialAsync("ble auto on", 5, s => BleStatus = "BLE 自动重连：已开启。"));
         BleAutoOffCommand = new RelayCommand(async _ => await SendSerialAsync("ble auto off", 5, s => BleStatus = "BLE 自动重连：已关闭。"));
         BleDisconnectCommand = new RelayCommand(async _ => await SendSerialAsync("ble disconnect", 5, s => BleStatus = "已请求断开 BLE。"));
-        BleConnectCommand = new RelayCommand(async _ => await SendSerialAsync("ble connect " + (string.IsNullOrWhiteSpace(BleTarget) ? "last" : BleTarget), 20, s => BleStatus = "已请求连接 BLE 目标。"));
+        BleConnectCommand = new RelayCommand(async _ => await ConnectBleAsync());
         InputRecalibrateCommand = new RelayCommand(async _ => await RecalibrateInputAsync());
         HapticStatusCommand = new RelayCommand(async _ => await SendSerialAsync("haptic status", 5, s => HapticStatus = SummarizeHaptic(s)));
         DryRunOnCommand = new RelayCommand(async _ => await SendSerialAsync("haptic dryrun on", 4, _ => HapticStatus = "试运行已开启。"));
@@ -486,10 +522,11 @@ public sealed class MainViewModel : INotifyPropertyChanged
         Pro2RumbleManualHoldCommand = new RelayCommand(async _ => await RunPro2ManualHoldAsync());
         Pro2RumbleStopCommand = new RelayCommand(async _ => await StopPro2RumbleAsync());
         SendCustomCommand = new RelayCommand(async _ => await SendSerialAsync(CustomCommand, 6, _ => { }));
-        ClearLogCommand = new RelayCommand(_ => { log.Clear(); OnPropertyChanged(nameof(LogText)); });
+        ClearLogCommand = new RelayCommand(_ => ClearLog());
         SaveLogCommand = new RelayCommand(_ => SaveLog());
+        OpenLogFolderCommand = new RelayCommand(_ => OpenLogFolder());
 
-        AppendLog("PRO2 手柄无线接收器控制板 V5.9 已就绪。此 EXE 内置固件与 esptool，单击刷写时无需额外安装 ESP-IDF。");
+        AppendLog("PRO2 手柄无线接收器控制板 V5.9.2 新和联胜版本已就绪。此 EXE 内置 PS5 HD 震动固件与连接向导。");
         if (!string.IsNullOrWhiteSpace(settings.LastBleTarget))
         {
             bleTarget = settings.LastBleTarget;
@@ -603,7 +640,6 @@ public sealed class MainViewModel : INotifyPropertyChanged
         {
             "pro2_bridge_v5_5" => "mode nintendo",
             "xinput_bridge_v5_8" => "mode xinput",
-            "xinput_elite_bridge_v5_9" => "mode xinput",
             _ => ""
         };
     }
@@ -628,7 +664,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             MessageBox.Show(
                 owner,
                 profile.Label + " 目前还是预留位，暂时没有接入完整后端。\n\n管理器已经保留好了模式位和切换语义，后续补固件时不需要再重做界面。",
-                "V5.9 模式预留",
+                "V5.9.2 模式预留",
                 MessageBoxButton.OK,
                 MessageBoxImage.Information);
             return;
@@ -670,10 +706,12 @@ public sealed class MainViewModel : INotifyPropertyChanged
             Enum.TryParse(stored, ignoreCase: true, out OutputModeId parsed) &&
             parsed != OutputModeId.Unknown)
         {
-            return parsed;
+            return parsed == OutputModeId.XboxElite ? OutputModeId.DualSenseLike : parsed;
         }
 
-        return OutputModeCatalog.FindByProfileId(fallbackProfileId)?.ModeId ?? OutputModeId.Pro2;
+        return string.Equals(fallbackProfileId, "xinput_elite_bridge_v5_9", StringComparison.OrdinalIgnoreCase)
+            ? OutputModeId.DualSenseLike
+            : OutputModeCatalog.FindByProfileId(fallbackProfileId)?.ModeId ?? OutputModeId.Pro2;
     }
 
 #pragma warning disable CS0162
@@ -737,7 +775,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             AppendLog("[MODE_SWITCH_FLASH] profile=" + profile +
                       " port=" + SelectedPort.PortName +
                       " desired=" + desiredMode);
-            using var flashTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(150));
+            using var flashTimeout = new CancellationTokenSource(TimeSpan.FromMinutes(5));
             var progress = new Progress<string>(AppendLog);
             await serialLock.WaitAsync(flashTimeout.Token);
             try
@@ -777,7 +815,12 @@ public sealed class MainViewModel : INotifyPropertyChanged
             OverallStatus = IsBoardUnavailableException(ex) ? "离线" : "错误";
             PortStatus = "刷写失败：" + FirstLine(ex.Message);
             ModeSwitchStatus = "刷写失败：profile=" + profile + "，error=" + FirstLine(ex.Message);
-            if (IsBoardUnavailableException(ex))
+            if (ex is DriverCompatibilityException)
+            {
+                AppendLog("[FLASH_DRIVER_BLOCK] " + ex.Message);
+                NextAction = "点击“设备管理器”，给 CH343 选择 Microsoft 的“USB 串行设备”驱动，重新插拔控制口后再刷写。";
+            }
+            else if (IsBoardUnavailableException(ex))
             {
                 AppendLog("[离线] 刷写 " + profile + "： " + FirstLine(ex.Message));
                 NextAction = "请先连接可用的 ESP32 控制板串口，再重试模式切换。";
@@ -796,6 +839,106 @@ public sealed class MainViewModel : INotifyPropertyChanged
         }
     }
 #pragma warning restore CS0162
+
+    private async Task EraseFirmwareAsync()
+    {
+        MessageBoxResult confirmation = MessageBox.Show(
+            owner,
+            "这会完整擦除 ESP32-S3 的整片 Flash。\n\n" +
+            "固件、USB 手柄伪装、NVS 设置、BLE 手柄地址和模式记录都会被删除。擦除后控制板不会再作为手柄工作，直到重新刷入固件。\n\n" +
+            "确定要把控制板清理成“全新 ESP32-S3”状态吗？",
+            "确认清理固件",
+            MessageBoxButton.OKCancel,
+            MessageBoxImage.Warning);
+        if (confirmation != MessageBoxResult.OK)
+        {
+            return;
+        }
+
+        if (Busy || flashInProgress || GameMonitorRunning)
+        {
+            ModeSwitchStatus = "已有刷写、模式切换、游戏监听或设备操作正在进行，暂时不能清理固件。";
+            return;
+        }
+        if (!await flashLock.WaitAsync(0))
+        {
+            ModeSwitchStatus = "已有刷写或模式切换正在进行，暂时不能清理固件。";
+            return;
+        }
+
+        flashInProgress = true;
+        Busy = true;
+        NotifyModeStateChanged();
+        try
+        {
+            OverallStatus = "清理中";
+            if (SelectedPort == null)
+            {
+                await RefreshPortsAsync(logResult: false);
+            }
+            if (SelectedPort == null)
+            {
+                throw new InvalidOperationException(
+                    "当前没有可用的 ESP32 串口。请连接控制板，或手动选择正确的 COM 口。");
+            }
+
+            string erasePort = SelectedPort.PortName;
+            PortStatus = "正在完整擦除 " + erasePort + " 的 Flash。";
+            ModeSwitchStatus = "清理固件开始：port=" + erasePort;
+            NextAction = "请保持 CH343P 控制口连接，等待整片擦除完成。";
+            AppendLog("[FIRMWARE_ERASE] start port=" + erasePort);
+
+            using var eraseTimeout = new CancellationTokenSource(TimeSpan.FromMinutes(2));
+            var progress = new Progress<string>(AppendLog);
+            await serialLock.WaitAsync(eraseTimeout.Token);
+            try
+            {
+                AppendLog("[SERIAL] closing persistent " + erasePort + " before erase_flash");
+                if (!await SerialCommandClient.CloseAsync(5000))
+                {
+                    throw new InvalidOperationException(
+                        "清理前无法释放 " + erasePort + "。请等待当前串口操作结束后重试。");
+                }
+                await flasher.EraseFlashAsync(
+                    erasePort, progress, eraseTimeout.Token);
+            }
+            finally
+            {
+                serialLock.Release();
+            }
+
+            settings.PendingProfileId = "";
+            settings.PendingExpectedUsbMarker = "";
+            settings.PendingRequestedUtc = default;
+            ManagerSettingsStore.Save(settings);
+            serialBoardReady = false;
+            currentMode = DeviceUiMode.Unknown;
+            usbDetected = false;
+            OverallStatus = "已清理";
+            PortStatus = erasePort + " 已完整擦除，当前没有应用固件。";
+            ModeSwitchStatus = "固件、NVS、BLE 配对与 USB 伪装已全部清理。";
+            NextAction = "现在可以作为全新 ESP32-S3 演示；需要恢复时，选择任一模式重新刷写。";
+            AppendLog("[FIRMWARE_ERASE] completed port=" + erasePort);
+        }
+        catch (Exception ex)
+        {
+            OverallStatus = IsBoardUnavailableException(ex) ? "离线" : "错误";
+            PortStatus = "清理固件失败：" + FirstLine(ex.Message);
+            ModeSwitchStatus = "清理固件失败：" + FirstLine(ex.Message);
+            AppendLog("ERROR firmware erase: " + ex);
+            if (ex is DriverCompatibilityException)
+            {
+                NextAction = "点击“设备管理器”，给 CH343 选择 Microsoft 的“USB 串行设备”驱动，重新插拔控制口后再清理。";
+            }
+        }
+        finally
+        {
+            Busy = false;
+            flashInProgress = false;
+            flashLock.Release();
+            NotifyModeStateChanged();
+        }
+    }
 
     private async Task CheckUsbAsync(bool logResult = true)
     {
@@ -1032,17 +1175,26 @@ public sealed class MainViewModel : INotifyPropertyChanged
         try
         {
             Busy = true;
+            BleStatus = "正在唤醒并重连已保存的 Pro2 手柄...";
             string status = await SendSerialCoreAsync("status lite", 2, logOutput: false);
-            if (string.Equals(ReadJsonString(status, "ble"), "connected", StringComparison.OrdinalIgnoreCase) &&
-                HasReadyBleInput(status))
+            BleInputStatus input = BleInputStatusParser.Parse(status);
+            if (input.Ready)
             {
                 BleStatus = "BLE 已连接且输入新鲜，无需重新连接。";
                 return;
             }
 
-            await SendSerialCoreAsync("ble reconnect", 20);
-            string refreshed = await SendSerialCoreAsync("status lite", 2, logOutput: false);
+            await SendSerialCoreAsync("ble auto on", 4);
+            if (input.Connected && input.HasMetrics)
+            {
+                BleStatus = "BLE 已连接但输入通知停滞，正在重新建立连接...";
+                await SendSerialCoreAsync("ble disconnect", 4);
+                await Task.Delay(800);
+            }
+            await SendSerialCoreAsync("ble reconnect", 8);
+            string refreshed = await WaitForBleInputReadyAsync(25);
             BleStatus = SummarizeBle(refreshed, "reconnect");
+            NextAction = "已恢复已配对手柄。以后普通休眠或短暂断联会继续自动重连。";
         }
         catch (Exception ex)
         {
@@ -1073,8 +1225,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
                 : SelectedBleDevice != null
                     ? (!string.IsNullOrWhiteSpace(SelectedBleDevice.Target) ? SelectedBleDevice.Target : SelectedBleDevice.Address)
                     : "last";
-            await SendSerialCoreAsync("ble connect " + target, 20);
-            BleStatus = "已请求 BLE 连接。";
+            await SendSerialCoreAsync("ble connect " + target, 8);
+            string refreshed = await WaitForBleInputReadyAsync(25);
+            BleStatus = SummarizeBle(refreshed, "manual-connect");
         }
         catch (Exception ex)
         {
@@ -1128,8 +1281,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
     {
         if (!CanUseAudioPatternButton)
         {
-            AudioStatus = "当前不是可用的 DualSense-like 模式，或已有任务正在运行，已拒绝发送 PCM / 图样自测。";
-            NextAction = "请先切到 DualSense-like，确认 USB 和串口状态后再发送图样。";
+            AudioStatus = "当前不是可用的新和联胜 / PS5 模式，或已有任务正在运行，已拒绝发送 PCM / 图样自测。";
+            NextAction = "请先切到新和联胜，确认 USB 和串口状态后再发送图样。";
             return;
         }
 
@@ -1206,20 +1359,23 @@ public sealed class MainViewModel : INotifyPropertyChanged
         }
         if (!CanStartMonitorButton)
         {
-            MonitorStatus = "当前不是可用的 DualSense-like 模式，或已有任务正在运行，已拒绝开始监听。";
-            NextAction = "请先切到 DualSense-like，确认 USB 和串口状态后再开始监听。";
+            MonitorStatus = "当前不是可用的新和联胜 / PS5 模式，或已有任务正在运行，已拒绝开始监听。";
+            NextAction = "请先切到新和联胜，确认 USB 和串口状态后再开始监听。";
             return;
         }
 
-        int seconds = ParseIntOrDefault(GameMonitorSeconds, 300, 10, 900);
+        int seconds = ParseIntOrDefault(GameMonitorSeconds, 900, 30, 3600);
         gameMonitorCts = new CancellationTokenSource();
         CancellationToken token = gameMonitorCts.Token;
 
+        bool monitorPrepared = false;
         try
         {
             Busy = true;
             OverallStatus = "游戏监听";
-            MonitorStatus = "正在准备游戏监听：检查 BLE、开启 Live raw02，并启用 HD-only 过滤。";
+            BeginDiagnosticCapture();
+            AppendDiagnosticHeader(seconds);
+            MonitorStatus = "正在准备断联诊断：检查 BLE、开启 Live raw02，并启用 HD-only 过滤。";
 
             await WaitForBleInputReadyAsync(20, token);
 
@@ -1232,16 +1388,17 @@ public sealed class MainViewModel : INotifyPropertyChanged
             await SendSerialCoreAsync("haptic threshold 256", 2);
             await SendSerialCoreAsync("haptic raw02 on", 2);
             await SendSerialCoreAsync("haptic dryrun off", 2);
+            monitorPrepared = true;
 
             Busy = false;
             GameMonitorRunning = true;
             OverallStatus = "监听中";
-            NextAction = "现在可以开始游戏测试。监听运行时请避免点 Pattern / Stop；结束后用“停止监听”。";
+            NextAction = "现在开始游戏测试。诊断日志会每秒刷盘；出现断联后先不要拔控制口，回到这里点“停止监听”。";
             AppendLog("[GAME_MONITOR_START] seconds=" + seconds +
-                      " live_forwarding=true dry_run=false source=hd_only interval_ms=10 max=96 gain=2.0 transient_gain=1.5 threshold=256 status=lite");
+                      " live_forwarding=true dry_run=false source=hd_only interval_ms=10 max=96 gain=2.0 transient_gain=1.5 threshold=256 status=lite" +
+                      " log=" + diagnosticLogPath);
 
             await RunGameMonitorLoopAsync(seconds, token);
-            await DisableLiveForwardingAfterMonitorAsync();
         }
         catch (OperationCanceledException)
         {
@@ -1262,19 +1419,33 @@ public sealed class MainViewModel : INotifyPropertyChanged
         }
         finally
         {
+            if (monitorPrepared)
+            {
+                try
+                {
+                    MonitorStatus = "正在停止监听并关闭 Live raw02...";
+                    await DisableLiveForwardingAfterMonitorAsync();
+                }
+                catch (Exception cleanupError)
+                {
+                    AppendLog("[GAME_MONITOR_CLEANUP_WARN] " + FirstLine(cleanupError.Message));
+                    SerialCommandClient.CloseInBackground();
+                }
+            }
             Busy = false;
             GameMonitorRunning = false;
             gameMonitorCts?.Dispose();
             gameMonitorCts = null;
+            EndDiagnosticCapture("monitor_finished");
         }
     }
 
     private async Task DisableLiveForwardingAfterMonitorAsync()
     {
-        await SendSerialCoreAsync("haptic test live stop", 2);
-        await SendSerialCoreAsync("haptic source hd_only", 2);
-        await SendSerialCoreAsync("haptic dryrun on", 2);
-        await SendSerialCoreAsync("haptic raw02 off", 2);
+        await SendSerialCoreAsync("haptic test live stop", 2, logOutput: false);
+        await SendSerialCoreAsync("haptic source hd_only", 2, logOutput: false);
+        await SendSerialCoreAsync("haptic dryrun on", 2, logOutput: false);
+        await SendSerialCoreAsync("haptic raw02 off", 2, logOutput: false);
         AppendLog("[GAME_MONITOR_END_SAFE_OFF] live_forwarding=false dry_run=true source=hd_only");
     }
 
@@ -1310,21 +1481,33 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     private async Task RunGameMonitorLoopAsync(int seconds, CancellationToken token)
     {
-        string previous = await SendSerialCoreAsync("status lite", 2);
+        string previous = await SendSerialCoreAsync("status lite", 2, logOutput: false, token);
+        LogCriticalFirmwareLines(previous, "baseline");
+        AppendLog("[DIAG_FIRMWARE_RX] phase=baseline " + ExtractLastJsonLine(previous));
         MonitorSnapshot baseline = MonitorSnapshot.FromStatus(previous);
         MonitorSnapshot last = baseline;
         int samples = 0;
         int activeSamples = 0;
         int writeSamples = 0;
+        int hidStallSamples = 0;
+        bool boardRestarted = false;
+        string lastHostUsb = OneLine((await Task.Run(() => DeviceInspector.ProbeUsb())).Summary);
 
         AppendLog("[GAME_MONITOR_BASELINE] " + baseline.ToLogString());
+        AppendLog("[DIAG_HOST_USB] t=0s " + lastHostUsb);
 
         for (int elapsed = 1; elapsed <= seconds; elapsed++)
         {
             await Task.Delay(1000, token);
 
-            string status = await SendSerialCoreAsync("status lite", 2);
+            string status = await SendSerialCoreAsync("status lite", 2, logOutput: false, token);
+            LogCriticalFirmwareLines(status, elapsed + "s");
+            AppendLog("[DIAG_FIRMWARE_RX] t=" + elapsed + "s " + ExtractLastJsonLine(status));
             MonitorSnapshot current = MonitorSnapshot.FromStatus(status);
+            if (current.UptimeMs + 1000 < last.UptimeMs)
+            {
+                boardRestarted = true;
+            }
             MonitorDelta delta = current.DeltaFrom(last);
             MonitorDelta total = current.DeltaFrom(baseline);
             samples++;
@@ -1338,9 +1521,22 @@ public sealed class MainViewModel : INotifyPropertyChanged
                 "delta=(" + delta.ToLogString() + ") " +
                 "total=(" + total.ToLogString() + ")";
             AppendLog(sampleLine);
+            LogDiagnosticEvents(last, current, delta, elapsed, ref hidStallSamples);
+
+            if (elapsed % 10 == 0)
+            {
+                string hostUsb = OneLine((await Task.Run(() => DeviceInspector.ProbeUsb())).Summary);
+                AppendLog("[DIAG_HOST_USB] t=" + elapsed + "s " + hostUsb);
+                if (!string.Equals(hostUsb, lastHostUsb, StringComparison.Ordinal))
+                {
+                    AppendLog("[DIAG_EVENT] t=" + elapsed + "s type=host_usb_changed previous=\"" +
+                              EscapeLogValue(lastHostUsb) + "\" current=\"" + EscapeLogValue(hostUsb) + "\"");
+                    lastHostUsb = hostUsb;
+                }
+            }
 
             MonitorStatus =
-                $"监听中 {elapsed}/{seconds}s：音频包 +{total.AudioPackets}, 活跃包 +{total.AudioActive}, HD 候选 +{total.HdCandidates}, 屏蔽 PCM +{total.DroppedPcm}, raw02 +{total.Raw02Live}, BLE writes +{total.BleWrites}, errors={current.BleErrors}";
+                $"诊断中 {elapsed}/{seconds}s：BLE={current.Ble}, 输入时延={current.InputAgeMs}ms, HID={current.HidReportSent}, 断线={current.BleDisconnects}, 音频 +{total.AudioPackets}, raw02 +{total.Raw02Live}, errors={current.BleErrors}";
             HapticStatus = SummarizeHaptic(status);
             last = current;
         }
@@ -1353,62 +1549,85 @@ public sealed class MainViewModel : INotifyPropertyChanged
         bool gameAudioDetected = finalDelta.AudioPackets > 0 && finalDelta.AudioActive > 0;
         bool hdCandidateDetected = finalDelta.HdCandidates > 0;
         bool liveForwarded = finalDelta.Raw02Live > 0 && finalDelta.BleWrites > 0;
+        bool ordinaryHidRumbleForwarded =
+            finalDelta.HidRumbleActiveUpdates > 0 && finalDelta.HidRumbleBleWrites > 0;
+        bool invalidHidRumbleSeen =
+            finalDelta.HidRumbleIgnoredNonzero > 0 && finalDelta.HidRumbleActiveUpdates == 0;
+        bool transportDrop = finalDelta.BleDisconnects > 0 ||
+                             boardRestarted ||
+                             finalDelta.BleConnectFailures > 0 ||
+                             finalDelta.HidReportFailed > 0 ||
+                             !last.UsbMounted ||
+                             last.UsbSuspended ||
+                             (string.Equals(last.Ble, "connected", StringComparison.OrdinalIgnoreCase) &&
+                              (!last.InputLive || last.InputAgeMs > 1000));
         bool mostlyPcm = finalDelta.DroppedPcm > 0 &&
                          finalDelta.AudioActive > 0 &&
                          finalDelta.DroppedPcm >= (finalDelta.AudioActive * 3 / 4);
-        string conclusion = noControllerAudioStream
-            ? "no_controller_audio_stream_opened"
+        string conclusion = transportDrop
+            ? "transport_instability_detected"
             : gameAudioDetected && mostlyPcm
             ? "ordinary_pcm_audio_blocked_not_hd"
             : gameAudioDetected && hdCandidateDetected && liveForwarded
             ? "game_haptic_forwarded"
             : gameAudioDetected
-                ? "game_audio_seen_but_no_hd_candidate"
-                : "no_game_haptic_audio_detected";
+            ? "game_audio_seen_but_no_hd_candidate"
+            : ordinaryHidRumbleForwarded
+            ? "ordinary_hid_rumble_forwarded"
+            : invalidHidRumbleSeen
+            ? "host_output_without_valid_rumble_enable"
+            : noControllerAudioStream
+            ? "no_controller_audio_stream_opened"
+            : "no_game_haptic_audio_detected";
 
         AppendLog("[GAME_MONITOR_RESULT] conclusion=" + conclusion +
                   " samples=" + samples +
                   " active_samples=" + activeSamples +
                   " write_samples=" + writeSamples +
                   " no_controller_audio_stream=" + noControllerAudioStream.ToString().ToLowerInvariant() +
+                  " transport_drop=" + transportDrop.ToString().ToLowerInvariant() +
+                  " board_restarted=" + boardRestarted.ToString().ToLowerInvariant() +
+                  " reset_reason=" + last.ResetReasonName +
                   " mostly_pcm=" + mostlyPcm.ToString().ToLowerInvariant() +
                   " " + finalDelta.ToLogString());
-        MonitorStatus = conclusion == "no_controller_audio_stream_opened"
-            ? "监听完成：游戏从未打开 Wireless Controller Audio，因此没有任何 DualSense 震动音频进入开发板。"
-            : "监听完成：" + conclusion + "。日志里已经记录了 GAME_MONITOR_RESULT。";
+        MonitorStatus = conclusion switch
+        {
+            "no_controller_audio_stream_opened" =>
+                "监听完成：游戏从未打开 Wireless Controller Audio，因此没有 DualSense 震动音频进入开发板。",
+            "host_output_without_valid_rumble_enable" =>
+                "监听完成：游戏发来了非零马达字节，但没有设置 DualSense 震动有效位，固件按真实手柄规则拒绝了这些无效数据。",
+            "ordinary_hid_rumble_forwarded" =>
+                "监听完成：普通 DualSense HID 双马达震动已成功写入 Pro2。",
+            _ => "监听完成：" + conclusion + "。日志里已经记录了 GAME_MONITOR_RESULT。"
+        };
         if (conclusion == "no_controller_audio_stream_opened")
         {
             NextAction = "请先换一个真正支持 PC DualSense 震动音频的标题；本次会话没有向控制器音频端点发送任何数据。";
         }
-        OverallStatus = conclusion == "game_haptic_forwarded" ? "监听正常" : "缺少上游源";
+        else if (conclusion == "host_output_without_valid_rumble_enable")
+        {
+            NextAction = "请关闭该游戏的 Steam Input、DS4Windows 或其他手柄转译层后重测；真实 DualSense 也会忽略没有 rumble enable 位的马达字节。";
+        }
+        else if (boardRestarted)
+        {
+            NextAction = "检测到 ESP32 在游戏中重启，reset_reason=" + last.ResetReasonName +
+                         "。请保留本次日志，重点查看 firmware_critical 和 audio_queue 字段。";
+        }
+        OverallStatus = conclusion == "game_haptic_forwarded"
+            || conclusion == "ordinary_hid_rumble_forwarded"
+            ? "监听正常"
+            : conclusion == "transport_instability_detected" ? "发现断联证据" : "缺少上游源";
     }
 
-    private async Task StopGameMonitorAsync()
+    private Task StopGameMonitorAsync()
     {
-        gameMonitorCts?.Cancel();
-        try
-        {
-            await SendSerialCoreAsync("haptic test live stop", 2);
-            await SendSerialCoreAsync("haptic source hd_only", 2);
-            await SendSerialCoreAsync("haptic dryrun on", 2);
-            await SendSerialCoreAsync("haptic raw02 off", 2);
-            MonitorStatus = "监听已停止，Live raw02 已安全关闭。";
-            HapticStatus = "Live raw02 已关闭，Dry-run 已重新开启。";
-            OverallStatus = "监听已停止";
-            AppendLog("[GAME_MONITOR_STOP] live_forwarding=false dry_run=true source=hd_only");
-        }
-        catch (Exception ex)
-        {
-            MonitorStatus = "停止监听时出现串口错误：" + FirstLine(ex.Message);
-            if (IsBoardUnavailableException(ex))
-            {
-                LogBoardUnavailable("停止监听", ex);
-            }
-            else
-            {
-                AppendLog("WARN game monitor stop: " + ex);
-            }
-        }
+        CancellationTokenSource? cts = gameMonitorCts;
+        if (cts == null || cts.IsCancellationRequested) return Task.CompletedTask;
+        cts.Cancel();
+        MonitorStatus = "已请求停止，正在取消串口轮询并执行一次安全清理...";
+        OverallStatus = "正在停止监听";
+        AppendLog("[GAME_MONITOR_STOP_REQUESTED]");
+        return Task.CompletedTask;
     }
 
     private async Task ListAudioAsync()
@@ -1429,7 +1648,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             string output = await RunAudioSenderCoreAsync(arguments);
             AudioStatus = output.Contains("channels=4", StringComparison.OrdinalIgnoreCase)
                 ? "音频辅助工具检测到了 4 声道，或已成功发送。"
-                : "音频辅助工具已运行；如果你始终只看到 2 声道，请确认已刷入 DualSense-like 4 声道固件，并重新插拔原生 USB。";
+                : "音频辅助工具已运行；如果你始终只看到 2 声道，请确认已刷入新和联胜 4 声道固件，并重新插拔原生 USB。";
             AppendLog(output);
         }
         catch (Exception ex)
@@ -1608,14 +1827,21 @@ public sealed class MainViewModel : INotifyPropertyChanged
         return await SendSerialCoreAsync(command, readSeconds, true);
     }
 
-    private async Task<string> SendSerialCoreAsync(string command, int readSeconds, bool logOutput)
+    private Task<string> SendSerialCoreAsync(string command, int readSeconds, bool logOutput)
+    {
+        return SendSerialCoreAsync(command, readSeconds, logOutput, CancellationToken.None);
+    }
+
+    private async Task<string> SendSerialCoreAsync(
+        string command, int readSeconds, bool logOutput, CancellationToken cancellationToken)
     {
         if (!await EnsureSerialBoardReadyAsync(LabelForCommand(command)))
         {
             throw new InvalidOperationException("当前没有可用的 ESP32 控制板串口。");
         }
 
-        await serialLock.WaitAsync();
+        cancellationToken.ThrowIfCancellationRequested();
+        await serialLock.WaitAsync(cancellationToken);
         try
         {
             if (SelectedPort == null)
@@ -1629,7 +1855,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
                 SelectedPort.PortName,
                 command,
                 readSeconds,
-                progress);
+                progress,
+                cancellationToken);
             serialBoardReady = true;
             nextSerialAutoProbeAt = DateTime.UtcNow;
             UpdateStateFromText(output);
@@ -1783,13 +2010,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
                  lower.Contains("vid_045e&pid_02e3") ||
                  lower.Contains("vid_045e&pid_028e"))
         {
-            bool expectingElite = desiredMode == OutputModeId.XboxElite ||
-                                  currentMode == DeviceUiMode.XboxElite ||
-                                  string.Equals(settings.PendingProfileId, "xinput_elite_bridge_v5_9", StringComparison.OrdinalIgnoreCase);
             SetCurrentMode(profile.Contains("elite", StringComparison.OrdinalIgnoreCase) ||
                            lower.Contains("vid_045e&pid_0b00") ||
-                           lower.Contains("vid_045e&pid_02e3") ||
-                           expectingElite
+                           lower.Contains("vid_045e&pid_02e3")
                 ? DeviceUiMode.XboxElite
                 : DeviceUiMode.Xbox);
         }
@@ -1811,14 +2034,14 @@ public sealed class MainViewModel : INotifyPropertyChanged
         TryAlignDesiredModeWithDetectedUsb();
 
         string ble = ReadJsonString(text, "ble");
+        if (Regex.IsMatch(text, "\"ble_target\"\\s*:", RegexOptions.IgnoreCase))
+        {
+            SetBleSavedTarget(ReadJsonString(text, "ble_target"));
+        }
         if (!string.IsNullOrWhiteSpace(ble))
         {
-            bool hasInputMetrics = !string.IsNullOrWhiteSpace(ReadJsonBoolString(text, "input_live")) ||
-                                   ReadJsonCounter(text, "input_updates") >= 0 ||
-                                   ReadJsonCounter(text, "input_age_ms") >= 0;
-            bool healthy = string.Equals(ble, "connected", StringComparison.OrdinalIgnoreCase) &&
-                           (!hasInputMetrics || HasReadyBleInput(text));
-            SetBleVisualState(ble, healthy);
+            BleInputStatus input = BleInputStatusParser.Parse(text);
+            SetBleVisualState(ble, input.Ready);
         }
     }
 
@@ -1906,14 +2129,28 @@ public sealed class MainViewModel : INotifyPropertyChanged
         NotifyModeStateChanged();
     }
 
+    private void SetBleSavedTarget(string? value)
+    {
+        string normalized = value?.Trim() ?? "";
+        if (string.Equals(bleSavedTarget, normalized, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        bleSavedTarget = normalized;
+        OnPropertyChanged(nameof(ConnectionGuideTitle));
+        OnPropertyChanged(nameof(ConnectionGuideDetail));
+        OnPropertyChanged(nameof(ConnectionTargetText));
+    }
+
     private string GetModeLabel(OutputModeId mode)
     {
         return mode switch
         {
-            OutputModeId.DualSenseLike => "DualSense-like",
+            OutputModeId.DualSenseLike => "新和联胜 / PS5",
             OutputModeId.Pro2 => "Pro2 / Nintendo",
             OutputModeId.Xbox => "Xbox / XInput",
-            OutputModeId.XboxElite => "新和联胜 / Xbox Elite 2 GIP",
+            OutputModeId.XboxElite => "旧版 Xbox Elite 2 实验固件",
             OutputModeId.Recovery => "HID 纯恢复",
             _ => "未知"
         };
@@ -1923,10 +2160,10 @@ public sealed class MainViewModel : INotifyPropertyChanged
     {
         return mode switch
         {
-            OutputModeId.DualSenseLike => "DualSense-like USB 身份，并保留控制器音频实验链路。",
+            OutputModeId.DualSenseLike => "严格 PS5 / DualSense USB 身份，协调普通震动和四声道 HD 音频转震动链路。",
             OutputModeId.Pro2 => "面向原始 HID 0x02 震动优先路线调好的 Nintendo-like / Pro2 桥接。",
             OutputModeId.Xbox => "真实 Xbox 360 / XInput 风格 USB 后端，普通震动会回传到 Pro2 BLE。",
-            OutputModeId.XboxElite => "Xbox Elite 2 / GIP 枚举 bring-up，优先验证 Microsoft OS Descriptor、xboxgip.sys 绑定和 Active 状态。",
+            OutputModeId.XboxElite => "旧版 Elite 2 枚举实验固件，V5.9.2 已停止发行。",
             OutputModeId.Recovery => "用于重刷与 USB 救援的最小恢复固件。",
             _ => "尚未选择目标模式。"
         };
@@ -2063,7 +2300,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     private static bool IsXboxLikeMode(OutputModeId mode)
     {
-        return mode == OutputModeId.Xbox || mode == OutputModeId.XboxElite;
+        return mode == OutputModeId.Xbox;
     }
 
     private bool IsXboxLikeCurrentMode()
@@ -2091,7 +2328,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             DeviceUiMode.DualSense => OutputModeId.DualSenseLike,
             DeviceUiMode.Pro2 => OutputModeId.Pro2,
             DeviceUiMode.Xbox => OutputModeId.Xbox,
-            DeviceUiMode.XboxElite => OutputModeId.XboxElite,
+            DeviceUiMode.XboxElite => OutputModeId.Xbox,
             DeviceUiMode.Recovery => OutputModeId.Recovery,
             _ => OutputModeId.Unknown
         };
@@ -2152,19 +2389,15 @@ public sealed class MainViewModel : INotifyPropertyChanged
         OnPropertyChanged(nameof(DualSenseCardStateText));
         OnPropertyChanged(nameof(Pro2CardStateText));
         OnPropertyChanged(nameof(XboxCardStateText));
-        OnPropertyChanged(nameof(XboxEliteCardStateText));
         OnPropertyChanged(nameof(DualSenseCardBackground));
         OnPropertyChanged(nameof(Pro2CardBackground));
         OnPropertyChanged(nameof(XboxCardBackground));
-        OnPropertyChanged(nameof(XboxEliteCardBackground));
         OnPropertyChanged(nameof(DualSenseCardBorderBrush));
         OnPropertyChanged(nameof(Pro2CardBorderBrush));
         OnPropertyChanged(nameof(XboxCardBorderBrush));
-        OnPropertyChanged(nameof(XboxEliteCardBorderBrush));
         OnPropertyChanged(nameof(DualSenseCardBadgeBrush));
         OnPropertyChanged(nameof(Pro2CardBadgeBrush));
         OnPropertyChanged(nameof(XboxCardBadgeBrush));
-        OnPropertyChanged(nameof(XboxEliteCardBadgeBrush));
         OnPropertyChanged(nameof(DualSenseLabVisibility));
         OnPropertyChanged(nameof(DualSenseLabDisabledVisibility));
         OnPropertyChanged(nameof(XboxLabVisibility));
@@ -2174,6 +2407,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
         OnPropertyChanged(nameof(BleDisplayBackgroundBrush));
         OnPropertyChanged(nameof(BleDisplayBorderBrush));
         OnPropertyChanged(nameof(BleDisplayForegroundBrush));
+        OnPropertyChanged(nameof(ConnectionGuideTitle));
+        OnPropertyChanged(nameof(ConnectionGuideDetail));
+        OnPropertyChanged(nameof(ConnectionTargetText));
         OnPropertyChanged(nameof(ModeCardBrush));
         OnPropertyChanged(nameof(ModeCardBorderBrush));
         OnPropertyChanged(nameof(OverallStatusBackgroundBrush));
@@ -2374,17 +2610,27 @@ public sealed class MainViewModel : INotifyPropertyChanged
         long holdMs = ReadJsonCounter(status, "rumble_hold_ms");
         long tickMs = ReadJsonCounter(status, "rumble_tick_ms");
         long stopPackets = ReadJsonCounter(status, "rumble_stop_packets");
-        return $"BLE={ble}, rumble={rumble}, updates={updates}, writes={writes}, stops={stops}, errors={errors}, preset_ignored={presetIgnored}, scale={scale}, hold_ms={holdMs}, tick_ms={tickMs}, stop_packets={stopPackets}";
+        BleInputStatus input = BleInputStatusParser.Parse(status);
+        string inputText = input.HasMetrics
+            ? $"{input.Schema}:{(input.InputLive ? "live" : "stale")}, input_updates={input.Updates}, input_age_ms={input.AgeMs}"
+            : "legacy";
+        return $"BLE={ble}, input={inputText}, rumble={rumble}, updates={updates}, writes={writes}, stops={stops}, errors={errors}, preset_ignored={presetIgnored}, scale={scale}, hold_ms={holdMs}, tick_ms={tickMs}, stop_packets={stopPackets}";
+    }
+
+    private async Task<string> ReadPro2BridgeStatusAsync(bool logOutput)
+    {
+        string status = await SendSerialCoreAsync("status", 3, logOutput);
+        if (ReadJsonCounter(status, "rumble_writes") < 0)
+        {
+            throw new InvalidOperationException("当前串口回包看起来不是 Pro2 / Nintendo 桥接固件。请先切换到 Pro2 模式并执行一次 USB 检查。");
+        }
+        return status;
     }
 
     private async Task EnsurePro2BridgeReadyAsync()
     {
         await WaitForBleInputReadyAsync(15);
-        string status = await SendSerialCoreAsync("status", 3, logOutput: false);
-        if (ReadJsonCounter(status, "rumble_writes") < 0)
-        {
-            throw new InvalidOperationException("当前串口回包看起来不是 Pro2 / Nintendo 桥接固件。请先切换到 Pro2 模式并执行一次 USB 检查。");
-        }
+        await ReadPro2BridgeStatusAsync(logOutput: false);
     }
 
     private async Task RefreshPro2RumbleStatusAsync()
@@ -2392,10 +2638,10 @@ public sealed class MainViewModel : INotifyPropertyChanged
         try
         {
             Busy = true;
-            await EnsurePro2BridgeReadyAsync();
-            string status = await SendSerialCoreAsync("status", 3);
+            string status = await ReadPro2BridgeStatusAsync(logOutput: true);
             Pro2RumbleStatus = SummarizePro2Rumble(status);
-            OverallStatus = "Pro2 震动";
+            BleInputStatus input = BleInputStatusParser.Parse(status);
+            OverallStatus = input.Ready ? "Pro2 震动" : "Pro2 状态";
         }
         catch (Exception ex)
         {
@@ -2421,7 +2667,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         try
         {
             Busy = true;
-            await EnsurePro2BridgeReadyAsync();
+            await ReadPro2BridgeStatusAsync(logOutput: false);
             int scale = ParseIntOrDefault(Pro2RumbleScale, 140, 10, 250);
             int holdMs = ParseIntOrDefault(Pro2RumbleHoldMs, 220, 50, 1000);
             int tickMs = ParseIntOrDefault(Pro2RumbleTickMs, 12, 5, 50);
@@ -2635,29 +2881,279 @@ public sealed class MainViewModel : INotifyPropertyChanged
         }
     }
 
+    private static string LogRootDirectory =>
+        Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "PRO2WirelessReceiverControlBoard",
+            "logs");
+
+    private void BeginDiagnosticCapture()
+    {
+        firmwareCriticalLinesSeen.Clear();
+        lock (logSync)
+        {
+            diagnosticWriter?.Dispose();
+            Directory.CreateDirectory(LogRootDirectory);
+            diagnosticLogPath = Path.Combine(
+                LogRootDirectory,
+                "xin_heliansheng_v5.9.2_" + DateTime.Now.ToString("yyyyMMdd_HHmmss") + ".log");
+            diagnosticWriter = new StreamWriter(
+                diagnosticLogPath,
+                append: false,
+                new UTF8Encoding(encoderShouldEmitUTF8Identifier: true))
+            {
+                AutoFlush = true
+            };
+        }
+    }
+
+    private void AppendDiagnosticHeader(int seconds)
+    {
+        FirmwarePackage package = EmbeddedAssets.EnsurePackage();
+        FirmwareProfile profile = package.GetProfile("hid_audio_uac1_4ch_ds5like");
+        FirmwareAsset? app = profile.Assets.FirstOrDefault(asset =>
+            asset.Path.EndsWith(".bin", StringComparison.OrdinalIgnoreCase) &&
+            !asset.Path.Contains("bootloader", StringComparison.OrdinalIgnoreCase) &&
+            !asset.Path.Contains("partition", StringComparison.OrdinalIgnoreCase));
+        AppendLog("[DIAG_SESSION_START] app=5.9.2 duration_seconds=" + seconds +
+                  " local_time=" + DateTime.Now.ToString("O") +
+                  " utc_time=" + DateTime.UtcNow.ToString("O"));
+        AppendLog("[DIAG_PACKAGE] package=" + package.Manifest.PackageVersion +
+                  " firmware=" + package.Manifest.FirmwareVersion +
+                  " profile=" + profile.Id +
+                  " app_sha256=" + (app?.Sha256 ?? "unknown"));
+        AppendLog("[DIAG_HOST] os=\"" + EscapeLogValue(Environment.OSVersion.VersionString) +
+                  "\" clr=" + Environment.Version +
+                  " machine=\"" + EscapeLogValue(Environment.MachineName) + "\"");
+        AppendLog("[DIAG_SERIAL] port=" + (SelectedPort?.PortName ?? "none") +
+                  " device=\"" + EscapeLogValue(SelectedPort?.Name ?? "unknown") + "\"");
+    }
+
+    private void EndDiagnosticCapture(string reason)
+    {
+        if (diagnosticWriter == null || string.IsNullOrWhiteSpace(diagnosticLogPath))
+        {
+            return;
+        }
+
+        AppendLog("[DIAG_SESSION_END] reason=" + reason + " log=" + diagnosticLogPath);
+        lock (logSync)
+        {
+            diagnosticWriter?.Dispose();
+            diagnosticWriter = null;
+        }
+        MonitorStatus = "诊断已结束。自动日志：" + diagnosticLogPath;
+    }
+
+    private void LogDiagnosticEvents(
+        MonitorSnapshot previous,
+        MonitorSnapshot current,
+        MonitorDelta delta,
+        int elapsed,
+        ref int hidStallSamples)
+    {
+        string prefix = "[DIAG_EVENT] t=" + elapsed + "s ";
+        if (current.UptimeMs + 1000 < previous.UptimeMs)
+        {
+            AppendLog(prefix + "type=board_restart previous_uptime_ms=" + previous.UptimeMs +
+                      " current_uptime_ms=" + current.UptimeMs +
+                      " reset_reason=" + current.ResetReason +
+                      " reset_reason_name=" + current.ResetReasonName);
+        }
+        if (!string.Equals(previous.Ble, current.Ble, StringComparison.OrdinalIgnoreCase))
+        {
+            AppendLog(prefix + "type=ble_state previous=" + previous.Ble + " current=" + current.Ble);
+        }
+        if (delta.BleDisconnects > 0)
+        {
+            AppendLog(prefix + "type=ble_disconnect count=+" + delta.BleDisconnects +
+                      " reason=" + current.BleDisconnectReason +
+                      " age_ms=" + current.BleDisconnectAgeMs);
+        }
+        if (delta.BleConnectFailures > 0)
+        {
+            AppendLog(prefix + "type=ble_connect_failure count=+" + delta.BleConnectFailures +
+                      " status=" + current.BleConnectLastStatus +
+                      " start_rc=" + current.BleConnectLastRc);
+        }
+        if (delta.BleConnectSuccesses > 0)
+        {
+            AppendLog(prefix + "type=ble_connect_success count=+" + delta.BleConnectSuccesses +
+                      " interval_us=" + current.BleConnIntervalUs);
+        }
+        if (delta.BleReconnectAttempts > 0 || delta.BleScanStarts > 0)
+        {
+            AppendLog(prefix + "type=ble_reconnect_progress attempts=+" + delta.BleReconnectAttempts +
+                      " scans=+" + delta.BleScanStarts +
+                      " reconnect_task=" + current.BleReconnectTask.ToString().ToLowerInvariant());
+        }
+        if (previous.InputLive != current.InputLive)
+        {
+            AppendLog(prefix + "type=input_live previous=" + previous.InputLive.ToString().ToLowerInvariant() +
+                      " current=" + current.InputLive.ToString().ToLowerInvariant() +
+                      " age_ms=" + current.InputAgeMs);
+        }
+        if (string.Equals(current.Ble, "connected", StringComparison.OrdinalIgnoreCase) &&
+            current.InputAgeMs > 1000 &&
+            previous.InputAgeMs <= 1000)
+        {
+            AppendLog(prefix + "type=ble_connected_but_input_stale input_age_ms=" + current.InputAgeMs +
+                      " notify_age_ms=" + current.BleNotifyParsedAgeMs);
+        }
+        if (previous.UsbMounted != current.UsbMounted ||
+            previous.UsbSuspended != current.UsbSuspended ||
+            previous.UsbConfigurationReady != current.UsbConfigurationReady)
+        {
+            AppendLog(prefix + "type=usb_state mounted=" + current.UsbMounted.ToString().ToLowerInvariant() +
+                      " suspended=" + current.UsbSuspended.ToString().ToLowerInvariant() +
+                      " configuration_ready=" + current.UsbConfigurationReady.ToString().ToLowerInvariant() +
+                      " mounts=" + current.UsbMountCount +
+                      " umounts=" + current.UsbUmountCount +
+                      " suspends=" + current.UsbSuspendCount +
+                      " resumes=" + current.UsbResumeCount);
+        }
+        if (delta.UsbConfigurationResetCount > 0)
+        {
+            AppendLog(prefix + "type=usb_configuration_reset count=+" +
+                      delta.UsbConfigurationResetCount +
+                      " bus_resets=" + current.UsbBusResetCount +
+                      " age_ms=" + current.UsbConfigurationResetAgeMs +
+                      " configuration_ready=" +
+                      current.UsbConfigurationReady.ToString().ToLowerInvariant());
+        }
+        if (delta.HidReportFailed > 0 || delta.HidReportNotReady > 0)
+        {
+            AppendLog(prefix + "type=hid_backpressure failed=+" + delta.HidReportFailed +
+                      " submit_failed=+" + delta.HidReportSubmitFailed +
+                      " xfer_failed=+" + delta.HidReportXferFailed +
+                      " submit_streak=" + current.HidReportSubmitFailureStreak +
+                      " submit_failure_age_ms=" + current.HidReportSubmitFailureAgeMs +
+                      " not_ready=+" + delta.HidReportNotReady +
+                      " report_age_ms=" + current.HidReportAgeMs);
+        }
+        if (delta.HidEndpointKicks > 0 || delta.UsbRecoveryCount > 0)
+        {
+            AppendLog(prefix + "type=hid_recovery endpoint_kicks=+" + delta.HidEndpointKicks +
+                      " usb_reenumerations=+" + delta.UsbRecoveryCount +
+                      " report_age_ms=" + current.HidReportAgeMs);
+        }
+        if (delta.AudioDropped > 0)
+        {
+            AppendLog(prefix + "type=audio_queue_drop dropped=+" + delta.AudioDropped +
+                      " depth=" + current.AudioQueueDepth +
+                      " high=" + current.AudioQueueHigh);
+        }
+        if (current.UsbMounted && !current.UsbSuspended && delta.HidReportCompleted == 0)
+        {
+            hidStallSamples++;
+            if (hidStallSamples == 2)
+            {
+                AppendLog(prefix + "type=hid_report_stall samples=" + hidStallSamples +
+                          " report_age_ms=" + current.HidReportAgeMs);
+            }
+        }
+        else
+        {
+            if (hidStallSamples >= 2 && delta.HidReportCompleted > 0)
+            {
+                AppendLog(prefix + "type=hid_report_recovered completed=+" + delta.HidReportCompleted);
+            }
+            hidStallSamples = 0;
+        }
+        if (previous.AudioStreaming != current.AudioStreaming)
+        {
+            AppendLog(prefix + "type=audio_stream previous=" +
+                      previous.AudioStreaming.ToString().ToLowerInvariant() +
+                      " current=" + current.AudioStreaming.ToString().ToLowerInvariant() +
+                      " alt=" + current.AudioAlt);
+        }
+        if (delta.HidOutputCount > 0)
+        {
+            AppendLog(prefix + "type=host_output packets=+" + delta.HidOutputCount +
+                      " output_age_ms=" + current.HidOutputAgeMs);
+        }
+        if (delta.HidRumbleActiveUpdates > 0 || delta.HidRumbleBleWrites > 0)
+        {
+            AppendLog(prefix + "type=valid_hid_rumble updates=+" + delta.HidRumbleActiveUpdates +
+                      " ble_writes=+" + delta.HidRumbleBleWrites +
+                      " motors=" + current.HidRumbleLeft + "/" + current.HidRumbleRight);
+        }
+        if (delta.HidRumbleIgnoredNonzero > 0)
+        {
+            AppendLog(prefix + "type=invalid_hid_rumble_bytes ignored=+" + delta.HidRumbleIgnoredNonzero +
+                      " flags=" + current.HidRumbleValid0 + "/" + current.HidRumbleValid1 + "/" + current.HidRumbleValid2 +
+                      " motors=" + current.HidRumbleLeft + "/" + current.HidRumbleRight +
+                      " preview=" + current.HidRumblePreview);
+        }
+    }
+
+    private static string EscapeLogValue(string text)
+    {
+        return (text ?? "").Replace("\\", "\\\\").Replace("\"", "\\\"");
+    }
+
+    private void ClearLog()
+    {
+        lock (logSync)
+        {
+            log.Clear();
+        }
+        OnPropertyChanged(nameof(LogText));
+    }
+
     private void SaveLog()
     {
         var dialog = new SaveFileDialog
         {
-            FileName = "v5_9_manager_" + DateTime.Now.ToString("yyyyMMdd_HHmmss") + ".log",
+            FileName = "v5_9_1_diagnostic_" + DateTime.Now.ToString("yyyyMMdd_HHmmss") + ".log",
             Filter = "Log file|*.log|Text file|*.txt"
         };
         if (dialog.ShowDialog(owner) == true)
         {
-            File.WriteAllText(dialog.FileName, log.ToString(), new UTF8Encoding(encoderShouldEmitUTF8Identifier: true));
+            string snapshot;
+            lock (logSync)
+            {
+                snapshot = log.ToString();
+            }
+            File.WriteAllText(dialog.FileName, snapshot, new UTF8Encoding(encoderShouldEmitUTF8Identifier: true));
             AppendLog("日志已保存：" + dialog.FileName);
         }
+    }
+
+    private void OpenLogFolder()
+    {
+        Directory.CreateDirectory(LogRootDirectory);
+        StartShell(LogRootDirectory);
     }
 
     private void AppendLog(string text)
     {
         if (string.IsNullOrWhiteSpace(text)) return;
-        foreach (string line in text.Replace("\r", "").Split('\n'))
+        lock (logSync)
         {
-            if (string.IsNullOrWhiteSpace(line)) continue;
-            log.Append('[').Append(DateTime.Now.ToString("HH:mm:ss")).Append("] ").AppendLine(line);
+            foreach (string line in text.Replace("\r", "").Split('\n'))
+            {
+                if (string.IsNullOrWhiteSpace(line)) continue;
+                string stamped = "[" + DateTime.Now.ToString("HH:mm:ss.fff") + "] " + line;
+                log.AppendLine(stamped);
+                diagnosticWriter?.WriteLine(stamped);
+            }
+            if (log.Length > UiLogTrimThreshold)
+            {
+                int remove = log.Length - UiLogRetainedChars;
+                log.Remove(0, remove);
+                log.Insert(0, "[UI LOG TRIMMED; complete diagnostic remains in the auto-saved file]\r\n");
+            }
         }
         OnPropertyChanged(nameof(LogText));
+    }
+
+    public void Shutdown()
+    {
+        gameMonitorCts?.Cancel();
+        EndDiagnosticCapture("application_closed");
+        stateTimer.Stop();
+        SerialCommandClient.Close();
     }
 
     private static string FirstLine(string text)
@@ -2668,6 +3164,136 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private static string OneLine(string text)
     {
         return Regex.Replace(text.Replace("\r", " ").Replace("\n", " "), "\\s+", " ").Trim();
+    }
+
+    private static string ExtractLastJsonLine(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return "(no response)";
+        string[] lines = text.Replace("\r", "").Split('\n');
+        for (int i = lines.Length - 1; i >= 0; i--)
+        {
+            string line = lines[i].Trim();
+            int jsonStart = line.IndexOf("{\"ok\":", StringComparison.Ordinal);
+            if (jsonStart >= 0)
+            {
+                return line.Substring(jsonStart);
+            }
+        }
+        string compact = OneLine(text);
+        return compact.Length <= 512 ? compact : compact.Substring(compact.Length - 512);
+    }
+
+    private void LogCriticalFirmwareLines(string text, string phase)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return;
+        string[] markers =
+        {
+            "guru meditation", "panic", "watchdog", "brownout",
+            "rst:", "abort()", "backtrace:", "assert failed",
+            "rebooting", "stack overflow"
+        };
+        foreach (string raw in text.Replace("\r", "").Split('\n'))
+        {
+            string line = raw.Trim();
+            if (line.Length == 0 ||
+                line.Contains("{\"ok\":", StringComparison.Ordinal))
+            {
+                continue;
+            }
+            bool critical = false;
+            foreach (string marker in markers)
+            {
+                if (line.Contains(marker, StringComparison.OrdinalIgnoreCase))
+                {
+                    critical = true;
+                    break;
+                }
+            }
+            if (!critical || !firmwareCriticalLinesSeen.Add(line))
+            {
+                continue;
+            }
+            string compact = line.Length <= 768 ? line : line[..768];
+            AppendLog("[DIAG_FIRMWARE_CRITICAL] phase=" + phase + " " + compact);
+        }
+    }
+
+    private async Task StartFreshPairingAsync(bool replacing)
+    {
+        if (!replacing && !string.IsNullOrWhiteSpace(bleSavedTarget))
+        {
+            MessageBoxResult answer = MessageBox.Show(
+                owner,
+                "控制板已经保存了手柄 " + bleSavedTarget + "。\n\n继续“首次连接”会清除这个地址并重新寻找手柄。普通断联请改用“重连已配对”。",
+                "重新执行首次连接",
+                MessageBoxButton.OKCancel,
+                MessageBoxImage.Question);
+            if (answer != MessageBoxResult.OK)
+            {
+                return;
+            }
+        }
+
+        if (replacing)
+        {
+            MessageBoxResult answer = MessageBox.Show(
+                owner,
+                "更换手柄会清除控制板内保存的旧 Pro2 地址。\n\n请先关闭旧手柄，让新手柄保持唤醒并进入可连接状态，然后继续。",
+                "更换 Pro2 手柄",
+                MessageBoxButton.OKCancel,
+                MessageBoxImage.Warning);
+            if (answer != MessageBoxResult.OK)
+            {
+                return;
+            }
+        }
+
+        try
+        {
+            Busy = true;
+            OverallStatus = "连接中";
+            BleStatus = replacing
+                ? "正在清除旧手柄并寻找新的 Pro2..."
+                : "正在建立首次 Pro2 连接...";
+            NextAction = "请只开启要连接的 Pro2，并避免它同时连接电脑、手机或其他主机。";
+            SelectedBleDevice = null;
+            BleTarget = "";
+
+            await SendSerialCoreAsync("ble auto off", 4);
+            await SendSerialCoreAsync("ble forget", 5);
+            SetBleSavedTarget("");
+            await Task.Delay(600);
+            await SendSerialCoreAsync("ble auto on", 4);
+            await SendSerialCoreAsync("ble reconnect", 8);
+            string ready = await WaitForBleInputReadyAsync(35);
+
+            BleStatus = SummarizeBle(ready, replacing ? "replace" : "first-pair");
+            OverallStatus = "就绪";
+            NextAction = replacing
+                ? "新手柄已经保存。以后断联或休眠后会优先自动重连这只手柄。"
+                : "首次连接完成。控制板已保存手柄地址，后续可自动重连。";
+        }
+        catch (Exception ex)
+        {
+            OverallStatus = IsBoardUnavailableException(ex) ? "离线" : "错误";
+            BleStatus = (replacing ? "更换手柄" : "首次连接") + "尚未完成：" + FirstLine(ex.Message);
+            NextAction = "保持目标手柄唤醒，打开“高级连接工具”查看扫描结果；如果附近有多只手柄，请选择正确目标后手动连接。";
+            try
+            {
+                string list = await SendSerialCoreAsync("ble list", 3, logOutput: false);
+                ApplyBleScanResults(list);
+                BleCandidates = SummarizeBleList(list);
+            }
+            catch (Exception listError)
+            {
+                AppendLog("WARN ble pairing fallback list: " + listError.Message);
+            }
+            AppendLog("ERROR ble fresh pairing: " + ex);
+        }
+        finally
+        {
+            Busy = false;
+        }
     }
 
     private static int ParseIntOrDefault(string text, int fallback, int min, int max)
@@ -2683,15 +3309,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     private static bool HasReadyBleInput(string statusText)
     {
-        string ble = ReadJsonString(statusText, "ble");
-        string inputLive = ReadJsonBoolString(statusText, "input_live");
-        long inputUpdates = ReadJsonCounter(statusText, "input_updates");
-        long inputAgeMs = ReadJsonCounter(statusText, "input_age_ms");
-        return string.Equals(ble, "connected", StringComparison.OrdinalIgnoreCase) &&
-               string.Equals(inputLive, "true", StringComparison.OrdinalIgnoreCase) &&
-               inputUpdates > 0 &&
-               inputAgeMs >= 0 &&
-               inputAgeMs <= 500;
+        return BleInputStatusParser.Parse(statusText).Ready;
     }
 
     private async Task<string> WaitForBleInputReadyAsync(int timeoutSeconds, CancellationToken token = default)
@@ -2699,6 +3317,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         DateTime deadline = DateTime.UtcNow.AddSeconds(Math.Max(3, timeoutSeconds));
         DateTime nextReconnectAt = DateTime.MinValue;
         string lastStatus = "";
+        BleInputStatus lastInput = BleInputStatusParser.Parse("");
         while (DateTime.UtcNow < deadline)
         {
             token.ThrowIfCancellationRequested();
@@ -2706,15 +3325,17 @@ public sealed class MainViewModel : INotifyPropertyChanged
             if (!string.IsNullOrWhiteSpace(lastStatus))
             {
                 BleStatus = SummarizeBle(lastStatus, "wait");
-                if (HasReadyBleInput(lastStatus))
+                lastInput = BleInputStatusParser.Parse(lastStatus);
+                if (lastInput.Ready)
                 {
                     return lastStatus;
                 }
             }
 
-            string ble = ReadJsonString(lastStatus, "ble");
             if (DateTime.UtcNow >= nextReconnectAt &&
-                !string.Equals(ble, "connecting", StringComparison.OrdinalIgnoreCase))
+                !lastInput.Connected &&
+                !string.Equals(lastInput.TransportState, "connecting", StringComparison.OrdinalIgnoreCase) &&
+                !string.Equals(lastInput.TransportState, "scanning", StringComparison.OrdinalIgnoreCase))
             {
                 AppendLog("[BLE_WAIT] 已请求重连，正在等待 Pro2 实时输入。");
                 await SendSerialCoreAsync("ble reconnect", 6);
@@ -2724,8 +3345,17 @@ public sealed class MainViewModel : INotifyPropertyChanged
             await Task.Delay(1000, token);
         }
 
+        if (lastInput.Connected && lastInput.HasMetrics)
+        {
+            throw new InvalidOperationException(
+                "Pro2 BLE 已连接，但没有收到新鲜输入通知。状态协议=" + lastInput.Schema +
+                "，updates=" + lastInput.Updates +
+                "，age_ms=" + lastInput.AgeMs +
+                "。请保持手柄唤醒后使用“重连已配对”。");
+        }
+
         throw new InvalidOperationException(
-            "Pro2 BLE 还没有提供实时输入。请确认手柄只连接到桥接板，然后在 BLE 区域使用“重连上次”或“扫描”。");
+            "Pro2 BLE 尚未完成连接。请确认手柄只连接到桥接板，并保持手柄唤醒。");
     }
 
     private string SummarizeBle(string output, string source)
@@ -2734,20 +3364,23 @@ public sealed class MainViewModel : INotifyPropertyChanged
         string ble = ReadJsonString(output, "ble");
         string auto = ReadJsonString(output, "ble_auto");
         string target = ReadJsonString(output, "ble_target");
-        long inputUpdates = ReadJsonCounter(output, "input_updates");
-        long inputAgeMs = ReadJsonCounter(output, "input_age_ms");
-        long inputRateMilliHz = ReadJsonCounter(output, "input_rate_millihz");
+        if (Regex.IsMatch(output, "\"ble_target\"\\s*:", RegexOptions.IgnoreCase))
+        {
+            SetBleSavedTarget(target);
+        }
+        BleInputStatus input = BleInputStatusParser.Parse(output);
         long scanSeen = ReadJsonCounter(output, "scan_seen");
 
         if (!string.IsNullOrWhiteSpace(ble))
         {
-            string rateText = inputRateMilliHz > 0
-                ? (inputRateMilliHz / 1000.0).ToString("0.0") + " Hz"
+            string rateText = input.RateMilliHz > 0
+                ? (input.RateMilliHz / 1000.0).ToString("0.0") + " Hz"
                 : "0 Hz";
-            string ageText = inputAgeMs >= 0 ? inputAgeMs + " ms" : "无数据";
+            string ageText = input.AgeMs >= 0 ? input.AgeMs + " ms" : "无数据";
             string targetText = string.IsNullOrWhiteSpace(target) ? "无" : target;
             string autoText = string.IsNullOrWhiteSpace(auto) ? "?" : auto;
-            return $"BLE={ble}, 自动重连={autoText}, 目标={targetText}, 输入计数={Math.Max(0, inputUpdates)}, 输入时延={ageText}, 输入频率={rateText}, 来源={source}";
+            string schemaText = input.HasMetrics ? input.Schema : "legacy";
+            return $"BLE={ble}, 自动重连={autoText}, 目标={targetText}, 输入协议={schemaText}, 输入计数={Math.Max(0, input.Updates)}, 输入时延={ageText}, 输入频率={rateText}, 来源={source}";
         }
 
         if (scanSeen >= 0)
@@ -2791,6 +3424,10 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     private sealed class MonitorSnapshot
     {
+        public long AudioSubmitted { get; init; }
+        public long AudioDropped { get; init; }
+        public long AudioQueueDepth { get; init; }
+        public long AudioQueueHigh { get; init; }
         public long AudioPackets { get; init; }
         public long AudioActive { get; init; }
         public long HdCandidates { get; init; }
@@ -2807,7 +3444,65 @@ public sealed class MainViewModel : INotifyPropertyChanged
         public long InputLy { get; init; }
         public long InputRx { get; init; }
         public long InputRy { get; init; }
+        public bool InputLive { get; init; }
         public string Ble { get; init; } = "";
+        public long BleConnIntervalUs { get; init; }
+        public bool BleReconnectTask { get; init; }
+        public long BleScanStarts { get; init; }
+        public long BleReconnectAttempts { get; init; }
+        public long BleConnectSuccesses { get; init; }
+        public long BleConnectFailures { get; init; }
+        public long BleConnectLastRc { get; init; }
+        public long BleConnectLastStatus { get; init; }
+        public long BleDisconnects { get; init; }
+        public long BleDisconnectReason { get; init; }
+        public long BleDisconnectAgeMs { get; init; }
+        public long BleNotifyRx { get; init; }
+        public long BleNotifyParsed { get; init; }
+        public long BleNotifyAgeMs { get; init; }
+        public long BleNotifyParsedAgeMs { get; init; }
+        public bool UsbMounted { get; init; }
+        public bool UsbSuspended { get; init; }
+        public bool UsbConfigurationReady { get; init; }
+        public long UsbMountCount { get; init; }
+        public long UsbUmountCount { get; init; }
+        public long UsbBusResetCount { get; init; }
+        public long UsbConfigurationResetCount { get; init; }
+        public long UsbConfigurationResetAgeMs { get; init; }
+        public long UsbSuspendCount { get; init; }
+        public long UsbResumeCount { get; init; }
+        public long HidReportSent { get; init; }
+        public long HidReportCompleted { get; init; }
+        public long HidReportFailed { get; init; }
+        public long HidReportSubmitFailed { get; init; }
+        public long HidReportXferFailed { get; init; }
+        public long HidReportSubmitFailureStreak { get; init; }
+        public long HidReportSubmitFailureAgeMs { get; init; }
+        public long HidReportNotReady { get; init; }
+        public long HidEndpointKicks { get; init; }
+        public long UsbRecoveryCount { get; init; }
+        public long HidReportLastGapUs { get; init; }
+        public long HidReportMaxGapUs { get; init; }
+        public long HidReportAgeMs { get; init; }
+        public long HidOutputCount { get; init; }
+        public long HidOutputAgeMs { get; init; }
+        public long HidRumbleUpdates { get; init; }
+        public long HidRumbleActiveUpdates { get; init; }
+        public long HidRumbleIgnoredNonzero { get; init; }
+        public long HidRumbleBleWrites { get; init; }
+        public long HidRumbleBleErrors { get; init; }
+        public bool HidRumbleEnabled { get; init; }
+        public bool HidRumbleActive { get; init; }
+        public long HidRumbleValid0 { get; init; }
+        public long HidRumbleValid1 { get; init; }
+        public long HidRumbleValid2 { get; init; }
+        public long HidRumbleRight { get; init; }
+        public long HidRumbleLeft { get; init; }
+        public string HidRumblePreview { get; init; } = "";
+        public long UptimeMs { get; init; }
+        public long ResetReason { get; init; }
+        public string ResetReasonName { get; init; } = "";
+        public string Version { get; init; } = "";
         public string Haptic { get; init; } = "";
         public string Source { get; init; } = "";
         public bool AudioStreaming { get; init; }
@@ -2824,6 +3519,10 @@ public sealed class MainViewModel : INotifyPropertyChanged
         {
             return new MonitorSnapshot
             {
+                AudioSubmitted = Counter(status, "audio_submitted"),
+                AudioDropped = Counter(status, "audio_dropped"),
+                AudioQueueDepth = Counter(status, "audio_queue_depth"),
+                AudioQueueHigh = Counter(status, "audio_queue_high"),
                 AudioPackets = Counter(status, "audio_packets"),
                 AudioActive = Counter(status, "audio_active"),
                 HdCandidates = Counter(status, "raw02_hd_candidate_packets"),
@@ -2840,7 +3539,65 @@ public sealed class MainViewModel : INotifyPropertyChanged
                 InputLy = Counter(status, "input_ly"),
                 InputRx = Counter(status, "input_rx"),
                 InputRy = Counter(status, "input_ry"),
+                InputLive = Bool(status, "input_live"),
                 Ble = ReadJsonString(status, "ble"),
+                BleConnIntervalUs = Counter(status, "ble_conn_interval_us"),
+                BleReconnectTask = Bool(status, "ble_reconnect_task"),
+                BleScanStarts = Counter(status, "ble_scan_starts"),
+                BleReconnectAttempts = Counter(status, "ble_reconnect_attempts"),
+                BleConnectSuccesses = Counter(status, "ble_connect_successes"),
+                BleConnectFailures = Counter(status, "ble_connect_failures"),
+                BleConnectLastRc = ReadJsonCounter(status, "ble_connect_last_rc"),
+                BleConnectLastStatus = ReadJsonCounter(status, "ble_connect_last_status"),
+                BleDisconnects = Counter(status, "ble_disconnects"),
+                BleDisconnectReason = ReadJsonCounter(status, "ble_disconnect_reason"),
+                BleDisconnectAgeMs = ReadJsonCounter(status, "ble_disconnect_age_ms"),
+                BleNotifyRx = Counter(status, "ble_notify_rx"),
+                BleNotifyParsed = Counter(status, "ble_notify_parsed"),
+                BleNotifyAgeMs = ReadJsonCounter(status, "ble_notify_age_ms"),
+                BleNotifyParsedAgeMs = ReadJsonCounter(status, "ble_notify_parsed_age_ms"),
+                UsbMounted = Bool(status, "usb_mounted"),
+                UsbSuspended = Bool(status, "usb_suspended"),
+                UsbConfigurationReady = Bool(status, "usb_configuration_ready"),
+                UsbMountCount = Counter(status, "usb_mount_count"),
+                UsbUmountCount = Counter(status, "usb_umount_count"),
+                UsbBusResetCount = Counter(status, "usb_bus_reset_count"),
+                UsbConfigurationResetCount = Counter(status, "usb_configuration_reset_count"),
+                UsbConfigurationResetAgeMs = ReadJsonCounter(status, "usb_configuration_reset_age_ms"),
+                UsbSuspendCount = Counter(status, "usb_suspend_count"),
+                UsbResumeCount = Counter(status, "usb_resume_count"),
+                HidReportSent = Counter(status, "hid_report_sent"),
+                HidReportCompleted = Counter(status, "hid_report_completed"),
+                HidReportFailed = Counter(status, "hid_report_failed"),
+                HidReportSubmitFailed = Counter(status, "hid_report_submit_failed"),
+                HidReportXferFailed = Counter(status, "hid_report_xfer_failed"),
+                HidReportSubmitFailureStreak = Counter(status, "hid_report_submit_failure_streak"),
+                HidReportSubmitFailureAgeMs = ReadJsonCounter(status, "hid_report_submit_failure_age_ms"),
+                HidReportNotReady = Counter(status, "hid_report_not_ready"),
+                HidEndpointKicks = Counter(status, "hid_endpoint_kicks"),
+                UsbRecoveryCount = Counter(status, "usb_recovery_count"),
+                HidReportLastGapUs = Counter(status, "hid_report_last_gap_us"),
+                HidReportMaxGapUs = Counter(status, "hid_report_max_gap_us"),
+                HidReportAgeMs = ReadJsonCounter(status, "hid_report_age_ms"),
+                HidOutputCount = Counter(status, "hid_output_count"),
+                HidOutputAgeMs = ReadJsonCounter(status, "hid_output_age_ms"),
+                HidRumbleUpdates = Counter(status, "hid_rumble_updates"),
+                HidRumbleActiveUpdates = Counter(status, "hid_rumble_active_updates"),
+                HidRumbleIgnoredNonzero = Counter(status, "hid_rumble_ignored_nonzero"),
+                HidRumbleBleWrites = Counter(status, "hid_rumble_ble_writes"),
+                HidRumbleBleErrors = Counter(status, "hid_rumble_ble_errors"),
+                HidRumbleEnabled = Bool(status, "hid_rumble_enabled"),
+                HidRumbleActive = Bool(status, "hid_rumble_active"),
+                HidRumbleValid0 = Counter(status, "hid_rumble_valid0"),
+                HidRumbleValid1 = Counter(status, "hid_rumble_valid1"),
+                HidRumbleValid2 = Counter(status, "hid_rumble_valid2"),
+                HidRumbleRight = Counter(status, "hid_rumble_right"),
+                HidRumbleLeft = Counter(status, "hid_rumble_left"),
+                HidRumblePreview = ReadJsonString(status, "hid_rumble_preview"),
+                UptimeMs = Counter(status, "uptime_ms"),
+                ResetReason = ReadJsonCounter(status, "reset_reason"),
+                ResetReasonName = ReadJsonString(status, "reset_reason_name"),
+                Version = ReadJsonString(status, "version"),
                 Haptic = ReadJsonString(status, "haptic"),
                 Source = ReadJsonString(status, "haptic_source"),
                 AudioStreaming = string.Equals(ReadJsonBoolString(status, "audio_streaming"), "true", StringComparison.OrdinalIgnoreCase),
@@ -2859,6 +3616,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
         {
             return new MonitorDelta
             {
+                AudioSubmitted = Math.Max(0, AudioSubmitted - previous.AudioSubmitted),
+                AudioDropped = Math.Max(0, AudioDropped - previous.AudioDropped),
                 AudioPackets = Math.Max(0, AudioPackets - previous.AudioPackets),
                 AudioActive = Math.Max(0, AudioActive - previous.AudioActive),
                 HdCandidates = Math.Max(0, HdCandidates - previous.HdCandidates),
@@ -2867,17 +3626,93 @@ public sealed class MainViewModel : INotifyPropertyChanged
                 BleErrors = Math.Max(0, BleErrors - previous.BleErrors),
                 DroppedRate = Math.Max(0, DroppedRate - previous.DroppedRate),
                 DroppedSilence = Math.Max(0, DroppedSilence - previous.DroppedSilence),
-                DroppedPcm = Math.Max(0, DroppedPcm - previous.DroppedPcm)
+                DroppedPcm = Math.Max(0, DroppedPcm - previous.DroppedPcm),
+                UsbConfigurationResetCount = Math.Max(
+                    0,
+                    UsbConfigurationResetCount - previous.UsbConfigurationResetCount),
+                HidReportSent = Math.Max(0, HidReportSent - previous.HidReportSent),
+                HidReportCompleted = Math.Max(0, HidReportCompleted - previous.HidReportCompleted),
+                HidReportFailed = Math.Max(0, HidReportFailed - previous.HidReportFailed),
+                HidReportSubmitFailed = Math.Max(
+                    0,
+                    HidReportSubmitFailed - previous.HidReportSubmitFailed),
+                HidReportXferFailed = Math.Max(
+                    0,
+                    HidReportXferFailed - previous.HidReportXferFailed),
+                HidReportNotReady = Math.Max(0, HidReportNotReady - previous.HidReportNotReady),
+                HidEndpointKicks = Math.Max(0, HidEndpointKicks - previous.HidEndpointKicks),
+                UsbRecoveryCount = Math.Max(0, UsbRecoveryCount - previous.UsbRecoveryCount),
+                HidOutputCount = Math.Max(0, HidOutputCount - previous.HidOutputCount),
+                HidRumbleUpdates = Math.Max(0, HidRumbleUpdates - previous.HidRumbleUpdates),
+                HidRumbleActiveUpdates = Math.Max(0, HidRumbleActiveUpdates - previous.HidRumbleActiveUpdates),
+                HidRumbleIgnoredNonzero = Math.Max(0, HidRumbleIgnoredNonzero - previous.HidRumbleIgnoredNonzero),
+                HidRumbleBleWrites = Math.Max(0, HidRumbleBleWrites - previous.HidRumbleBleWrites),
+                HidRumbleBleErrors = Math.Max(0, HidRumbleBleErrors - previous.HidRumbleBleErrors),
+                BleScanStarts = Math.Max(0, BleScanStarts - previous.BleScanStarts),
+                BleReconnectAttempts = Math.Max(0, BleReconnectAttempts - previous.BleReconnectAttempts),
+                BleConnectSuccesses = Math.Max(0, BleConnectSuccesses - previous.BleConnectSuccesses),
+                BleConnectFailures = Math.Max(0, BleConnectFailures - previous.BleConnectFailures),
+                BleDisconnects = Math.Max(0, BleDisconnects - previous.BleDisconnects),
+                BleNotifyRx = Math.Max(0, BleNotifyRx - previous.BleNotifyRx),
+                BleNotifyParsed = Math.Max(0, BleNotifyParsed - previous.BleNotifyParsed)
             };
         }
 
         public string ToLogString()
         {
-            return "ble=" + Ble +
+            return "version=" + Version +
+                   " uptime_ms=" + UptimeMs +
+                   " reset_reason=" + ResetReason + "/" + ResetReasonName +
+                   " ble=" + Ble +
+                   " ble_interval_us=" + BleConnIntervalUs +
+                   " reconnect_task=" + BleReconnectTask.ToString().ToLowerInvariant() +
+                   " reconnect_attempts=" + BleReconnectAttempts +
+                   " scan_starts=" + BleScanStarts +
+                   " connect_ok=" + BleConnectSuccesses +
+                   " connect_fail=" + BleConnectFailures +
+                   " disconnects=" + BleDisconnects +
+                   " disconnect_reason=" + BleDisconnectReason +
+                   " disconnect_age_ms=" + BleDisconnectAgeMs +
+                   " notify_rx=" + BleNotifyRx +
+                   " notify_parsed=" + BleNotifyParsed +
+                   " notify_age_ms=" + BleNotifyAgeMs +
+                   " notify_parsed_age_ms=" + BleNotifyParsedAgeMs +
+                   " usb_mounted=" + UsbMounted.ToString().ToLowerInvariant() +
+                   " usb_suspended=" + UsbSuspended.ToString().ToLowerInvariant() +
+                   " usb_configuration_ready=" + UsbConfigurationReady.ToString().ToLowerInvariant() +
+                   " usb_bus_resets=" + UsbBusResetCount +
+                   " usb_configuration_resets=" + UsbConfigurationResetCount +
+                   " usb_configuration_reset_age_ms=" + UsbConfigurationResetAgeMs +
+                   " usb_events=" + UsbMountCount + "/" + UsbUmountCount + "/" + UsbSuspendCount + "/" + UsbResumeCount +
+                   " hid_sent=" + HidReportSent +
+                   " hid_completed=" + HidReportCompleted +
+                   " hid_failed=" + HidReportFailed +
+                   " hid_submit_failed=" + HidReportSubmitFailed +
+                   " hid_xfer_failed=" + HidReportXferFailed +
+                   " hid_submit_streak=" + HidReportSubmitFailureStreak +
+                   " hid_submit_failure_age_ms=" + HidReportSubmitFailureAgeMs +
+                   " hid_not_ready=" + HidReportNotReady +
+                   " hid_endpoint_kicks=" + HidEndpointKicks +
+                   " usb_recoveries=" + UsbRecoveryCount +
+                   " hid_gap_us=" + HidReportLastGapUs + "/" + HidReportMaxGapUs +
+                   " hid_age_ms=" + HidReportAgeMs +
+                   " hid_output=" + HidOutputCount +
+                   " hid_output_age_ms=" + HidOutputAgeMs +
+                   " hid_rumble_updates=" + HidRumbleUpdates +
+                   " hid_rumble_active_updates=" + HidRumbleActiveUpdates +
+                   " hid_rumble_ignored_nonzero=" + HidRumbleIgnoredNonzero +
+                   " hid_rumble_ble=" + HidRumbleBleWrites + "/" + HidRumbleBleErrors +
+                   " hid_rumble_state=" + HidRumbleEnabled.ToString().ToLowerInvariant() + "/" + HidRumbleActive.ToString().ToLowerInvariant() +
+                   " hid_rumble_flags=" + HidRumbleValid0 + "/" + HidRumbleValid1 + "/" + HidRumbleValid2 +
+                   " hid_rumble_motors=" + HidRumbleLeft + "/" + HidRumbleRight +
+                   " hid_rumble_preview=" + HidRumblePreview +
                    " haptic=" + Haptic +
                    " source=" + Source +
                    " audio_streaming=" + (AudioStreaming ? "true" : "false") +
                    " audio_alt=" + AudioAlt +
+                   " audio_submitted=" + AudioSubmitted +
+                   " audio_dropped=" + AudioDropped +
+                   " audio_queue=" + AudioQueueDepth + "/" + AudioQueueHigh +
                    " parser=" + AudioParser +
                    " pair=" + AudioPair +
                    " audio_packets=" + AudioPackets +
@@ -2891,6 +3726,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
                    " dropped_silence=" + DroppedSilence +
                    " dropped_pcm=" + DroppedPcm +
                    " input_updates=" + InputUpdates +
+                   " input_live=" + InputLive.ToString().ToLowerInvariant() +
                    " input_age_ms=" + InputAgeMs +
                    " input_rate_millihz=" + InputRateMilliHz +
                    " input_axes=(" + InputLx + "," + InputLy + "," + InputRx + "," + InputRy + ")" +
@@ -2904,10 +3740,20 @@ public sealed class MainViewModel : INotifyPropertyChanged
         {
             return Math.Max(0, ReadJsonCounter(status, name));
         }
+
+        private static bool Bool(string status, string name)
+        {
+            return string.Equals(
+                ReadJsonBoolString(status, name),
+                "true",
+                StringComparison.OrdinalIgnoreCase);
+        }
     }
 
     private sealed class MonitorDelta
     {
+        public long AudioSubmitted { get; init; }
+        public long AudioDropped { get; init; }
         public long AudioPackets { get; init; }
         public long AudioActive { get; init; }
         public long HdCandidates { get; init; }
@@ -2917,10 +3763,34 @@ public sealed class MainViewModel : INotifyPropertyChanged
         public long DroppedRate { get; init; }
         public long DroppedSilence { get; init; }
         public long DroppedPcm { get; init; }
+        public long UsbConfigurationResetCount { get; init; }
+        public long HidReportSent { get; init; }
+        public long HidReportCompleted { get; init; }
+        public long HidReportFailed { get; init; }
+        public long HidReportSubmitFailed { get; init; }
+        public long HidReportXferFailed { get; init; }
+        public long HidReportNotReady { get; init; }
+        public long HidEndpointKicks { get; init; }
+        public long UsbRecoveryCount { get; init; }
+        public long HidOutputCount { get; init; }
+        public long HidRumbleUpdates { get; init; }
+        public long HidRumbleActiveUpdates { get; init; }
+        public long HidRumbleIgnoredNonzero { get; init; }
+        public long HidRumbleBleWrites { get; init; }
+        public long HidRumbleBleErrors { get; init; }
+        public long BleScanStarts { get; init; }
+        public long BleReconnectAttempts { get; init; }
+        public long BleConnectSuccesses { get; init; }
+        public long BleConnectFailures { get; init; }
+        public long BleDisconnects { get; init; }
+        public long BleNotifyRx { get; init; }
+        public long BleNotifyParsed { get; init; }
 
         public string ToLogString()
         {
-            return "audio_packets=+" + AudioPackets +
+            return "audio_submitted=+" + AudioSubmitted +
+                   " audio_dropped=+" + AudioDropped +
+                   " audio_packets=+" + AudioPackets +
                    " audio_active=+" + AudioActive +
                    " hd_packets=+" + HdCandidates +
                    " raw02_live=+" + Raw02Live +
@@ -2928,7 +3798,29 @@ public sealed class MainViewModel : INotifyPropertyChanged
                    " ble_errors=+" + BleErrors +
                    " dropped_rate=+" + DroppedRate +
                    " dropped_silence=+" + DroppedSilence +
-                   " dropped_pcm=+" + DroppedPcm;
+                   " dropped_pcm=+" + DroppedPcm +
+                   " usb_configuration_resets=+" + UsbConfigurationResetCount +
+                   " hid_sent=+" + HidReportSent +
+                   " hid_completed=+" + HidReportCompleted +
+                   " hid_failed=+" + HidReportFailed +
+                   " hid_submit_failed=+" + HidReportSubmitFailed +
+                   " hid_xfer_failed=+" + HidReportXferFailed +
+                   " hid_not_ready=+" + HidReportNotReady +
+                   " hid_endpoint_kicks=+" + HidEndpointKicks +
+                   " usb_recoveries=+" + UsbRecoveryCount +
+                   " hid_output=+" + HidOutputCount +
+                   " hid_rumble_updates=+" + HidRumbleUpdates +
+                   " hid_rumble_active=+" + HidRumbleActiveUpdates +
+                   " hid_rumble_ignored=+" + HidRumbleIgnoredNonzero +
+                   " hid_rumble_writes=+" + HidRumbleBleWrites +
+                   " hid_rumble_errors=+" + HidRumbleBleErrors +
+                   " scans=+" + BleScanStarts +
+                   " reconnect_attempts=+" + BleReconnectAttempts +
+                   " connect_ok=+" + BleConnectSuccesses +
+                   " connect_fail=+" + BleConnectFailures +
+                   " disconnects=+" + BleDisconnects +
+                   " notify_rx=+" + BleNotifyRx +
+                   " notify_parsed=+" + BleNotifyParsed;
         }
     }
 

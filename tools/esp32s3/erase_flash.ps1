@@ -4,7 +4,8 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$Root = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
+. (Join-Path $PSScriptRoot "idf_environment.ps1")
+$Root = Get-Y700ShortRepoRoot
 $Firmware = Join-Path $Root "firmware\esp32s3_switch2_bridge"
 
 Write-Host "PENDING_HARDWARE_TEST: erase_flash is not verified until the ESP32-S3 board arrives."
@@ -18,15 +19,8 @@ if (-not $Port) {
 
 if (-not $Port) { throw "No COM port supplied." }
 
-if ($IdfPath) {
-    $export = Join-Path $IdfPath "export.ps1"
-    if (!(Test-Path -LiteralPath $export)) { throw "ESP-IDF export.ps1 not found: $export" }
-    . $export
-}
-
-if (!(Get-Command idf.py -ErrorAction SilentlyContinue)) {
-    throw "idf.py not found. Open an ESP-IDF PowerShell or pass -IdfPath <path-to-esp-idf>."
-}
+$IdfPath = Resolve-Y700IdfPath -RequestedPath $IdfPath
+Import-Y700IdfEnvironment -IdfPath $IdfPath
 
 Push-Location $Firmware
 try {

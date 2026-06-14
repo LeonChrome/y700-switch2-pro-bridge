@@ -9,6 +9,7 @@ set(DS5_ENABLE_DUMMY_INTERFACE 0)
 set(DS5_ENABLE_UAC1_CONTROL_ONLY 0)
 set(DS5_ENABLE_UAC1_STREAMING_ALT0 0)
 set(DS5_ENABLE_UAC1_AUDIO 0)
+set(DS5_ENABLE_UAC1_DUALSENSE_TOPOLOGY 0)
 set(DS5_ENABLE_UAC2_AUDIO 0)
 set(DS5_AUDIO_CHANNELS 0)
 set(DS5_HID_INTERFACE_NUMBER 0)
@@ -19,9 +20,11 @@ set(main_sources
     "usb_dualsense_descriptor.c"
     "dualsense_report.c"
     "dualsense_report_mapper.c"
+    "dualsense_rumble_intent.c"
     "dualsense_haptic_audio.c"
     "haptic_audio_to_raw02.c"
     "pro2_input_backend.c"
+    "pro2_rumble_arbiter.c"
     "pro2_rumble_backend.c"
     "v55_control_protocol.c"
 )
@@ -90,10 +93,11 @@ elseif(V5_5_DS5_PROFILE STREQUAL "hid_audio_uac1_4ch_ds5like")
     set(DS5_ENABLE_USB_COMPOSITE 1)
     set(DS5_ENABLE_USB_AUDIO 1)
     set(DS5_ENABLE_UAC1_AUDIO 1)
+    set(DS5_ENABLE_UAC1_DUALSENSE_TOPOLOGY 1)
     set(DS5_AUDIO_CHANNELS 4)
-    set(DS5_HID_INTERFACE_NUMBER 2)
-    set(DS5_INTERFACE_COUNT 3)
-    set(DS5_PROFILE_SERIAL "V55UAC1_4CH")
+    set(DS5_HID_INTERFACE_NUMBER 3)
+    set(DS5_INTERFACE_COUNT 4)
+    set(DS5_PROFILE_SERIAL "V59DS5AUDIO2")
     list(APPEND main_sources
         "usb_uac1_audio_driver.c"
     )
@@ -132,6 +136,7 @@ idf_component_register(
         pro2_bridge_reuse
         nvs_flash
         esp_timer
+        esp_hw_support
     WHOLE_ARCHIVE
 )
 
@@ -145,6 +150,7 @@ target_compile_definitions(${COMPONENT_LIB} PRIVATE
     DS5_ENABLE_UAC1_CONTROL_ONLY=${DS5_ENABLE_UAC1_CONTROL_ONLY}
     DS5_ENABLE_UAC1_STREAMING_ALT0=${DS5_ENABLE_UAC1_STREAMING_ALT0}
     DS5_ENABLE_UAC1_AUDIO=${DS5_ENABLE_UAC1_AUDIO}
+    DS5_ENABLE_UAC1_DUALSENSE_TOPOLOGY=${DS5_ENABLE_UAC1_DUALSENSE_TOPOLOGY}
     DS5_ENABLE_UAC2_AUDIO=${DS5_ENABLE_UAC2_AUDIO}
     DS5_AUDIO_CHANNELS=${DS5_AUDIO_CHANNELS}
     DS5_HID_INTERFACE_NUMBER=${DS5_HID_INTERFACE_NUMBER}
@@ -163,6 +169,7 @@ if(tinyusb_lib)
         DS5_ENABLE_UAC1_CONTROL_ONLY=${DS5_ENABLE_UAC1_CONTROL_ONLY}
         DS5_ENABLE_UAC1_STREAMING_ALT0=${DS5_ENABLE_UAC1_STREAMING_ALT0}
         DS5_ENABLE_UAC1_AUDIO=${DS5_ENABLE_UAC1_AUDIO}
+        DS5_ENABLE_UAC1_DUALSENSE_TOPOLOGY=${DS5_ENABLE_UAC1_DUALSENSE_TOPOLOGY}
         DS5_ENABLE_UAC2_AUDIO=${DS5_ENABLE_UAC2_AUDIO}
         DS5_AUDIO_CHANNELS=${DS5_AUDIO_CHANNELS}
         DS5_HID_INTERFACE_NUMBER=${DS5_HID_INTERFACE_NUMBER}

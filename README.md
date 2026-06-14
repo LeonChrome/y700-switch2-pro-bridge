@@ -1,21 +1,19 @@
 # PRO2 Wireless Receiver Control Board
 
-Final release: **V5.9.0**
+Current release: **V5.9.2 新和联胜版本**
 
-This repository contains the final ESP32-S3 firmware and Windows Manager for a four-mode wireless receiver bridge for the real Switch 2 Pro / Pro2 controller.
-
-The project is archived as a finished personal hardware/software build. No further feature updates are planned.
+This repository contains the ESP32-S3 firmware and Windows Manager for a three-mode wireless receiver bridge for the real Switch 2 Pro / Pro2 controller.
 
 ## Download
 
 Use the all-in-one Windows Manager:
 
-[release/v5.9/PRO2手柄无线接收器控制板-aio-v5.9.0.exe](release/v5.9/PRO2%E6%89%8B%E6%9F%84%E6%97%A0%E7%BA%BF%E6%8E%A5%E6%94%B6%E5%99%A8%E6%8E%A7%E5%88%B6%E6%9D%BF-aio-v5.9.0.exe)
+[release/v5.9/新和联胜版本-aio-v5.9.2.exe](release/v5.9/%E6%96%B0%E5%92%8C%E8%81%94%E8%83%9C%E7%89%88%E6%9C%AC-aio-v5.9.2.exe)
 
 SHA256:
 
 ```text
-114fc560dc30fe500bf7247880cb6e8b0455d3ac75ad9b8dc99966d792204226
+5ca65c85970795fa66fdc88a9fbdac7de0af4daf5407eb2e625a8e710eef806d
 ```
 
 The EXE bundles:
@@ -27,27 +25,32 @@ The EXE bundles:
 - USB identity checks
 - Pro2 rumble tools
 - XInput rumble probe
-- Xbox Elite 2 GIP enumeration bring-up
+- First-pair, saved-controller reconnect, and controller-replacement guidance
 
 ## What It Does
 
-An ESP32-S3 board connects to the real controller over BLE, then exposes one of four USB controller identities to Windows / Steam:
+An ESP32-S3 board connects to the real controller over BLE, then exposes one of three USB controller identities to Windows / Steam:
 
 | Mode | USB identity | Main use |
 | --- | --- | --- |
-| Pro2 / Nintendo | Nintendo Switch Pro style HID, `057E:2069` | Best default mode for Steam Input and Pro2-style layout |
+| 新和联胜 / PS5 | DualSense-compatible HID/audio, `054C:0CE6` | PS5 identity, ordinary rumble, and four-channel HD haptic audio |
+| Pro2 / Nintendo | Nintendo Switch Pro style HID, `057E:2069` | Steam Input and native Pro2-style layout |
 | Xbox / XInput | Xbox 360 style, `045E:028E` | Games that prefer XInput |
-| Xbox Elite 2 GIP bring-up | Vendor-specific GIP, `045E:0B00` | Validate `XGIP10`, Windows driver binding, and GIP Active before restoring Elite extensions |
-| DualSense-like | DualSense-style HID/audio experiment, `054C:0CE6` | Compatibility and haptic-audio experiments |
 
 V5.9 focuses on preserving controller feel:
 
 - Pro2 / Nintendo mode keeps raw HID report `0x02` rumble authoritative.
-- Xbox / XInput and DualSense-like modes preserve left/right motor routing and strength, then shape Pro2 output frequency dynamically.
+- 新和联胜 and Xbox / XInput preserve left/right ordinary motor routing and strength, then shape Pro2 output frequency dynamically.
 - Left and right stick Y axes use host-expected polarity.
 - BLE auto reconnect keeps daily use working after controller sleep/disconnect.
 - The Manager avoids UI freezes when both native USB and CH343P control USB are connected.
-- Elite 2 mode is intentionally minimal: only standard GIP input is enabled after the host reaches Active; paddles, guide, rumble, unmapped state, and extended Elite input are paused.
+- 新和联胜 gates HID IN submissions immediately on TinyUSB bus reset, preventing reports from racing endpoint reconfiguration.
+- Diagnostics distinguish HID submit failures from completed-transfer failures and record USB bus resets/configuration resets.
+- The Manager separates first pairing, reconnecting a saved controller, and replacing the saved controller.
+- Pro2 and Xbox release profiles lock their USB identity, so stale NVS mode
+  values cannot override a successful flash.
+- Flashing logs the active serial driver and blocks the reproduced Windows
+  26300 + WCH `2.1.2025.7` kernel-hang combination before esptool starts.
 
 ## Hardware
 
@@ -72,11 +75,11 @@ CONFIG_SPIRAM_USE_MEMMAP=y
 1. Connect the CH343P control USB port.
 2. Open the V5.9 Manager EXE.
 3. Select or refresh the COM port.
-4. Click the target mode card: Pro2 / Nintendo, Xbox / XInput, Xbox Elite 2 GIP bring-up, or DualSense-like.
+4. Click the target mode card: 新和联胜 / PS5, Pro2 / Nintendo, or Xbox / XInput.
 5. Wait for flashing to finish.
 6. Replug the ESP32-S3 native USB / OTG gamepad port.
 7. Click USB check in the Manager.
-8. Connect the real controller over BLE.
+8. For a new controller, click `首次连接`; for a saved controller, wake it or click `重连已配对`.
 
 See [docs/USER_GUIDE.md](docs/USER_GUIDE.md) for the full user flow.
 
@@ -85,7 +88,7 @@ See [docs/USER_GUIDE.md](docs/USER_GUIDE.md) for the full user flow.
 ```text
 firmware/
   esp32s3_switch2_bridge/              Pro2/Nintendo and Xbox/XInput bridge firmware
-  esp32s3_dualsense_identity_experiment/ DualSense-like firmware
+  esp32s3_dualsense_identity_experiment/ 新和联胜 / PS5 firmware
 
 windows/
   v55_manager_app/                     Final V5.9 Windows Manager
@@ -107,11 +110,22 @@ docs/
 
 For normal users, building is not required. Use the release EXE.
 
-For source builds:
+Install the project-local ESP-IDF 5.4.2 environment once:
 
 ```powershell
-.\tools\esp32s3\build.ps1 -IdfPath C:\Espressif\v5.3.3\esp-idf
-.\tools\package_v5_9_manager.ps1 -IdfPath C:\Espressif\v5.3.3\esp-idf
+.\tools\setup_dev_environment.ps1
+```
+
+Build all firmware profiles:
+
+```powershell
+.\tools\build_all.ps1
+```
+
+Build all profiles and package the Manager:
+
+```powershell
+.\tools\build_all.ps1 -Package
 ```
 
 To package from already-built firmware:
@@ -119,6 +133,10 @@ To package from already-built firmware:
 ```powershell
 .\tools\package_v5_9_manager.ps1 -SkipFirmwareBuild
 ```
+
+See [docs/DEVELOPMENT_ENVIRONMENT.md](docs/DEVELOPMENT_ENVIRONMENT.md) for
+toolchain details and [docs/PS5_PRO2_ROADMAP.md](docs/PS5_PRO2_ROADMAP.md) for
+the DualSense compatibility and stability roadmap.
 
 ## Notes
 

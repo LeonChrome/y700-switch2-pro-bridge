@@ -1,40 +1,12 @@
 #include "dualsense_report_mapper.h"
 
 #include <string.h>
+#include "gamepad_axis_math.h"
 
 static uint8_t s_sequence;
-static uint32_t s_report_counter;
 static uint32_t s_sensor_timestamp;
 
-#define DS5_AXIS_CENTER_12BIT INTERNAL_GAMEPAD_AXIS_CENTER
-#define DS5_AXIS_OUTPUT_DEADZONE INTERNAL_GAMEPAD_AXIS_CENTER_DEADBAND
-
-static bool axis12_is_centered(uint16_t value)
-{
-    int32_t delta = (int32_t)value - DS5_AXIS_CENTER_12BIT;
-    if (delta < 0) {
-        delta = -delta;
-    }
-    return delta <= DS5_AXIS_OUTPUT_DEADZONE;
-}
-
-static uint8_t axis12_to_u8(uint16_t value)
-{
-    value = internal_gamepad_state_snap_axis_center(value);
-    if (axis12_is_centered(value)) {
-        return 0x80;
-    }
-    uint32_t clamped = value > 4095 ? 4095 : value;
-    return (uint8_t)((clamped * 255u + 2047u) / 4095u);
-}
-
-static uint8_t axis12_to_u8_inverted(uint16_t value)
-{
-    if (axis12_is_centered(value)) {
-        return 0x80;
-    }
-    return (uint8_t)(0xffu - axis12_to_u8(value));
-}
+#define DS5_SENSOR_TICKS_PER_USB_REPORT 12000u
 
 static uint8_t map_hat(const internal_gamepad_state_t *state)
 {
@@ -72,16 +44,13 @@ static void apply_sequence_and_timing(
     uint8_t report[DUALSENSE_INPUT_PAYLOAD_SIZE])
 {
     report[6] = s_sequence++;
-    write_u32_le(report + 11, s_report_counter++);
     write_u32_le(report + 27, s_sensor_timestamp);
-    write_u32_le(report + 48, s_sensor_timestamp);
-    s_sensor_timestamp += 4000u;
+    s_sensor_timestamp += DS5_SENSOR_TICKS_PER_USB_REPORT;
 }
 
 void dualsense_report_mapper_init(void)
 {
     s_sequence = 0;
-    s_report_counter = 0;
     // SDL-compatible initial threshold observed in DS5 references.
     s_sensor_timestamp = 10200000u;
 }
@@ -103,10 +72,10 @@ void dualsense_report_mapper_from_internal(
         return;
     }
 
-    uint8_t lx = axis12_to_u8(state->lx);
-    uint8_t ly = axis12_to_u8_inverted(state->ly);
-    uint8_t rx = axis12_to_u8(state->rx);
-    uint8_t ry = axis12_to_u8_inverted(state->ry);
+    uint8_t lx = gamepad_axis_12bit_to_u8(state->lx, false);
+    uint8_t ly = gamepad_axis_12bit_to_u8(state->ly, true);
+    uint8_t rx = gamepad_axis_12bit_to_u8(state->rx, false);
+    uint8_t ry = gamepad_axis_12bit_to_u8(state->ry, true);
     uint8_t l2 = (uint8_t)((state->l2 * 255u + INTERNAL_GAMEPAD_TRIGGER_MAX / 2u) /
                            INTERNAL_GAMEPAD_TRIGGER_MAX);
     uint8_t r2 = (uint8_t)((state->r2 * 255u + INTERNAL_GAMEPAD_TRIGGER_MAX / 2u) /

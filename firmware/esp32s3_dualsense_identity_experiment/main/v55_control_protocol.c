@@ -10,10 +10,14 @@
 #include "ble_central.h"
 #include "device_config.h"
 #include "dualsense_haptic_audio.h"
+#include "dualsense_runtime_stats.h"
 #include "esp_err.h"
+#include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_system.h"
+#include "esp_timer.h"
 #include "haptic_audio_to_raw02.h"
+#include "pro2_rumble_backend.h"
 #include "pro2_input_backend.h"
 #include "switch2_gatt.h"
 
@@ -122,6 +126,186 @@ static esp_err_t json_error(char *reply, int reply_len, const char *cmd, const c
     return ESP_FAIL;
 }
 
+static void bytes_to_hex(const uint8_t *data, size_t len, char *out, size_t out_len)
+{
+    static const char hex[] = "0123456789abcdef";
+    size_t count = len;
+    if (!out || out_len == 0) {
+        return;
+    }
+    if (count > (out_len - 1) / 2) {
+        count = (out_len - 1) / 2;
+    }
+    for (size_t i = 0; i < count; i++) {
+        out[i * 2] = hex[(data[i] >> 4) & 0x0f];
+        out[i * 2 + 1] = hex[data[i] & 0x0f];
+    }
+    out[count * 2] = '\0';
+}
+
+static long long runtime_age_ms(int64_t now_us, int64_t event_us)
+{
+    return event_us > 0 && now_us >= event_us ? (long long)((now_us - event_us) / 1000) : -1LL;
+}
+
+static const char *reset_reason_string(esp_reset_reason_t reason)
+{
+    switch (reason) {
+    case ESP_RST_POWERON: return "power_on";
+    case ESP_RST_EXT: return "external";
+    case ESP_RST_SW: return "software";
+    case ESP_RST_PANIC: return "panic";
+    case ESP_RST_INT_WDT: return "interrupt_watchdog";
+    case ESP_RST_TASK_WDT: return "task_watchdog";
+    case ESP_RST_WDT: return "watchdog";
+    case ESP_RST_DEEPSLEEP: return "deep_sleep";
+    case ESP_RST_BROWNOUT: return "brownout";
+    case ESP_RST_SDIO: return "sdio";
+    case ESP_RST_USB: return "usb";
+    case ESP_RST_JTAG: return "jtag";
+    case ESP_RST_EFUSE: return "efuse";
+    case ESP_RST_PWR_GLITCH: return "power_glitch";
+    case ESP_RST_CPU_LOCKUP: return "cpu_lockup";
+    default: return "unknown";
+    }
+}
+
+static void append_runtime_diagnostics(char *out,
+                                       size_t out_len,
+                                       const ble_central_conn_metrics_t *ble)
+{
+    if (!out || out_len == 0 || !ble) {
+        return;
+    }
+
+    dualsense_runtime_stats_t runtime;
+    pro2_rumble_backend_stats_t rumble;
+    char rumble_preview[PRO2_RUMBLE_OUTPUT_PREVIEW_BYTES * 2 + 1];
+    dualsense_runtime_stats_snapshot(&runtime);
+    pro2_rumble_backend_snapshot(&rumble);
+    bytes_to_hex(rumble.preview, rumble.preview_len, rumble_preview, sizeof(rumble_preview));
+    int64_t now_us = esp_timer_get_time();
+    size_t used = strlen(out);
+    if (used >= out_len) {
+        return;
+    }
+
+    snprintf(out + used,
+             out_len - used,
+             ",\"uptime_ms\":%lld,\"reset_reason\":%d,\"reset_reason_name\":\"%s\","
+             "\"usb_mounted\":%s,\"usb_suspended\":%s,\"usb_configuration_ready\":%s,"
+             "\"usb_mount_count\":%lu,\"usb_umount_count\":%lu,"
+             "\"usb_bus_reset_count\":%lu,"
+             "\"usb_configuration_reset_count\":%lu,\"usb_configuration_reset_age_ms\":%lld,"
+             "\"usb_suspend_count\":%lu,\"usb_resume_count\":%lu,"
+             "\"usb_event_age_ms\":%lld,\"hid_report_sent\":%lu,"
+             "\"hid_report_completed\":%lu,\"hid_report_failed\":%lu,"
+             "\"hid_report_submit_failed\":%lu,\"hid_report_xfer_failed\":%lu,"
+             "\"hid_report_submit_failure_streak\":%lu,"
+             "\"hid_report_submit_failure_age_ms\":%lld,"
+             "\"hid_report_not_ready\":%lu,\"hid_endpoint_kicks\":%lu,"
+             "\"hid_endpoint_kick_age_ms\":%lld,"
+             "\"usb_recovery_count\":%lu,\"usb_recovery_age_ms\":%lld,"
+             "\"hid_report_last_gap_us\":%lu,\"hid_report_max_gap_us\":%lu,"
+             "\"hid_report_age_ms\":%lld,\"hid_output_count\":%lu,"
+             "\"hid_output_age_ms\":%lld,\"hid_feature_get_count\":%lu,"
+             "\"hid_rumble_updates\":%lu,\"hid_rumble_active_updates\":%lu,"
+             "\"hid_rumble_ignored_nonzero\":%lu,\"hid_rumble_ble_writes\":%lu,"
+             "\"hid_rumble_ble_errors\":%lu,\"hid_rumble_enabled\":%s,"
+             "\"hid_rumble_active\":%s,\"hid_rumble_valid0\":%u,"
+             "\"hid_rumble_valid1\":%u,\"hid_rumble_valid2\":%u,"
+             "\"hid_rumble_right\":%u,\"hid_rumble_left\":%u,\"hid_rumble_preview\":\"%s\","
+             "\"ble_scanning\":%s,\"ble_connecting\":%s,"
+             "\"ble_reconnect_task\":%s,\"ble_auto_scan\":%s,"
+             "\"ble_conn_interval_units\":%u,\"ble_conn_interval_us\":%lu,"
+             "\"ble_conn_latency\":%u,\"ble_conn_supervision\":%u,"
+             "\"ble_scan_starts\":%lu,\"ble_scan_completes\":%lu,"
+             "\"ble_scan_last_rc\":%d,\"ble_scan_last_reason\":%d,"
+             "\"ble_reconnect_schedules\":%lu,\"ble_reconnect_attempts\":%lu,"
+             "\"ble_connect_starts\":%lu,\"ble_connect_successes\":%lu,"
+             "\"ble_connect_failures\":%lu,\"ble_connect_last_rc\":%d,"
+             "\"ble_connect_last_status\":%d,\"ble_connect_age_ms\":%lld,"
+             "\"ble_disconnects\":%lu,\"ble_disconnect_reason\":%d,"
+             "\"ble_disconnect_age_ms\":%lld,\"ble_notify_rx\":%lu,"
+             "\"ble_notify_parsed\":%lu,\"ble_notify_age_ms\":%lld,"
+             "\"ble_notify_parsed_age_ms\":%lld,"
+             "\"ble_stale_recoveries\":%lu,\"ble_stale_recovery_age_ms\":%lld",
+             (long long)(now_us / 1000),
+             (int)esp_reset_reason(),
+             reset_reason_string(esp_reset_reason()),
+             runtime.mounted ? "true" : "false",
+             runtime.suspended ? "true" : "false",
+             runtime.configuration_ready ? "true" : "false",
+             (unsigned long)runtime.mount_count,
+             (unsigned long)runtime.umount_count,
+             (unsigned long)runtime.bus_reset_count,
+             (unsigned long)runtime.configuration_reset_count,
+             runtime_age_ms(now_us, runtime.last_configuration_reset_us),
+             (unsigned long)runtime.suspend_count,
+             (unsigned long)runtime.resume_count,
+             runtime_age_ms(now_us, runtime.last_usb_event_us),
+             (unsigned long)runtime.report_sent,
+             (unsigned long)runtime.report_completed,
+             (unsigned long)runtime.report_failed,
+             (unsigned long)runtime.report_submit_failed,
+             (unsigned long)runtime.report_xfer_failed,
+             (unsigned long)runtime.report_submit_failure_streak,
+             runtime_age_ms(now_us, runtime.first_report_submit_failure_us),
+             (unsigned long)runtime.report_not_ready,
+             (unsigned long)runtime.hid_endpoint_kick_count,
+             runtime_age_ms(now_us, runtime.last_hid_endpoint_kick_us),
+             (unsigned long)runtime.usb_recovery_count,
+             runtime_age_ms(now_us, runtime.last_usb_recovery_us),
+             (unsigned long)runtime.report_last_gap_us,
+             (unsigned long)runtime.report_max_gap_us,
+             runtime_age_ms(now_us, runtime.last_report_us),
+             (unsigned long)runtime.output_count,
+             runtime_age_ms(now_us, runtime.last_output_us),
+             (unsigned long)runtime.feature_get_count,
+             (unsigned long)rumble.output_updates,
+             (unsigned long)rumble.active_updates,
+             (unsigned long)rumble.ignored_nonzero_updates,
+             (unsigned long)rumble.ordinary_ble_writes,
+             (unsigned long)rumble.ordinary_ble_errors,
+             rumble.enabled ? "true" : "false",
+             rumble.active ? "true" : "false",
+             (unsigned)rumble.valid_flag0,
+             (unsigned)rumble.valid_flag1,
+             (unsigned)rumble.valid_flag2,
+             (unsigned)rumble.right_light,
+             (unsigned)rumble.left_heavy,
+             rumble_preview,
+             ble->scanning ? "true" : "false",
+             ble->connecting ? "true" : "false",
+             ble->reconnect_task_running ? "true" : "false",
+             ble->auto_scan_connect ? "true" : "false",
+             (unsigned)ble->interval_units,
+             (unsigned long)ble->interval_units * 1250UL,
+             (unsigned)ble->latency,
+             (unsigned)ble->supervision_timeout,
+             (unsigned long)ble->scan_start_count,
+             (unsigned long)ble->scan_complete_count,
+             ble->last_scan_start_rc,
+             ble->last_scan_complete_reason,
+             (unsigned long)ble->reconnect_schedule_count,
+             (unsigned long)ble->reconnect_attempt_count,
+             (unsigned long)ble->connect_start_count,
+             (unsigned long)ble->connect_success_count,
+             (unsigned long)ble->connect_failure_count,
+             ble->last_connect_start_rc,
+             ble->last_connect_status,
+             runtime_age_ms(now_us, ble->last_connect_us),
+             (unsigned long)ble->disconnect_count,
+             ble->last_disconnect_reason,
+             runtime_age_ms(now_us, ble->last_disconnect_us),
+             (unsigned long)ble->notify_rx_count,
+             (unsigned long)ble->notify_parsed_count,
+             runtime_age_ms(now_us, ble->last_notify_us),
+             runtime_age_ms(now_us, ble->last_parsed_notify_us),
+             (unsigned long)ble->stale_recovery_count,
+             runtime_age_ms(now_us, ble->last_stale_recovery_us));
+}
+
 static void format_status_extra(char *out, size_t out_len)
 {
     dualsense_haptic_audio_features_t audio;
@@ -133,7 +317,7 @@ static void format_status_extra(char *out, size_t out_len)
 
     snprintf(out,
              out_len,
-             "\"mode\":\"dualsense\",\"profile\":\"%s\",\"usb_audio\":\"uac1_4ch\",\"ble\":\"%s\",\"ble_auto\":\"%s\",\"ble_target\":\"%s\",\"ble_conn_interval_units\":%u,\"ble_conn_interval_us\":%lu,\"audio_streaming\":%s,\"audio_alt\":%u,\"audio_packets\":%lu,\"audio_active\":%lu,\"audio_silence\":%lu,\"audio_parser\":\"%s\",\"audio_pair\":\"%s\",\"hd_candidate\":%s,\"front_rms_l\":%u,\"front_rms_r\":%u,\"rear_rms_l\":%u,\"rear_rms_r\":%u,\"front_peak_l\":%u,\"front_peak_r\":%u,\"rear_peak_l\":%u,\"rear_peak_r\":%u,\"front_env_l\":%u,\"front_env_r\":%u,\"rear_env_l\":%u,\"rear_env_r\":%u,\"transient_l\":%u,\"transient_r\":%u,\"haptic\":\"%s\",\"haptic_live\":%s,\"haptic_dry_run\":%s,\"haptic_mode\":\"%s\",\"haptic_source\":\"%s\",\"haptic_max\":%u,\"haptic_gain\":%.3f,\"haptic_transient_gain\":%.3f,\"haptic_interval_ms\":%u,\"haptic_activity_threshold\":%u,\"haptic_silence_timeout_ms\":%u,\"raw02_hd_candidate_packets\":%lu,\"raw02_dry_packets\":%lu,\"raw02_live_packets\":%lu,\"raw02_dropped_rate\":%lu,\"raw02_dropped_no_ble\":%lu,\"raw02_dropped_silence\":%lu,\"raw02_dropped_pcm\":%lu,\"raw02_ble_writes\":%lu,\"raw02_ble_errors\":%lu,\"raw02_last_mode\":\"%s\",\"raw02_left\":\"%s\",\"raw02_right\":\"%s\",\"raw02_error\":\"%s\",\"version\":\"v5.9.0-dualsense\"",
+             "\"mode\":\"dualsense\",\"profile\":\"%s\",\"usb_audio\":\"uac1_4ch\",\"ble\":\"%s\",\"ble_auto\":\"%s\",\"ble_target\":\"%s\",\"ble_conn_interval_units\":%u,\"ble_conn_interval_us\":%lu,\"audio_streaming\":%s,\"audio_alt\":%u,\"audio_submitted\":%lu,\"audio_dropped\":%lu,\"audio_queue_depth\":%u,\"audio_queue_high\":%u,\"audio_packets\":%lu,\"audio_active\":%lu,\"audio_silence\":%lu,\"audio_parser\":\"%s\",\"audio_pair\":\"%s\",\"hd_candidate\":%s,\"front_rms_l\":%u,\"front_rms_r\":%u,\"rear_rms_l\":%u,\"rear_rms_r\":%u,\"front_peak_l\":%u,\"front_peak_r\":%u,\"rear_peak_l\":%u,\"rear_peak_r\":%u,\"front_env_l\":%u,\"front_env_r\":%u,\"rear_env_l\":%u,\"rear_env_r\":%u,\"transient_l\":%u,\"transient_r\":%u,\"haptic\":\"%s\",\"haptic_live\":%s,\"haptic_dry_run\":%s,\"haptic_mode\":\"%s\",\"haptic_source\":\"%s\",\"haptic_max\":%u,\"haptic_gain\":%.3f,\"haptic_transient_gain\":%.3f,\"haptic_interval_ms\":%u,\"haptic_activity_threshold\":%u,\"haptic_silence_timeout_ms\":%u,\"raw02_hd_candidate_packets\":%lu,\"raw02_dry_packets\":%lu,\"raw02_live_packets\":%lu,\"raw02_dropped_rate\":%lu,\"raw02_dropped_no_ble\":%lu,\"raw02_dropped_silence\":%lu,\"raw02_dropped_pcm\":%lu,\"raw02_ble_writes\":%lu,\"raw02_ble_errors\":%lu,\"raw02_last_mode\":\"%s\",\"raw02_left\":\"%s\",\"raw02_right\":\"%s\",\"raw02_error\":\"%s\",\"version\":\"v5.9.2-dualsense\"",
              DS5_PROFILE_NAME,
              pro2_input_backend_state(),
              device_config_get_ble_autoconnect() ? "on" : "off",
@@ -141,8 +325,12 @@ static void format_status_extra(char *out, size_t out_len)
              (unsigned)ble.interval_units,
              (unsigned long)ble.interval_units * 1250UL,
              audio.streaming ? "true" : "false",
-              (unsigned)audio.alt_setting,
-              (unsigned long)audio.packet_count,
+               (unsigned)audio.alt_setting,
+               (unsigned long)audio.submitted_packet_count,
+               (unsigned long)audio.dropped_packet_count,
+               (unsigned)audio.queue_depth,
+               (unsigned)audio.queue_high_watermark,
+               (unsigned long)audio.packet_count,
               (unsigned long)audio.active_packet_count,
               (unsigned long)audio.silence_packet_count,
               dualsense_haptic_audio_parser_string((dualsense_haptic_audio_parser_t)audio.parser_mode),
@@ -186,12 +374,14 @@ static void format_status_extra(char *out, size_t out_len)
              raw02.last_left_hex,
              raw02.last_right_hex,
              raw02.last_error);
+    append_runtime_diagnostics(out, out_len, &ble);
 }
 
 static void format_status_lite_extra(char *out, size_t out_len)
 {
     dualsense_haptic_audio_features_t audio;
     haptic_raw02_status_t raw02;
+    ble_central_conn_metrics_t ble;
     switch2_live_stats_t input_stats;
     switch2_state_t input_state;
     uint32_t input_updates = 0;
@@ -201,16 +391,21 @@ static void format_status_lite_extra(char *out, size_t out_len)
                                                   &input_age_us);
     dualsense_haptic_audio_snapshot(&audio);
     haptic_audio_to_raw02_snapshot(&raw02);
+    ble_central_get_conn_metrics(&ble);
     switch2_state_get_live_stats(&input_stats);
 
     snprintf(out,
              out_len,
-             "\"mode\":\"dualsense\",\"profile\":\"%s\",\"ble\":\"%s\",\"audio_streaming\":%s,\"audio_alt\":%u,\"audio_packets\":%lu,\"audio_active\":%lu,\"audio_silence\":%lu,\"audio_parser\":\"%s\",\"audio_pair\":\"%s\",\"hd_candidate\":%s,\"front_env_l\":%u,\"front_env_r\":%u,\"rear_env_l\":%u,\"rear_env_r\":%u,\"front_peak_l\":%u,\"front_peak_r\":%u,\"rear_peak_l\":%u,\"rear_peak_r\":%u,\"haptic\":\"%s\",\"haptic_live\":%s,\"haptic_dry_run\":%s,\"haptic_mode\":\"%s\",\"haptic_source\":\"%s\",\"raw02_hd_candidate_packets\":%lu,\"raw02_live_packets\":%lu,\"raw02_dropped_rate\":%lu,\"raw02_dropped_silence\":%lu,\"raw02_dropped_pcm\":%lu,\"raw02_ble_writes\":%lu,\"raw02_ble_errors\":%lu,\"raw02_last_mode\":\"%s\",\"raw02_left\":\"%s\",\"raw02_right\":\"%s\",\"raw02_error\":\"%s\",\"input_live\":%s,\"input_updates\":%lu,\"input_age_ms\":%lld,\"input_rate_millihz\":%lu,\"input_last_gap_us\":%lu,\"input_max_gap_us\":%lu,\"input_lx\":%u,\"input_ly\":%u,\"input_rx\":%u,\"input_ry\":%u,\"version\":\"v5.9.0-dualsense\"",
+             "\"mode\":\"dualsense\",\"profile\":\"%s\",\"ble\":\"%s\",\"audio_streaming\":%s,\"audio_alt\":%u,\"audio_submitted\":%lu,\"audio_dropped\":%lu,\"audio_queue_depth\":%u,\"audio_queue_high\":%u,\"audio_packets\":%lu,\"audio_active\":%lu,\"audio_silence\":%lu,\"audio_parser\":\"%s\",\"audio_pair\":\"%s\",\"hd_candidate\":%s,\"front_env_l\":%u,\"front_env_r\":%u,\"rear_env_l\":%u,\"rear_env_r\":%u,\"front_peak_l\":%u,\"front_peak_r\":%u,\"rear_peak_l\":%u,\"rear_peak_r\":%u,\"haptic\":\"%s\",\"haptic_live\":%s,\"haptic_dry_run\":%s,\"haptic_mode\":\"%s\",\"haptic_source\":\"%s\",\"raw02_hd_candidate_packets\":%lu,\"raw02_live_packets\":%lu,\"raw02_dropped_rate\":%lu,\"raw02_dropped_silence\":%lu,\"raw02_dropped_pcm\":%lu,\"raw02_ble_writes\":%lu,\"raw02_ble_errors\":%lu,\"raw02_last_mode\":\"%s\",\"raw02_left\":\"%s\",\"raw02_right\":\"%s\",\"raw02_error\":\"%s\",\"input_live\":%s,\"input_updates\":%lu,\"input_age_ms\":%lld,\"input_rate_millihz\":%lu,\"input_last_gap_us\":%lu,\"input_max_gap_us\":%lu,\"input_lx\":%u,\"input_ly\":%u,\"input_rx\":%u,\"input_ry\":%u,\"version\":\"v5.9.2-dualsense\"",
              DS5_PROFILE_NAME,
              pro2_input_backend_state(),
              audio.streaming ? "true" : "false",
-              (unsigned)audio.alt_setting,
-              (unsigned long)audio.packet_count,
+               (unsigned)audio.alt_setting,
+               (unsigned long)audio.submitted_packet_count,
+               (unsigned long)audio.dropped_packet_count,
+               (unsigned)audio.queue_depth,
+               (unsigned)audio.queue_high_watermark,
+               (unsigned long)audio.packet_count,
               (unsigned long)audio.active_packet_count,
               (unsigned long)audio.silence_packet_count,
               dualsense_haptic_audio_parser_string((dualsense_haptic_audio_parser_t)audio.parser_mode),
@@ -250,17 +445,182 @@ static void format_status_lite_extra(char *out, size_t out_len)
              (unsigned)input_state.ly,
              (unsigned)input_state.rx,
              (unsigned)input_state.ry);
+    append_runtime_diagnostics(out, out_len, &ble);
+}
+
+static void format_status_diag_extra(char *out, size_t out_len)
+{
+    dualsense_haptic_audio_features_t audio;
+    haptic_raw02_status_t raw02;
+    pro2_rumble_backend_stats_t rumble;
+    dualsense_runtime_stats_t runtime;
+    ble_central_conn_metrics_t ble;
+    switch2_state_t input_state;
+    uint32_t input_updates = 0;
+    int64_t input_age_us = INT64_MAX;
+    int64_t now_us = esp_timer_get_time();
+    bool input_live = pro2_input_backend_get_live(&input_state,
+                                                  &input_updates,
+                                                  &input_age_us);
+
+    dualsense_haptic_audio_snapshot(&audio);
+    haptic_audio_to_raw02_snapshot(&raw02);
+    pro2_rumble_backend_snapshot(&rumble);
+    dualsense_runtime_stats_snapshot(&runtime);
+    ble_central_get_conn_metrics(&ble);
+
+    snprintf(out,
+             out_len,
+             "\"mode\":\"dualsense\",\"profile\":\"%s\","
+             "\"uptime_ms\":%lld,\"reset_reason\":\"%s\","
+             "\"heap_free\":%lu,\"heap_min\":%lu,"
+             "\"heap_internal_free\":%lu,\"heap_internal_largest\":%lu,"
+             "\"usb_mounted\":%s,\"usb_ready\":%s,\"usb_bus_resets\":%lu,"
+             "\"usb_config_resets\":%lu,\"usb_recoveries\":%lu,"
+             "\"usb_recovery_inhibited\":%lu,\"usb_recovery_inhibit_reason\":%lu,"
+             "\"hid_endpoint_kicks\":%lu,\"hid_endpoint_kick_age_ms\":%lld,"
+             "\"hid_report_age_ms\":%lld,\"hid_report_max_gap_us\":%lu,"
+             "\"hid_submit_failures\":%lu,\"hid_xfer_failures\":%lu,"
+             "\"uac_out_xfer_success\":%lu,\"uac_out_xfer_errors\":%lu,"
+             "\"uac_out_rearm_failures\":%lu,\"uac_last_xfer_age_ms\":%lld,"
+             "\"uac_last_xfer_result\":%ld,\"uac_last_xfer_bytes\":%lu,"
+             "\"uac_set_interfaces\":%lu,\"uac_mic_alt1_attempts\":%lu,"
+             "\"uac_mic_alt1_rejects\":%lu,"
+             "\"ble\":\"%s\",\"ble_interval_us\":%lu,"
+             "\"ble_notify_age_ms\":%lld,\"ble_disconnects\":%lu,"
+             "\"ble_disconnect_reason\":%d,"
+             "\"input_live\":%s,\"input_updates\":%lu,\"input_age_ms\":%lld,"
+             "\"audio_streaming\":%s,\"audio_alt\":%u,"
+             "\"audio_submitted\":%lu,\"audio_dropped\":%lu,"
+             "\"audio_queue_depth\":%u,\"audio_queue_high\":%u,"
+             "\"audio_queue_full\":%lu,\"audio_process_batches\":%lu,"
+             "\"audio_process_last_us\":%lu,\"audio_process_max_us\":%lu,"
+             "\"audio_front_active\":%lu,\"audio_rear_active\":%lu,"
+             "\"audio_front_only\":%lu,\"audio_rear_only\":%lu,"
+             "\"audio_both_active\":%lu,\"audio_rear_low_energy\":%lu,"
+             "\"audio_stack_free\":%lu,\"audio_hd_candidate\":%s,"
+             "\"raw02_targets\":%lu,\"raw02_ble_writes\":%lu,"
+             "\"raw02_ble_errors\":%lu,\"raw02_live_packets\":%lu,"
+             "\"ordinary_ble_writes\":%lu,\"ordinary_ble_errors\":%lu,"
+             "\"rumble_policy\":\"dualsense_host_intent\","
+             "\"rumble_host_mode\":\"%s\","
+             "\"rumble_host_mode_transitions\":%lu,"
+             "\"rumble_audio_haptics_updates\":%lu,"
+             "\"rumble_compatibility_updates\":%lu,"
+             "\"rumble_hd_blocked_by_compatibility\":%lu,"
+             "\"rumble_compatibility_selected\":%s,"
+             "\"rumble_compatibility_v1\":%s,"
+             "\"rumble_compatibility_v2\":%s,"
+             "\"rumble_audio_haptics_allowed\":%s,"
+             "\"rumble_source\":\"%s\",\"rumble_source_transitions\":%lu,"
+             "\"rumble_hd_preemptions\":%lu,\"rumble_ordinary_fallbacks\":%lu,"
+             "\"rumble_ordinary_updates_while_hd\":%lu,"
+             "\"rumble_hd_active\":%s,\"rumble_ordinary_active\":%s,"
+             "\"rumble_hd_age_ms\":%lld,\"rumble_ordinary_age_ms\":%lld,"
+             "\"rumble_stop_writes\":%lu,\"hid_non_rumble_updates\":%lu,"
+             "\"rumble_stack_free\":%lu,\"input_stack_free\":%lu,"
+             "\"control_stack_free\":%lu,\"version\":\"v5.9.2-dualsense\"",
+             DS5_PROFILE_NAME,
+             (long long)(now_us / 1000),
+             reset_reason_string(esp_reset_reason()),
+             (unsigned long)esp_get_free_heap_size(),
+             (unsigned long)esp_get_minimum_free_heap_size(),
+             (unsigned long)heap_caps_get_free_size(MALLOC_CAP_INTERNAL |
+                                                    MALLOC_CAP_8BIT),
+             (unsigned long)heap_caps_get_largest_free_block(
+                 MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
+             runtime.mounted ? "true" : "false",
+             runtime.configuration_ready ? "true" : "false",
+             (unsigned long)runtime.bus_reset_count,
+             (unsigned long)runtime.configuration_reset_count,
+             (unsigned long)runtime.usb_recovery_count,
+             (unsigned long)runtime.usb_recovery_inhibited_count,
+             (unsigned long)runtime.usb_recovery_inhibit_reason,
+             (unsigned long)runtime.hid_endpoint_kick_count,
+             runtime_age_ms(now_us, runtime.last_hid_endpoint_kick_us),
+             runtime_age_ms(now_us, runtime.last_report_us),
+             (unsigned long)runtime.report_max_gap_us,
+             (unsigned long)runtime.report_submit_failed,
+             (unsigned long)runtime.report_xfer_failed,
+             (unsigned long)runtime.uac_out_xfer_success,
+             (unsigned long)runtime.uac_out_xfer_errors,
+             (unsigned long)runtime.uac_out_rearm_failures,
+             runtime_age_ms(now_us, runtime.uac_last_xfer_us),
+             (long)runtime.uac_last_xfer_result,
+             (unsigned long)runtime.uac_last_xfer_bytes,
+             (unsigned long)runtime.uac_set_interface_count,
+             (unsigned long)runtime.uac_mic_alt1_attempts,
+             (unsigned long)runtime.uac_mic_alt1_rejects,
+             pro2_input_backend_state(),
+             (unsigned long)ble.interval_units * 1250UL,
+             runtime_age_ms(now_us, ble.last_notify_us),
+             (unsigned long)ble.disconnect_count,
+             ble.last_disconnect_reason,
+             input_live ? "true" : "false",
+             (unsigned long)input_updates,
+             (long long)(input_age_us == INT64_MAX ? -1 : input_age_us / 1000),
+             audio.streaming ? "true" : "false",
+             (unsigned)audio.alt_setting,
+             (unsigned long)audio.submitted_packet_count,
+             (unsigned long)audio.dropped_packet_count,
+             (unsigned)audio.queue_depth,
+             (unsigned)audio.queue_high_watermark,
+             (unsigned long)audio.queue_full_count,
+             (unsigned long)audio.process_batch_count,
+             (unsigned long)audio.process_last_us,
+             (unsigned long)audio.process_max_us,
+             (unsigned long)audio.front_active_packet_count,
+             (unsigned long)audio.rear_active_packet_count,
+             (unsigned long)audio.front_only_packet_count,
+             (unsigned long)audio.rear_only_packet_count,
+             (unsigned long)audio.both_active_packet_count,
+             (unsigned long)audio.rear_low_energy_packet_count,
+             (unsigned long)audio.task_stack_high_watermark_bytes,
+             audio.hd_candidate ? "true" : "false",
+             (unsigned long)rumble.raw02_submissions,
+             (unsigned long)rumble.raw02_ble_writes,
+             (unsigned long)rumble.raw02_ble_errors,
+             (unsigned long)raw02.raw02_live_packets,
+             (unsigned long)rumble.ordinary_ble_writes,
+             (unsigned long)rumble.ordinary_ble_errors,
+             pro2_rumble_backend_host_mode_string(rumble.host_mode),
+             (unsigned long)rumble.host_mode_transitions,
+             (unsigned long)rumble.audio_haptics_updates,
+             (unsigned long)rumble.compatibility_updates,
+             (unsigned long)rumble.hd_updates_blocked_by_compatibility,
+             rumble.compatibility_selected ? "true" : "false",
+             rumble.compatibility_v1 ? "true" : "false",
+             rumble.compatibility_v2 ? "true" : "false",
+             rumble.audio_haptics_allowed ? "true" : "false",
+             pro2_rumble_backend_source_string(rumble.selected_source),
+             (unsigned long)rumble.source_transitions,
+             (unsigned long)rumble.hd_preemptions,
+             (unsigned long)rumble.ordinary_fallbacks,
+             (unsigned long)rumble.ordinary_updates_while_hd,
+             rumble.raw02_source_active ? "true" : "false",
+             rumble.ordinary_source_active ? "true" : "false",
+             (long long)(rumble.raw02_age_us < 0
+                             ? -1
+                             : rumble.raw02_age_us / 1000),
+             (long long)(rumble.ordinary_age_us < 0
+                             ? -1
+                             : rumble.ordinary_age_us / 1000),
+             (unsigned long)rumble.stop_ble_writes,
+             (unsigned long)rumble.non_rumble_updates,
+             (unsigned long)rumble.task_stack_high_watermark_bytes,
+             (unsigned long)runtime.input_task_stack_high_watermark_bytes,
+             (unsigned long)runtime.control_task_stack_high_watermark_bytes);
 }
 
 static esp_err_t handle_haptic_command(const char *cmd, char *reply, int reply_len)
 {
     if (strcmp(cmd, "haptic status lite") == 0 || strcmp(cmd, "haptic lite") == 0) {
-        static char extra[1600];
+        static char extra[4096];
         format_status_lite_extra(extra, sizeof(extra));
         return json_ok(reply, reply_len, "haptic status lite", extra);
     }
     if (strcmp(cmd, "haptic status") == 0 || strcmp(cmd, "haptic") == 0) {
-        static char extra[3200];
+        static char extra[5120];
         format_status_extra(extra, sizeof(extra));
         return json_ok(reply, reply_len, "haptic status", extra);
     }
@@ -345,7 +705,7 @@ static esp_err_t handle_haptic_command(const char *cmd, char *reply, int reply_l
     if (strncmp(cmd, "haptic mode ", 12) == 0) {
         haptic_raw02_mode_t mode;
         if (!haptic_audio_to_raw02_parse_mode(cmd + 12, &mode)) {
-            return json_error(reply, reply_len, "haptic mode", "usage: haptic mode auto|tick|punch|continuous|texture");
+            return json_error(reply, reply_len, "haptic mode", "usage: haptic mode auto|spectral|tick|punch|continuous|texture");
         }
         haptic_audio_to_raw02_set_mode(mode);
         char extra[64];
@@ -422,7 +782,7 @@ static esp_err_t handle_audio_command(const char *cmd, char *reply, int reply_le
 
 void v55_control_protocol_init(void)
 {
-    ESP_LOGI(TAG, "[V55_CONTROL] serial control ready: status/status lite, BLE, haptic, audio parser, raw02, input recalibrate");
+    ESP_LOGI(TAG, "[V55_CONTROL] serial control ready: status/status lite/status diag, BLE, haptic, audio parser, raw02, input recalibrate");
 }
 
 esp_err_t v55_control_protocol_handle_line(const char *line, char *reply, int reply_len)
@@ -433,23 +793,28 @@ esp_err_t v55_control_protocol_handle_line(const char *line, char *reply, int re
     ESP_LOGI(TAG, "[V55_CONTROL] command=%s", cmd);
 
     if (strcmp(cmd, "status") == 0 || strcmp(cmd, "param get") == 0) {
-        static char extra[3200];
+        static char extra[5120];
         format_status_extra(extra, sizeof(extra));
         return json_ok(reply, reply_len, "status", extra);
     }
     if (strcmp(cmd, "status lite") == 0 || strcmp(cmd, "param get lite") == 0) {
-        static char extra[1600];
+        static char extra[4096];
         format_status_lite_extra(extra, sizeof(extra));
         return json_ok(reply, reply_len, "status lite", extra);
     }
+    if (strcmp(cmd, "status diag") == 0 || strcmp(cmd, "diag") == 0) {
+        static char extra[5120];
+        format_status_diag_extra(extra, sizeof(extra));
+        return json_ok(reply, reply_len, "status diag", extra);
+    }
     if (strcmp(cmd, "version") == 0) {
-        return json_ok(reply, reply_len, "version", "\"version\":\"v5.9.0-dualsense\",\"profile\":\"" DS5_PROFILE_NAME "\"");
+        return json_ok(reply, reply_len, "version", "\"version\":\"v5.9.2-dualsense\",\"profile\":\"" DS5_PROFILE_NAME "\"");
     }
     if (strcmp(cmd, "mode pro2") == 0) {
-        return json_ok(reply, reply_len, "mode", "\"mode\":\"pro2\",\"reflash_required\":true,\"note\":\"Flash V5.9 Pro2 / Nintendo bridge firmware, then replug native USB\"");
+        return json_ok(reply, reply_len, "mode", "\"mode\":\"pro2\",\"reflash_required\":true,\"note\":\"Flash V5.9.2 Pro2 / Nintendo bridge firmware, then replug native USB\"");
     }
     if (strcmp(cmd, "mode dualsense") == 0) {
-        return json_ok(reply, reply_len, "mode", "\"mode\":\"dualsense\",\"reflash_required\":false,\"note\":\"Already running V5.9 DualSense-like identity\"");
+        return json_ok(reply, reply_len, "mode", "\"mode\":\"dualsense\",\"reflash_required\":false,\"note\":\"Already running V5.9.2 Xin He Lian Sheng PS5 identity\"");
     }
     if (strcmp(cmd, "reboot") == 0) {
         json_ok(reply, reply_len, "reboot", "\"note\":\"restarting\"");
@@ -509,6 +874,13 @@ esp_err_t v55_control_protocol_handle_line(const char *line, char *reply, int re
             json_ok(reply, reply_len, "ble auto", "\"ble_auto\":\"off\"") :
             json_error(reply, reply_len, "ble auto", "failed to save BLE autoconnect");
     }
+    if (strcmp(cmd, "ble forget") == 0 || strcmp(cmd, "ble target clear") == 0) {
+        ble_central_disconnect();
+        esp_err_t err = device_config_save_ble_target("");
+        return err == ESP_OK ?
+            json_ok(reply, reply_len, "ble forget", "\"ble\":\"idle\",\"ble_target\":\"\"") :
+            json_error(reply, reply_len, "ble forget", "failed to clear BLE target");
+    }
     if (strcmp(cmd, "ble disconnect") == 0) {
         ble_central_disconnect();
         return json_ok(reply, reply_len, "ble disconnect", "\"ble\":\"idle\"");
@@ -557,5 +929,5 @@ esp_err_t v55_control_protocol_handle_line(const char *line, char *reply, int re
         return json_ok(reply, reply_len, "param set", "\"saved\":false");
     }
 
-    return json_error(reply, reply_len, "unknown", "unknown V5.9 command");
+    return json_error(reply, reply_len, "unknown", "unknown V5.9.2 command");
 }

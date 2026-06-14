@@ -4,6 +4,7 @@ using System.IO.Ports;
 using System.Linq;
 using System.Management;
 using System.Threading.Tasks;
+using Microsoft.Win32;
 
 namespace Y700Switch2V55Manager;
 
@@ -33,9 +34,42 @@ public sealed record PortItem(
 
 public sealed record PortScanResult(IReadOnlyList<PortItem> Ports, bool MetadataTimedOut, bool MetadataFailed);
 public sealed record UsbProbeResult(string Summary, bool TimedOut, bool Failed);
+public sealed record PortDriverInfo(
+    string PortName,
+    string DeviceId,
+    string DeviceName,
+    string Provider,
+    string Version,
+    string InfName)
+{
+    public int WindowsBuild => Environment.OSVersion.Version.Build;
+
+    public bool IsKnownKernelHangRisk =>
+        DeviceInspector.IsKnownKernelHangRisk(
+            WindowsBuild, Provider, Version);
+
+    public string Summary =>
+        "port=" + PortName +
+        " provider=" + (string.IsNullOrWhiteSpace(Provider) ? "unknown" : Provider) +
+        " version=" + (string.IsNullOrWhiteSpace(Version) ? "unknown" : Version) +
+        " inf=" + (string.IsNullOrWhiteSpace(InfName) ? "unknown" : InfName) +
+        " os_build=" + WindowsBuild;
+}
 
 public static class DeviceInspector
 {
+    internal static bool IsKnownKernelHangRisk(
+        int windowsBuild,
+        string provider,
+        string version)
+    {
+        return windowsBuild >= 26300 &&
+               provider.Contains("wch", StringComparison.OrdinalIgnoreCase) &&
+               version.StartsWith(
+                   "2.1.2025.7",
+                   StringComparison.OrdinalIgnoreCase);
+    }
+
     public static PortScanResult ScanPorts(int metadataTimeoutMs = 900)
     {
         string[] names = GetPortNamesSafe();
@@ -108,6 +142,68 @@ public static class DeviceInspector
         }
     }
 
+    public static PortDriverInfo? QueryPortDriver(string portName)
+    {
+        if (string.IsNullOrWhiteSpace(portName))
+        {
+            return null;
+        }
+
+        using RegistryKey? usbRoot = Registry.LocalMachine.OpenSubKey(
+            @"SYSTEM\CurrentControlSet\Enum\USB");
+        if (usbRoot == null)
+        {
+            return null;
+        }
+
+        foreach (string hardwareKeyName in usbRoot.GetSubKeyNames())
+        {
+            using RegistryKey? hardwareKey =
+                usbRoot.OpenSubKey(hardwareKeyName);
+            if (hardwareKey == null)
+            {
+                continue;
+            }
+
+            foreach (string instanceKeyName in hardwareKey.GetSubKeyNames())
+            {
+                using RegistryKey? instanceKey =
+                    hardwareKey.OpenSubKey(instanceKeyName);
+                string friendlyName =
+                    Convert.ToString(instanceKey?.GetValue("FriendlyName")) ?? "";
+                if (!friendlyName.Contains(
+                        "(" + portName + ")",
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                string driverKeyPath =
+                    Convert.ToString(instanceKey?.GetValue("Driver")) ?? "";
+                string deviceId =
+                    @"USB\" + hardwareKeyName + @"\" + instanceKeyName;
+                if (string.IsNullOrWhiteSpace(driverKeyPath))
+                {
+                    return new PortDriverInfo(
+                        portName, deviceId, friendlyName, "", "", "");
+                }
+
+                using RegistryKey? driverKey = Registry.LocalMachine.OpenSubKey(
+                    @"SYSTEM\CurrentControlSet\Control\Class\" + driverKeyPath);
+                return new PortDriverInfo(
+                    portName,
+                    deviceId,
+                    Convert.ToString(driverKey?.GetValue("DriverDesc")) ??
+                        friendlyName,
+                    Convert.ToString(driverKey?.GetValue("ProviderName")) ?? "",
+                    Convert.ToString(driverKey?.GetValue("DriverVersion")) ?? "",
+                    Convert.ToString(driverKey?.GetValue("InfPath")) ?? "");
+            }
+        }
+
+        return null;
+    }
+
     private static string[] GetPortNamesSafe()
     {
         try
@@ -150,7 +246,7 @@ public static class DeviceInspector
             string identity;
             if (deviceId.Contains("VID_054C&PID_0CE6", StringComparison.OrdinalIgnoreCase))
             {
-                identity = "DualSense-like VID_054C&PID_0CE6";
+                identity = "新和联胜 / PS5 VID_054C&PID_0CE6";
             }
             else if (deviceId.Contains("VID_057E&PID_2069", StringComparison.OrdinalIgnoreCase))
             {
@@ -181,7 +277,7 @@ public static class DeviceInspector
 
         if (lines.Count == 0)
         {
-            return "没有检测到 DualSense-like 054C:0CE6、Nintendo/Pro2 057E:2069、Xbox/XInput 045E:028E 或 Xbox Elite 2/GIP 045E:0B00 设备。如果刚刷完固件，请重新插拔原生 USB / OTG。";
+            return "没有检测到新和联胜 / PS5 054C:0CE6、Nintendo/Pro2 057E:2069 或 Xbox/XInput 045E:028E 设备。如果刚刷完固件，请重新插拔原生 USB / OTG。";
         }
 
         return string.Join(Environment.NewLine, lines);

@@ -42,10 +42,10 @@ public static class OutputModeCatalog
     public static readonly OutputModeProfile DualSenseLike = new(
         "hid_audio_uac1_4ch_ds5like",
         OutputModeId.DualSenseLike,
-        "DualSense-like + Wireless Controller Audio",
+        "新和联胜 / PS5",
         "VID_054C&PID_0CE6",
         true,
-        "DualSense-like HID 加四声道控制器音频实验链路。");
+        "严格 PS5 / DualSense 兼容身份，支持四声道 HD 震动音频与普通震动共同调度。");
 
     public static readonly OutputModeProfile Xbox = new(
         "xinput_bridge_v5_8",
@@ -55,21 +55,12 @@ public static class OutputModeCatalog
         true,
         "真实 Xbox 360 / XInput 风格 USB 后端，普通震动回传到 Pro2 BLE。");
 
-    public static readonly OutputModeProfile XboxElite = new(
-        "xinput_elite_bridge_v5_9",
-        OutputModeId.XboxElite,
-        "新和联胜 / Xbox Elite 2 GIP",
-        "VID_045E&PID_0B00",
-        true,
-        "Xbox Elite 2 / GIP 枚举 bring-up：优先验证 XGIP10、xboxgip.sys 和 Active 状态，背键与震动暂时停用。");
-
     public static IReadOnlyList<OutputModeProfile> All { get; } = new[]
     {
         Recovery,
-        Pro2,
         DualSenseLike,
-        Xbox,
-        XboxElite
+        Pro2,
+        Xbox
     };
 
     public static OutputModeProfile? FindByProfileId(string? profileId)

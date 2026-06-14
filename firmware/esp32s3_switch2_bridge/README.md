@@ -61,11 +61,12 @@ CONFIG_SPIRAM_USE_MEMMAP=y
 From the repository root:
 
 ```powershell
-.\tools\esp32s3\build.ps1 -IdfPath C:\Espressif\v5.3.3\esp-idf
+.\tools\setup_dev_environment.ps1
+.\tools\esp32s3\build.ps1
 ```
 
 For the XInput profile:
 
 ```powershell
-.\tools\esp32s3\build.ps1 -IdfPath C:\Espressif\v5.3.3\esp-idf -BuildDir work\build\v5_9_xinput_bridge -DeviceDefaultMode XINPUT_EXPERIMENT_MODE
+.\tools\esp32s3\build.ps1 -BuildDir work\b\xinput -DeviceDefaultMode XINPUT_EXPERIMENT_MODE
 ```

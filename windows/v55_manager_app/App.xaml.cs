@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Threading;
@@ -10,8 +11,12 @@ namespace Y700Switch2V55Manager;
 
 public partial class App : Application
 {
+    private const string ManagerMutexName =
+        @"Local\PRO2WirelessReceiverControlBoard.Manager";
     private static readonly Encoding Utf8NoBom = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
     private static readonly Encoding Utf8Bom = new UTF8Encoding(encoderShouldEmitUTF8Identifier: true);
+    private Mutex? managerMutex;
+    private bool managerMutexOwned;
 
     public App()
     {
@@ -39,8 +44,44 @@ public partial class App : Application
             return;
         }
 
+        managerMutex = new Mutex(
+            initiallyOwned: true,
+            ManagerMutexName,
+            out bool firstInstance);
+        if (!firstInstance)
+        {
+            MessageBox.Show(
+                "新和联胜版本已经在运行。\n\n请回到现有窗口操作，避免两个 Manager 同时占用 CH343 串口。",
+                "新和联胜版本",
+                MessageBoxButton.OK,
+                MessageBoxImage.Information);
+            managerMutex.Dispose();
+            managerMutex = null;
+            Shutdown(0);
+            return;
+        }
+        managerMutexOwned = true;
+
         MainWindow = new MainWindow();
         MainWindow.Show();
+    }
+
+    protected override void OnExit(ExitEventArgs e)
+    {
+        if (managerMutexOwned)
+        {
+            try
+            {
+                managerMutex?.ReleaseMutex();
+            }
+            catch (ApplicationException)
+            {
+            }
+        }
+        managerMutexOwned = false;
+        managerMutex?.Dispose();
+        managerMutex = null;
+        base.OnExit(e);
     }
 
     private void VerifyPackageAndExit(string? outputPath)
@@ -52,7 +93,6 @@ public partial class App : Application
             FirmwareProfile recovery = package.GetProfile("hid_only");
             FirmwareProfile pro2 = package.GetProfile("pro2_bridge_v5_5");
             FirmwareProfile xinput = package.GetProfile("xinput_bridge_v5_8");
-            FirmwareProfile xinputElite = package.GetProfile("xinput_elite_bridge_v5_9");
             int assetCount = package.Manifest.Profiles.Sum(profile => profile.Assets.Count);
             string result = string.Join(Environment.NewLine, new[]
             {
@@ -64,7 +104,6 @@ public partial class App : Application
                 "recovery_assets=" + recovery.Assets.Count,
                 "pro2_assets=" + pro2.Assets.Count,
                 "xinput_assets=" + xinput.Assets.Count,
-                "xinput_elite_assets=" + xinputElite.Assets.Count,
                 "asset_count=" + assetCount,
                 "esptool=" + package.EsptoolPath,
                 "xinput_probe=" + package.XInputProbePath

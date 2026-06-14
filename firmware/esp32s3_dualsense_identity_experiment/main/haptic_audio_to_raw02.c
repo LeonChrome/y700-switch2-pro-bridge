@@ -14,12 +14,17 @@
 
 #define RAW02_LEFT_OFFSET 1
 #define RAW02_RIGHT_OFFSET 17
-#define RAW02_LOG_INTERVAL_US 100000LL
+#define RAW02_LOG_INTERVAL_US 5000000LL
 #define RAW02_DEFAULT_MAX_INTENSITY 96
-#define RAW02_DEFAULT_MIN_INTERVAL_MS 50
+#define RAW02_DEFAULT_MIN_INTERVAL_MS 12
 #define RAW02_DEFAULT_SILENCE_TIMEOUT_MS 100
 #define RAW02_DEFAULT_ACTIVITY_THRESHOLD 512
 #define RAW02_REFERENCE_MAX_INTENSITY 96
+#define RAW02_SPECTRAL_SAFE_MAX_AMPLITUDE 29000
+#define RAW02_SPECTRAL_LOW_MIN_HZ 70
+#define RAW02_SPECTRAL_LOW_MAX_HZ 300
+#define RAW02_SPECTRAL_HIGH_MIN_HZ 250
+#define RAW02_SPECTRAL_HIGH_MAX_HZ 511
 
 static const char *TAG = "v5.5_haptic_raw02";
 static portMUX_TYPE s_lock = portMUX_INITIALIZER_UNLOCKED;
@@ -137,6 +142,8 @@ const char *haptic_audio_to_raw02_mode_string(haptic_raw02_mode_t mode)
     switch (mode) {
     case HAPTIC_RAW02_MODE_AUTO:
         return "auto";
+    case HAPTIC_RAW02_MODE_SPECTRAL:
+        return "spectral";
     case HAPTIC_RAW02_MODE_TICK:
         return "tick";
     case HAPTIC_RAW02_MODE_PUNCH:
@@ -159,6 +166,8 @@ bool haptic_audio_to_raw02_parse_mode(const char *text, haptic_raw02_mode_t *out
     }
     if (strcmp(text, "auto") == 0) {
         *out_mode = HAPTIC_RAW02_MODE_AUTO;
+    } else if (strcmp(text, "spectral") == 0 || strcmp(text, "hd") == 0) {
+        *out_mode = HAPTIC_RAW02_MODE_SPECTRAL;
     } else if (strcmp(text, "tick") == 0) {
         *out_mode = HAPTIC_RAW02_MODE_TICK;
     } else if (strcmp(text, "punch") == 0) {
@@ -208,8 +217,8 @@ void haptic_audio_to_raw02_defaults(void)
 {
     portENTER_CRITICAL(&s_lock);
     memset(&s_status, 0, sizeof(s_status));
-    s_status.dry_run = true;
-    s_status.live_forwarding = false;
+    s_status.dry_run = false;
+    s_status.live_forwarding = true;
     s_status.ble_required = true;
     s_status.max_intensity = RAW02_DEFAULT_MAX_INTENSITY;
     s_status.gain = 1.0f;
@@ -232,7 +241,7 @@ void haptic_audio_to_raw02_init(void)
 {
     haptic_audio_to_raw02_defaults();
     ESP_LOGI(TAG,
-             "[HAPTIC_TO_RAW02] dry_run=true live_forwarding=false source=hd_only max_intensity=%u min_interval_ms=%u",
+             "[HAPTIC_TO_RAW02] dry_run=false live_forwarding=true source=hd_only max_intensity=%u min_interval_ms=%u",
              RAW02_DEFAULT_MAX_INTENSITY,
              RAW02_DEFAULT_MIN_INTERVAL_MS);
 }
@@ -245,6 +254,9 @@ static haptic_raw02_mode_t choose_effect_mode(const dualsense_haptic_audio_featu
     }
     if (!features || !features->activity) {
         return HAPTIC_RAW02_MODE_SILENCE;
+    }
+    if (features->spectral_ready) {
+        return HAPTIC_RAW02_MODE_SPECTRAL;
     }
     if (features->transient) {
         return HAPTIC_RAW02_MODE_PUNCH;
@@ -366,6 +378,60 @@ static void build_side(uint8_t intensity,
                                out + 1);
 }
 
+static uint16_t spectral_amplitude(uint16_t rms,
+                                   const haptic_raw02_status_t *config)
+{
+    if (!config || rms == 0 || config->max_intensity == 0) {
+        return 0;
+    }
+    float scaled =
+        ((float)rms / 16384.0f) *
+        (float)RAW02_SPECTRAL_SAFE_MAX_AMPLITUDE *
+        config->gain;
+    float intensity_limit =
+        (float)config->max_intensity / (float)RAW02_REFERENCE_MAX_INTENSITY;
+    if (intensity_limit > 1.0f) {
+        intensity_limit = 1.0f;
+    }
+    float maximum =
+        (float)RAW02_SPECTRAL_SAFE_MAX_AMPLITUDE * intensity_limit;
+    if (scaled > maximum) {
+        scaled = maximum;
+    }
+    if (scaled < 0.0f) {
+        scaled = 0.0f;
+    }
+    return (uint16_t)(scaled + 0.5f);
+}
+
+static void build_spectral_side(uint16_t low_freq,
+                                uint16_t high_freq,
+                                uint16_t low_rms,
+                                uint16_t high_rms,
+                                const haptic_raw02_status_t *config,
+                                uint8_t out[HAPTIC_RAW02_SIDE_BYTES])
+{
+    memset(out, 0, HAPTIC_RAW02_SIDE_BYTES);
+    out[0] = 0x50;
+
+    uint16_t low_amp = spectral_amplitude(low_rms, config);
+    uint16_t high_amp = spectral_amplitude(high_rms, config);
+    if (low_amp == 0 && high_amp == 0) {
+        return;
+    }
+    low_freq = clamp_u16_int(low_freq,
+                             RAW02_SPECTRAL_LOW_MIN_HZ,
+                             RAW02_SPECTRAL_LOW_MAX_HZ);
+    high_freq = clamp_u16_int(high_freq,
+                              RAW02_SPECTRAL_HIGH_MIN_HZ,
+                              RAW02_SPECTRAL_HIGH_MAX_HZ);
+    encode_switch_rumble_frame(high_freq,
+                               high_amp,
+                               low_freq,
+                               low_amp,
+                               out + 1);
+}
+
 static void build_payload(const uint8_t left[HAPTIC_RAW02_SIDE_BYTES],
                           const uint8_t right[HAPTIC_RAW02_SIDE_BYTES],
                           uint8_t payload[HAPTIC_RAW02_PAYLOAD_BYTES])
@@ -463,7 +529,11 @@ void haptic_audio_to_raw02_process_features(
         return;
     }
 
-    if (config.source == HAPTIC_RAW02_SOURCE_HD_ONLY && !features->hd_candidate) {
+    bool direct_haptic_channels =
+        features->source_channels >= 4 && !features->selected_front_pair;
+    if (config.source == HAPTIC_RAW02_SOURCE_HD_ONLY &&
+        !direct_haptic_channels &&
+        !features->hd_candidate) {
         portENTER_CRITICAL(&s_lock);
         s_status.dropped_pcm++;
         portEXIT_CRITICAL(&s_lock);
@@ -491,6 +561,13 @@ void haptic_audio_to_raw02_process_features(
     }
 
     haptic_raw02_mode_t mode = choose_effect_mode(features, config.mode);
+    if (config.mode == HAPTIC_RAW02_MODE_AUTO &&
+        mode != HAPTIC_RAW02_MODE_SPECTRAL) {
+        return;
+    }
+    if (mode == HAPTIC_RAW02_MODE_SPECTRAL && !features->spectral_ready) {
+        return;
+    }
     uint8_t intensity_l = calculate_intensity(features->envelope_l,
                                               features->transient_l,
                                               &config);
@@ -501,8 +578,23 @@ void haptic_audio_to_raw02_process_features(
     uint8_t right[HAPTIC_RAW02_SIDE_BYTES];
     uint8_t payload[HAPTIC_RAW02_PAYLOAD_BYTES];
 
-    build_side(intensity_l, mode, left);
-    build_side(intensity_r, mode, right);
+    if (mode == HAPTIC_RAW02_MODE_SPECTRAL) {
+        build_spectral_side(features->spectral_low_freq_l,
+                            features->spectral_high_freq_l,
+                            features->spectral_low_rms_l,
+                            features->spectral_high_rms_l,
+                            &config,
+                            left);
+        build_spectral_side(features->spectral_low_freq_r,
+                            features->spectral_high_freq_r,
+                            features->spectral_low_rms_r,
+                            features->spectral_high_rms_r,
+                            &config,
+                            right);
+    } else {
+        build_side(intensity_l, mode, left);
+        build_side(intensity_r, mode, right);
+    }
     build_payload(left, right, payload);
 
     const char *error = "none";
@@ -537,14 +629,14 @@ void haptic_audio_to_raw02_process_features(
     s_last_activity_us = now_us;
     s_stop_sent = false;
 
-    if (now_us >= s_next_log_us || err != ESP_OK || mode == HAPTIC_RAW02_MODE_PUNCH) {
+    if (now_us >= s_next_log_us) {
         s_next_log_us = now_us + RAW02_LOG_INTERVAL_US;
         char left_hex[HAPTIC_RAW02_SIDE_BYTES * 2 + 1];
         char right_hex[HAPTIC_RAW02_SIDE_BYTES * 2 + 1];
         bytes_to_hex(left, HAPTIC_RAW02_SIDE_BYTES, left_hex, sizeof(left_hex));
         bytes_to_hex(right, HAPTIC_RAW02_SIDE_BYTES, right_hex, sizeof(right_hex));
         ESP_LOGI(TAG,
-                 "[HAPTIC_TO_RAW02] dry_run=%s live_forwarding=%s source=%s hd_candidate=%s mode=%s intensity_l=%u intensity_r=%u left=%s right=%s raw02_packets_dry=%lu raw02_packets_live=%lu dropped_pcm=%lu error=%s",
+                 "[HAPTIC_TO_RAW02] dry_run=%s live_forwarding=%s source=%s hd_candidate=%s mode=%s intensity_l=%u intensity_r=%u low_hz=(%u,%u) high_hz=(%u,%u) left=%s right=%s raw02_packets_dry=%lu raw02_packets_live=%lu dropped_pcm=%lu error=%s",
                  config.dry_run ? "true" : "false",
                  config.live_forwarding ? "true" : "false",
                  haptic_audio_to_raw02_source_string(config.source),
@@ -552,6 +644,10 @@ void haptic_audio_to_raw02_process_features(
                  haptic_audio_to_raw02_mode_string(mode),
                  intensity_l,
                  intensity_r,
+                 features->spectral_low_freq_l,
+                 features->spectral_low_freq_r,
+                 features->spectral_high_freq_l,
+                 features->spectral_high_freq_r,
                  left_hex,
                  right_hex,
                  (unsigned long)s_status.raw02_dry_packets,

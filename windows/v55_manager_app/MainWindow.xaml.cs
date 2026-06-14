@@ -1,5 +1,6 @@
 using System.Windows;
 using System.Windows.Controls;
+using System.ComponentModel;
 
 namespace Y700Switch2V55Manager;
 
@@ -9,6 +10,15 @@ public partial class MainWindow : Window
     {
         InitializeComponent();
         DataContext = new MainViewModel(this);
+        Closing += MainWindow_Closing;
+    }
+
+    private void MainWindow_Closing(object? sender, CancelEventArgs e)
+    {
+        if (DataContext is MainViewModel viewModel)
+        {
+            viewModel.Shutdown();
+        }
     }
 
     private void LogBox_TextChanged(object sender, TextChangedEventArgs e)

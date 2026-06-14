@@ -1,6 +1,7 @@
 param(
-    [string]$IdfPath = "C:\Espressif\v5.3.3\esp-idf",
+    [string]$IdfPath,
     [switch]$SkipFirmwareBuild,
+    [switch]$SkipEmbeddedRefresh,
     [switch]$SkipDotnetInstall,
     [switch]$DryRun
 )
@@ -11,16 +12,35 @@ $ManagerRoot = Join-Path $RepoRoot "windows\v55_manager_app"
 $ReleaseRoot = Join-Path $RepoRoot "release\v5.9"
 $PublishRoot = Join-Path $ReleaseRoot "publish"
 $SingleExeName = [System.Text.Encoding]::UTF8.GetString([byte[]](
-    0x50,0x52,0x4F,0x32,0xE6,0x89,0x8B,0xE6,0x9F,0x84,0xE6,0x97,0xA0,0xE7,0xBA,0xBF,
-    0xE6,0x8E,0xA5,0xE6,0x94,0xB6,0xE5,0x99,0xA8,0xE6,0x8E,0xA7,0xE5,0x88,0xB6,
-    0xE6,0x9D,0xBF,0x2D,0x61,0x69,0x6F,0x2D,0x76,0x35,0x2E,0x39,0x2E,0x30,0x2E,0x65,0x78,0x65))
+    0xE6,0x96,0xB0,0xE5,0x92,0x8C,0xE8,0x81,0x94,0xE8,0x83,0x9C,0xE7,0x89,0x88,
+    0xE6,0x9C,0xAC,0x2D,0x61,0x69,0x6F,0x2D,0x76,0x35,0x2E,0x39,0x2E,0x32,0x2E,
+    0x65,0x78,0x65))
 $SingleExe = Join-Path $ReleaseRoot $SingleExeName
-$LegacySingleExe = Join-Path $ReleaseRoot "Y700Switch2V55Manager-aio-v5.9.0.exe"
-$HashFile = Join-Path $ReleaseRoot "SHA256SUMS-v5.9.0.txt"
+$LegacySingleExe = Join-Path $ReleaseRoot "Y700Switch2V55Manager-aio-v5.9.2.exe"
+$HashFile = Join-Path $ReleaseRoot "SHA256SUMS-v5.9.2.txt"
 $DotnetRoot = Join-Path $RepoRoot "work\dotnet"
+. (Join-Path $RepoRoot "tools\esp32s3\idf_environment.ps1")
 
 function Write-Step([string]$Name, [string]$Value) {
     Write-Output "[V5_9_PACKAGE] $Name=$Value"
+}
+
+function Remove-TreeWithRetry([string]$Path, [switch]$Required) {
+    if (!(Test-Path -LiteralPath $Path)) { return }
+    for ($attempt = 1; $attempt -le 8; $attempt++) {
+        try {
+            Remove-Item -LiteralPath $Path -Recurse -Force -ErrorAction Stop
+            return
+        } catch {
+            if ($attempt -lt 8) {
+                Start-Sleep -Milliseconds 500
+            }
+        }
+    }
+    if ($Required) {
+        throw "Unable to remove directory after retries: $Path"
+    }
+    Write-Step "cleanup_deferred" $Path
 }
 
 function Get-CSharpCompiler {
@@ -82,7 +102,7 @@ function Ensure-Dotnet {
 }
 
 function Add-FirmwareProfilePayload([string]$Profile, [string]$TargetRoot) {
-    $buildDir = Join-Path $RepoRoot "work\build\v5_5_dualsense_identity\$Profile"
+    $buildDir = Join-Path $RepoRoot "work\b\ds5\$Profile"
     if (!(Test-Path -LiteralPath $buildDir)) {
         throw "Missing firmware build directory: $buildDir"
     }
@@ -122,7 +142,7 @@ function Add-FirmwareProfilePayload([string]$Profile, [string]$TargetRoot) {
 
 function Add-Pro2BridgeProfilePayload([string]$TargetRoot) {
     $profile = "pro2_bridge_v5_5"
-    $buildDir = Join-Path $RepoRoot "firmware\esp32s3_switch2_bridge\build"
+    $buildDir = Join-Path $RepoRoot "work\b\pro2"
     if (!(Test-Path -LiteralPath $buildDir)) {
         throw "Missing Pro2 bridge firmware build directory: $buildDir"
     }
@@ -164,7 +184,7 @@ function Add-Pro2BridgeProfilePayload([string]$TargetRoot) {
 function Add-XInputBridgeProfilePayload(
     [string]$TargetRoot,
     [string]$Profile = "xinput_bridge_v5_8",
-    [string]$BuildDirRelative = "work\build\v5_9_xinput_bridge",
+    [string]$BuildDirRelative = "work\b\xinput",
     [string]$Label = "Xbox / XInput bridge"
 ) {
     $profile = $Profile
@@ -213,6 +233,9 @@ function Refresh-EmbeddedAssets {
 
     $firmwareRoot = Join-Path $ManagerRoot "embedded\firmware\v5.9"
     $toolsRoot = Join-Path $ManagerRoot "embedded\tools"
+    if (Test-Path -LiteralPath $firmwareRoot) {
+        Remove-Item -LiteralPath $firmwareRoot -Recurse -Force
+    }
     New-Item -ItemType Directory -Force -Path $firmwareRoot | Out-Null
     New-Item -ItemType Directory -Force -Path $toolsRoot | Out-Null
 
@@ -221,18 +244,17 @@ function Refresh-EmbeddedAssets {
     $profiles += Add-FirmwareProfilePayload "hid_only" $firmwareRoot
     $profiles += Add-Pro2BridgeProfilePayload $firmwareRoot
     $profiles += Add-XInputBridgeProfilePayload $firmwareRoot
-    $profiles += Add-XInputBridgeProfilePayload $firmwareRoot "xinput_elite_bridge_v5_9" "work\build\v5_9_xinput_elite_bridge" "Xbox Elite 2 GIP enumeration bring-up"
 
     $manifest = [ordered]@{
-        packageVersion = "v5.9.0-aio"
-        firmwareVersion = "5.9.0-manager"
+        packageVersion = "v5.9.2-aio"
+        firmwareVersion = "5.9.2-manager"
         target = "esp32s3"
         flashMode = "dio"
         flashFreq = "80m"
         flashSize = "16MB"
         defaultProfile = "pro2_bridge_v5_5"
         profiles = $profiles
-        notes = "V5.9 manager bundle for PRO2 wireless receiver control board: Pro2 / Nintendo bridge, Xbox/XInput bridge, Xbox Elite 2 GIP enumeration bring-up with XGIP10 and extensions paused, DualSense-like bridge, HID-only recovery, embedded esptool, and XInput host rumble probe."
+        notes = "V5.9.2 Xin He Lian Sheng bundle: PS5-compatible HID and four-channel HD haptics, ordinary-rumble arbitration, guided first pairing/reconnect/controller replacement, Pro2/Nintendo, Xbox/XInput, embedded esptool, and XInput probe."
     }
     $manifest | ConvertTo-Json -Depth 8 | Set-Content -Encoding UTF8 -Path (Join-Path $firmwareRoot "firmware_manifest.json")
 
@@ -251,9 +273,12 @@ function Refresh-EmbeddedAssets {
 }
 
 if (!$SkipFirmwareBuild) {
+    $IdfPath = Resolve-Y700IdfPath -RequestedPath $IdfPath
     Write-Step "firmware_build" "pro2_bridge_v5_5"
     if (!$DryRun) {
-        & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $RepoRoot "tools\esp32s3\build.ps1") -IdfPath $IdfPath
+        & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $RepoRoot "tools\esp32s3\build.ps1") `
+            -IdfPath $IdfPath `
+            -DeviceDefaultMode NINTENDO_EXPERIMENT_MODE
         if ($LASTEXITCODE -ne 0) { throw "Firmware build failed: pro2_bridge_v5_5" }
     }
 
@@ -261,19 +286,9 @@ if (!$SkipFirmwareBuild) {
     if (!$DryRun) {
         & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $RepoRoot "tools\esp32s3\build.ps1") `
             -IdfPath $IdfPath `
-            -BuildDir "work\build\v5_9_xinput_bridge" `
+            -BuildDir "work\b\xinput" `
             -DeviceDefaultMode XINPUT_EXPERIMENT_MODE
         if ($LASTEXITCODE -ne 0) { throw "Firmware build failed: xinput_bridge_v5_8" }
-    }
-
-    Write-Step "firmware_build" "xinput_elite_bridge_v5_9"
-    if (!$DryRun) {
-        & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $RepoRoot "tools\esp32s3\build.ps1") `
-            -IdfPath $IdfPath `
-            -BuildDir "work\build\v5_9_xinput_elite_bridge" `
-            -DeviceDefaultMode XINPUT_EXPERIMENT_MODE `
-            -XInputElite
-        if ($LASTEXITCODE -ne 0) { throw "Firmware build failed: xinput_elite_bridge_v5_9" }
     }
 
     $buildScript = Join-Path $RepoRoot "tools\esp32s3\build_v5_5_dualsense_identity.ps1"
@@ -286,18 +301,25 @@ if (!$SkipFirmwareBuild) {
     }
 }
 
-Refresh-EmbeddedAssets
+if (!$SkipEmbeddedRefresh) {
+    Refresh-EmbeddedAssets
+} else {
+    Write-Step "embedded_assets" "preserved"
+}
 
 $dotnet = Ensure-Dotnet
 Write-Step "dotnet" $dotnet
 
 if (!$DryRun) {
     New-Item -ItemType Directory -Force -Path $ReleaseRoot | Out-Null
-    if (Test-Path -LiteralPath $PublishRoot) { Remove-Item -LiteralPath $PublishRoot -Recurse -Force }
+    Remove-TreeWithRetry $PublishRoot -Required
     if (Test-Path -LiteralPath $SingleExe) { Remove-Item -LiteralPath $SingleExe -Force }
     if (Test-Path -LiteralPath $LegacySingleExe) { Remove-Item -LiteralPath $LegacySingleExe -Force }
-    Get-ChildItem -LiteralPath $ReleaseRoot -Filter "*aio-v5.9.0.exe" -ErrorAction SilentlyContinue |
+    Get-ChildItem -LiteralPath $ReleaseRoot -Filter "*aio-v5.9.*.exe" -ErrorAction SilentlyContinue |
         Where-Object { $_.FullName -ne $SingleExe -and $_.FullName -ne $LegacySingleExe } |
+        Remove-Item -Force
+    Get-ChildItem -LiteralPath $ReleaseRoot -Filter "SHA256SUMS-v5.9.*.txt" -ErrorAction SilentlyContinue |
+        Where-Object { $_.FullName -ne $HashFile } |
         Remove-Item -Force
 
     $env:DOTNET_ROOT = Split-Path -Parent $dotnet
@@ -315,7 +337,7 @@ if (!$DryRun) {
     }
     Copy-Item -LiteralPath $publishedExe -Destination $SingleExe -Force
 
-    $verifyLog = Join-Path $RepoRoot "work\v5_9_manager_package_verify.txt"
+    $verifyLog = Join-Path $RepoRoot "work\v5_9_2_manager_package_verify.txt"
     Remove-Item -LiteralPath $verifyLog -Force -ErrorAction SilentlyContinue
     $verifyProcess = Start-Process -FilePath $SingleExe `
         -ArgumentList @("--verify-package", ('"{0}"' -f $verifyLog)) `
@@ -337,8 +359,8 @@ if (!$DryRun) {
         }
     }
     if ($verifyData["result"] -ne "passed" -or
-        $verifyData["profiles"] -ne "hid_audio_uac1_4ch_ds5like,hid_only,pro2_bridge_v5_5,xinput_bridge_v5_8,xinput_elite_bridge_v5_9" -or
-        $verifyData["asset_count"] -ne "15") {
+        $verifyData["profiles"] -ne "hid_audio_uac1_4ch_ds5like,hid_only,pro2_bridge_v5_5,xinput_bridge_v5_8" -or
+        $verifyData["asset_count"] -ne "12") {
         throw "Published manager package verification returned unexpected data:`n$verifyDetails"
     }
     Write-Step "package_verify" "passed"
@@ -346,9 +368,7 @@ if (!$DryRun) {
     $hash = Get-FileHash -Algorithm SHA256 -LiteralPath $SingleExe
     $hashLine = "{0}  {1}`r`n" -f $hash.Hash.ToLowerInvariant(), (Split-Path -Leaf $SingleExe)
     [System.IO.File]::WriteAllText($HashFile, $hashLine, [System.Text.Encoding]::UTF8)
-    if (Test-Path -LiteralPath $PublishRoot) {
-        Remove-Item -LiteralPath $PublishRoot -Recurse -Force
-    }
+    Remove-TreeWithRetry $PublishRoot
     Write-Step "exe" (($SingleExe.Substring($RepoRoot.Length + 1)) -replace '\\','/')
     Write-Step "sha256" $hash.Hash.ToLowerInvariant()
 }
