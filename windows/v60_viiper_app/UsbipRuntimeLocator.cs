@@ -6,9 +6,13 @@ using System.Linq;
 namespace Y700Switch2V60Viiper;
 
 public sealed record UsbipRuntime(string ExePath, string DirectoryPath);
+public sealed record UsbipInstaller(string InstallerPath, string? LicensePath);
 
 public static class UsbipRuntimeLocator
 {
+    public const string BundledVersion = "v0.9.7.7";
+    public const string InstallerFileName = "USBip-0.9.7.7-x64.exe";
+
     public static UsbipRuntime? Find()
     {
         foreach (string candidate in CandidatePaths().Distinct(StringComparer.OrdinalIgnoreCase))
@@ -16,6 +20,21 @@ public static class UsbipRuntimeLocator
             if (File.Exists(candidate))
             {
                 return new UsbipRuntime(candidate, Path.GetDirectoryName(candidate) ?? "");
+            }
+        }
+
+        return null;
+    }
+
+    public static UsbipInstaller? FindBundledInstaller()
+    {
+        foreach (string candidate in CandidateInstallerPaths().Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            if (File.Exists(candidate))
+            {
+                string? dir = Path.GetDirectoryName(candidate);
+                string? license = dir == null ? null : Path.Combine(dir, "LICENSE.txt");
+                return new UsbipInstaller(candidate, File.Exists(license) ? license : null);
             }
         }
 
@@ -175,6 +194,32 @@ public static class UsbipRuntimeLocator
         if (!string.IsNullOrWhiteSpace(programFilesX86))
         {
             yield return programFilesX86;
+        }
+    }
+
+    private static IEnumerable<string> CandidateInstallerPaths()
+    {
+        string[] relativeInstallers =
+        [
+            Path.Combine("usbip-win2", BundledVersion, InstallerFileName),
+            Path.Combine("tools", "usbip-win2", BundledVersion, InstallerFileName),
+            Path.Combine(BundledVersion, InstallerFileName),
+            InstallerFileName
+        ];
+
+        string? cursor = AppContext.BaseDirectory;
+        for (int i = 0; i < 8 && !string.IsNullOrWhiteSpace(cursor); i++)
+        {
+            foreach (string relative in relativeInstallers)
+            {
+                yield return Path.GetFullPath(Path.Combine(cursor, relative));
+            }
+            cursor = Directory.GetParent(cursor)?.FullName;
+        }
+
+        foreach (string relative in relativeInstallers)
+        {
+            yield return Path.GetFullPath(relative);
         }
     }
 }

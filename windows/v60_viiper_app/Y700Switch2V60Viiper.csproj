@@ -9,10 +9,10 @@
     <AssemblyTitle>PRO2 手柄无线接收器控制板 V6.0 VIIPER Windows 版</AssemblyTitle>
     <Product>PRO2 手柄无线接收器控制板</Product>
     <Description>V6.0 Windows-only VIIPER route for Pro2 wireless three-mode emulation.</Description>
-    <Version>6.0.0-preview.5</Version>
+    <Version>6.0.0-preview.6</Version>
     <AssemblyVersion>6.0.0.0</AssemblyVersion>
-    <FileVersion>6.0.0.5</FileVersion>
-    <InformationalVersion>6.0.0-preview.5-viiper-usbip-preflight-ble-input-fallback</InformationalVersion>
+    <FileVersion>6.0.0.6</FileVersion>
+    <InformationalVersion>6.0.0-preview.6-bundled-usbip-win2-installer</InformationalVersion>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <PublishSingleFile>true</PublishSingleFile>
     <SelfContained>true</SelfContained>

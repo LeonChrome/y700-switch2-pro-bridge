@@ -27,6 +27,7 @@ Windows still needs `usbip-win2` installed for local USBIP attach:
 
 <https://github.com/vadimgrn/usbip-win2>
 
-The V6 Manager searches PATH, `tools\usbip-win2`, local `usbip-win2` folders,
-and common `Program Files\USBip` paths for `usbip.exe`. Put an installed or
-portable `usbip.exe` under `tools\usbip-win2` if it is not globally on PATH.
+The V6 release package now carries the official usbip-win2 installer under
+`usbip-win2\v0.9.7.7`, and the Manager can launch it with UAC through
+`安装/修复 usbip-win2`. After installation, the Manager searches PATH, local
+`usbip-win2` folders, and common `Program Files\USBip` paths for `usbip.exe`.

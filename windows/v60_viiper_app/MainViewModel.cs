@@ -19,13 +19,14 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private ViiperBridgeSession? session;
     private string host = "127.0.0.1";
     private string port = "3242";
-    private string status = "V6.0 VIIPER Windows-only 技术预览已就绪。请先启动 VIIPER server 和 usbip-win2。";
+    private string status = "V6.0 VIIPER Windows-only 技术预览已就绪。如未安装 usbip-win2，请先点击安装/修复。";
     private string inputStatus = "真实 Pro2 BLE 输入未连接。";
     private bool running;
 
     public MainViewModel()
     {
         PingCommand = new RelayCommand(async _ => await PingAsync());
+        InstallUsbipCommand = new RelayCommand(async _ => await InstallUsbipAsync());
         StartViiperServerCommand = new RelayCommand(async _ => await StartLocalViiperServerAsync());
         ScanPro2InputCommand = new RelayCommand(async _ => await ScanPro2InputAsync());
         ConnectPro2InputCommand = new RelayCommand(async _ => await ConnectPro2InputAsync());
@@ -78,6 +79,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public string LogText => log.ToString();
 
     public ICommand PingCommand { get; }
+    public ICommand InstallUsbipCommand { get; }
     public ICommand StartViiperServerCommand { get; }
     public ICommand ScanPro2InputCommand { get; }
     public ICommand ConnectPro2InputCommand { get; }
@@ -125,9 +127,19 @@ public sealed class MainViewModel : INotifyPropertyChanged
         UsbipRuntime? usbip = UsbipRuntimeLocator.Find();
         if (usbip == null)
         {
-            Status = "未找到 usbip-win2 的 usbip.exe，VIIPER 无法挂载虚拟 USB 手柄。请安装 usbip-win2 后再启动本地 VIIPER。";
+            UsbipInstaller? installer = UsbipRuntimeLocator.FindBundledInstaller();
+            Status = installer == null
+                ? "未找到 usbip-win2 的 usbip.exe，也没有找到随包安装器。请确认发布包完整。"
+                : "未安装 usbip-win2。请点击“安装/修复 usbip-win2”，完成后再启动本地 VIIPER。";
             AppendLog("[USBIP] usbip.exe not found. VIIPER can answer ping without it, but all three modes will fail during auto-attach.");
-            AppendLog("[USBIP] Install usbip-win2, then restart this EXE or place usbip.exe under tools\\usbip-win2.");
+            if (installer != null)
+            {
+                AppendLog("[USBIP] bundled installer available: " + installer.InstallerPath);
+            }
+            else
+            {
+                AppendLog("[USBIP] bundled installer missing. Keep usbip-win2 next to the EXE under usbip-win2\\" + UsbipRuntimeLocator.BundledVersion + ".");
+            }
             return;
         }
 
@@ -162,6 +174,77 @@ public sealed class MainViewModel : INotifyPropertyChanged
         AppendLog("[VIIPER_SERVER] started pid=" + viiperProcess.Id + " exe=" + exe + " log=" + logPath);
         await Task.Delay(1000);
         await PingAsync();
+    }
+
+    private async Task InstallUsbipAsync()
+    {
+        UsbipInstaller? installer = UsbipRuntimeLocator.FindBundledInstaller();
+        if (installer == null)
+        {
+            Status = "没有找到随包 usbip-win2 安装器。请确认发布包完整。";
+            AppendLog("[USBIP] bundled installer not found: " + UsbipRuntimeLocator.InstallerFileName);
+            return;
+        }
+
+        UsbipRuntime? existing = UsbipRuntimeLocator.Find();
+        if (existing != null)
+        {
+            AppendLog("[USBIP] existing usbip.exe found: " + existing.ExePath);
+            AppendLog("[USBIP] launching bundled installer anyway for repair/update.");
+        }
+
+        Status = "正在启动 usbip-win2 安装器，请在 UAC/安装向导中确认。安装期间 USB 设备可能会短暂重启。";
+        AppendLog("[USBIP] installer=" + installer.InstallerPath);
+        if (!string.IsNullOrWhiteSpace(installer.LicensePath))
+        {
+            AppendLog("[USBIP] license=" + installer.LicensePath);
+        }
+
+        try
+        {
+            using Process? process = Process.Start(new ProcessStartInfo
+            {
+                FileName = installer.InstallerPath,
+                UseShellExecute = true,
+                Verb = "runas",
+                WorkingDirectory = Path.GetDirectoryName(installer.InstallerPath) ?? AppContext.BaseDirectory
+            });
+
+            if (process == null)
+            {
+                Status = "未能启动 usbip-win2 安装器。";
+                AppendLog("[USBIP] installer process returned null.");
+                return;
+            }
+
+            await process.WaitForExitAsync();
+            AppendLog("[USBIP] installer exited code=" + process.ExitCode);
+            await Task.Delay(1000);
+        }
+        catch (Win32Exception ex) when (ex.NativeErrorCode == 1223)
+        {
+            Status = "已取消 usbip-win2 安装。";
+            AppendLog("[USBIP] installer cancelled by user.");
+            return;
+        }
+        catch (Exception ex)
+        {
+            Status = "启动 usbip-win2 安装器失败：" + FirstLine(ex.Message);
+            AppendLog("ERROR usbip installer: " + ex);
+            return;
+        }
+
+        UsbipRuntime? runtime = UsbipRuntimeLocator.Find();
+        if (runtime != null)
+        {
+            Status = "usbip-win2 已就绪：" + runtime.ExePath;
+            AppendLog("[USBIP] ready " + runtime.ExePath);
+        }
+        else
+        {
+            Status = "usbip-win2 安装器已结束，但还没找到 usbip.exe。若安装器提示重启，请重启后再打开本 EXE。";
+            AppendLog("[USBIP] usbip.exe still not found after installer exit; reboot may be required.");
+        }
     }
 
     private async Task ScanPro2InputAsync()
@@ -382,7 +465,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         if (first.Contains("usbip", StringComparison.OrdinalIgnoreCase) &&
             first.Contains("not found", StringComparison.OrdinalIgnoreCase))
         {
-            return "VIIPER 找不到 usbip.exe。请安装 usbip-win2，或把 usbip.exe 放到 tools\\usbip-win2 后重新点击“启动本地 VIIPER”。";
+            return "VIIPER 找不到 usbip.exe。请点击“安装/修复 usbip-win2”，完成后重新启动本地 VIIPER。";
         }
 
         return first;

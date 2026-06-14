@@ -8,6 +8,9 @@ $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $ManagerRoot = Join-Path $RepoRoot "windows\v60_viiper_app"
 $ReleaseRoot = Join-Path $RepoRoot "release\v6.0"
 $PublishRoot = Join-Path $ReleaseRoot "publish"
+$UsbipSourceRoot = Join-Path $RepoRoot "tools\usbip-win2\v0.9.7.7"
+$UsbipReleaseRoot = Join-Path $ReleaseRoot "usbip-win2\v0.9.7.7"
+$UsbipInstallerName = "USBip-0.9.7.7-x64.exe"
 $SingleExeName = [System.Text.Encoding]::UTF8.GetString([byte[]](
     0xE6,0x96,0xB0,0xE5,0x92,0x8C,0xE8,0x81,0x94,0xE8,0x83,0x9C,0x56,0x49,0x49,0x50,
     0x45,0x52,0xE7,0x89,0x88,0xE6,0x9C,0xAC,0x2D,0x61,0x69,0x6F,0x2D,0x76,0x36,
@@ -52,6 +55,7 @@ if (!$DryRun) {
         Remove-Item -Force
     Get-ChildItem -LiteralPath $ReleaseRoot -Filter "SHA256SUMS-v6.0.0-preview*.txt" -ErrorAction SilentlyContinue |
         Remove-Item -Force
+    Remove-TreeWithRetry (Join-Path $ReleaseRoot "usbip-win2")
 
     $env:DOTNET_ROOT = Split-Path -Parent $dotnet
     $env:PATH = "$env:DOTNET_ROOT;$env:PATH"
@@ -67,11 +71,25 @@ if (!$DryRun) {
         throw "Published exe not found: $publishedExe"
     }
     Copy-Item -LiteralPath $publishedExe -Destination $SingleExe -Force
+    if (!(Test-Path -LiteralPath (Join-Path $UsbipSourceRoot $UsbipInstallerName))) {
+        throw "Bundled usbip-win2 installer not found: $(Join-Path $UsbipSourceRoot $UsbipInstallerName)"
+    }
+    New-Item -ItemType Directory -Force -Path $UsbipReleaseRoot | Out-Null
+    Copy-Item -LiteralPath (Join-Path $UsbipSourceRoot $UsbipInstallerName) -Destination (Join-Path $UsbipReleaseRoot $UsbipInstallerName) -Force
+    Copy-Item -LiteralPath (Join-Path $UsbipSourceRoot "LICENSE.txt") -Destination (Join-Path $UsbipReleaseRoot "LICENSE.txt") -Force
 
-    $hash = Get-FileHash -Algorithm SHA256 -LiteralPath $SingleExe
-    $hashLine = "{0}  {1}`r`n" -f $hash.Hash.ToLowerInvariant(), (Split-Path -Leaf $SingleExe)
-    [System.IO.File]::WriteAllText($HashFile, $hashLine, [System.Text.Encoding]::UTF8)
+    $hashTargets = @(
+        $SingleExe,
+        (Join-Path $UsbipReleaseRoot $UsbipInstallerName)
+    )
+    $hashLines = foreach ($target in $hashTargets) {
+        $hash = Get-FileHash -Algorithm SHA256 -LiteralPath $target
+        $relative = ($target.Substring($RepoRoot.Length + 1)) -replace '\\','/'
+        "{0}  {1}" -f $hash.Hash.ToLowerInvariant(), $relative
+    }
+    [System.IO.File]::WriteAllText($HashFile, (($hashLines -join "`r`n") + "`r`n"), [System.Text.Encoding]::UTF8)
     Remove-TreeWithRetry $PublishRoot
     Write-Step "exe" (($SingleExe.Substring($RepoRoot.Length + 1)) -replace '\\','/')
-    Write-Step "sha256" $hash.Hash.ToLowerInvariant()
+    Write-Step "usbip" ((Join-Path $UsbipReleaseRoot $UsbipInstallerName).Substring($RepoRoot.Length + 1) -replace '\\','/')
+    Write-Step "sha256_file" (($HashFile.Substring($RepoRoot.Length + 1)) -replace '\\','/')
 }

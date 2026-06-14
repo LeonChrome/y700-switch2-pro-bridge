@@ -189,5 +189,6 @@ Expect(withUsbip.StartsWith(@"C:\USBip;", StringComparison.OrdinalIgnoreCase), "
 Expect(
     UsbipRuntimeLocator.BuildPathWithUsbipDirectory(withUsbip, new UsbipRuntime(@"C:\USBip\usbip.exe", @"C:\USBip")) == withUsbip,
     "usbip dir is not duplicated in PATH");
+Expect(UsbipRuntimeLocator.FindBundledInstaller() != null, "bundled usbip-win2 installer is discoverable");
 
 Console.WriteLine("v60_packet_mapper_test: passed");

@@ -58,12 +58,13 @@
                     <StackPanel>
                         <TextBlock FontSize="16" FontWeight="SemiBold" Foreground="#0F172A" Text="VIIPER Server"/>
                         <TextBlock Style="{StaticResource HintText}" Margin="0,6,0,10"
-                                   Text="默认连接 localhost:3242。Windows 需要先安装 usbip-win2，并运行 VIIPER server。注意：VIIPER server 只负责虚拟 USB，不会连接真实 Pro2。"/>
+                                   Text="默认连接 localhost:3242。发布包已附带 usbip-win2 安装器；驱动安装需要管理员确认。VIIPER server 只负责虚拟 USB，不会连接真实 Pro2。"/>
                         <TextBlock Text="Host" Foreground="#334155"/>
                         <TextBox Text="{Binding Host, UpdateSourceTrigger=PropertyChanged}" Margin="0,3,0,8"/>
                         <TextBlock Text="Port" Foreground="#334155"/>
                         <TextBox Text="{Binding Port, UpdateSourceTrigger=PropertyChanged}" Margin="0,3,0,12"/>
                         <WrapPanel>
+                            <Button Style="{StaticResource ButtonBase}" Content="安装/修复 usbip-win2" Command="{Binding InstallUsbipCommand}"/>
                             <Button Style="{StaticResource ButtonBase}" Content="启动本地 VIIPER" Command="{Binding StartViiperServerCommand}"/>
                             <Button Style="{StaticResource ButtonBase}" Content="Ping VIIPER" Command="{Binding PingCommand}"/>
                             <Button Style="{StaticResource ButtonBase}" Content="停止虚拟设备" Command="{Binding StopCommand}"/>

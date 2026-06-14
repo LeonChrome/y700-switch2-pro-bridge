@@ -1,1 +1,2 @@
-﻿1450931c5de60e76eb5d904c258a3a8ea3510cd2bc88bf40cca6be01ecc90e6f  新和联胜VIIPER版本-aio-v6.0.0-preview.exe
+﻿59ff2ec91916b3c2b3fe939228b3718dd57c939fe4550a29c41eba949f36fef9  release/v6.0/新和联胜VIIPER版本-aio-v6.0.0-preview.exe
+51620fa5f9f8be5932bc9d786deee557ce06d5407a99cab490dcfac71f185fea  release/v6.0/usbip-win2/v0.9.7.7/USBip-0.9.7.7-x64.exe

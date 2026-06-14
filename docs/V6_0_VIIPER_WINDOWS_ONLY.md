@@ -41,12 +41,17 @@ server process and communicate with it over localhost TCP. This keeps our
 Manager and feeder code cleanly separated from the GPL server implementation.
 
 The Windows requirement is `usbip-win2`, because Windows needs a signed USBIP
-kernel driver before VIIPER-created USB devices can attach locally.
-The Manager searches for `usbip.exe` in PATH, `tools\usbip-win2`, local
-`usbip-win2` folders, and common `Program Files\USBip` locations. When it finds
-one, it prepends that directory to the local VIIPER server process PATH. If it
-does not find one, the local VIIPER server is not started because it can still
-answer `ping` while every virtual device attach fails later.
+kernel driver before VIIPER-created USB devices can attach locally. The V6
+release package carries the official `USBip-0.9.7.7-x64.exe` installer under
+`usbip-win2\v0.9.7.7`. The Manager can launch it through
+`安装/修复 usbip-win2`, but it still requires UAC because a kernel driver is
+installed and USB devices may restart.
+
+At runtime the Manager searches for `usbip.exe` in PATH, local `usbip-win2`
+folders, and common `Program Files\USBip` locations. When it finds one, it
+prepends that directory to the local VIIPER server process PATH. If it does not
+find one, the local VIIPER server is not started because it can still answer
+`ping` while every virtual device attach fails later.
 
 ## V6.0 Modes
 
@@ -106,7 +111,7 @@ It can:
 
 It does not yet:
 
-- install the `usbip-win2` kernel driver automatically;
+- install the `usbip-win2` kernel driver silently;
 - guarantee every Bluetooth adapter/driver can open unpaired GATT access to the
   Pro2;
 - expose the V5.9 haptic tuning and arbitration controls in the no-ESP32 route.

@@ -22,6 +22,8 @@
 - Added a `usbip-win2` preflight for the local VIIPER server: the Manager now
   locates `usbip.exe`, injects its directory into the VIIPER server PATH, and
   explains the dependency before all three modes fail with `usbip not found`.
+- Bundled the official `USBip-0.9.7.7-x64.exe` installer as a V6 release
+  sidecar and added an `安装/修复 usbip-win2` button that launches it with UAC.
 - Added Pro2 BLE input fallback diagnostics: FD2 remains preferred, but V6.0 now
   tries the legacy C0F8 notify characteristic if FD2 subscribes without live
   input, and logs raw notify counts plus rejected packet headers for mapping.
@@ -33,7 +35,10 @@
 
 ```text
 release/v6.0/新和联胜VIIPER版本-aio-v6.0.0-preview.exe
-sha256 1450931c5de60e76eb5d904c258a3a8ea3510cd2bc88bf40cca6be01ecc90e6f
+sha256 59ff2ec91916b3c2b3fe939228b3718dd57c939fe4550a29c41eba949f36fef9
+
+release/v6.0/usbip-win2/v0.9.7.7/USBip-0.9.7.7-x64.exe
+sha256 51620fa5f9f8be5932bc9d786deee557ce06d5407a99cab490dcfac71f185fea
 ```
 
 ## V5.9.3 新和联胜稳定版
