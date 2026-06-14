@@ -22,11 +22,8 @@ public sealed class Pro2HidReportParser
         }
 
         byte reportId = report[0];
-        if ((reportId == 0x30 || reportId == 0x31 || reportId == 0x21 || reportId == 0x23) &&
-            report.Length >= 13)
+        if (TryParseHidInputReport(report, out state, out source))
         {
-            ParseStandardReport(report, state);
-            source = "switch_pro_standard";
             return true;
         }
 
@@ -43,6 +40,27 @@ public sealed class Pro2HidReportParser
         {
             ParseLegacyPayload(report, state);
             source = "legacy_payload";
+            return true;
+        }
+
+        return false;
+    }
+
+    public bool TryParseHidInputReport(ReadOnlySpan<byte> report, out GamepadState state, out string source)
+    {
+        state = GamepadState.Neutral();
+        source = "";
+        if (report.IsEmpty)
+        {
+            return false;
+        }
+
+        byte reportId = report[0];
+        if ((reportId == 0x30 || reportId == 0x31 || reportId == 0x21 || reportId == 0x23) &&
+            report.Length >= 13)
+        {
+            ParseStandardReport(report, state);
+            source = "switch_pro_standard";
             return true;
         }
 

@@ -58,7 +58,7 @@
                     <StackPanel>
                         <TextBlock FontSize="16" FontWeight="SemiBold" Foreground="#0F172A" Text="VIIPER Server"/>
                         <TextBlock Style="{StaticResource HintText}" Margin="0,6,0,10"
-                                   Text="默认连接 localhost:3242。Windows 需要先安装 usbip-win2，并运行 VIIPER server。"/>
+                                   Text="默认连接 localhost:3242。Windows 需要先安装 usbip-win2，并运行 VIIPER server。注意：VIIPER server 只负责虚拟 USB，不会连接真实 Pro2。"/>
                         <TextBlock Text="Host" Foreground="#334155"/>
                         <TextBox Text="{Binding Host, UpdateSourceTrigger=PropertyChanged}" Margin="0,3,0,8"/>
                         <TextBlock Text="Port" Foreground="#334155"/>
@@ -75,7 +75,7 @@
                     <StackPanel>
                         <TextBlock FontSize="16" FontWeight="SemiBold" Foreground="#0F172A" Text="真实 Pro2 输入"/>
                         <TextBlock Style="{StaticResource HintText}" Margin="0,6,0,10"
-                                   Text="先在 Windows 蓝牙里配好 Pro2/Switch Pro 手柄。这里读取真实 HID 输入，再喂给 VIIPER 三模虚拟设备。"/>
+                                   Text="先在 Windows 蓝牙里配好并唤醒 Pro2/Switch Pro 手柄。这里必须等到真实标准输入报告到达才算连接成功；VIIPER 虚拟手柄不会被当作真实输入。"/>
                         <WrapPanel>
                             <Button Style="{StaticResource ButtonBase}" Content="扫描 Pro2 输入" Command="{Binding ScanPro2InputCommand}"/>
                             <Button Style="{StaticResource ButtonBase}" Content="连接 Pro2 输入" Command="{Binding ConnectPro2InputCommand}"/>

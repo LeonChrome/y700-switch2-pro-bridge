@@ -89,6 +89,9 @@ BinaryPrimitives.WriteInt16LittleEndian(report.AsSpan(47, 2), 6);
 
 Expect(parser.TryParse(report, out GamepadState parsed, out string source), "parse standard Pro2 HID");
 Expect(source == "switch_pro_standard", "parse source");
+Expect(parser.TryParseHidInputReport(report, out GamepadState parsedHid, out string hidSource), "strict parse standard Pro2 HID");
+Expect(hidSource == "switch_pro_standard", "strict parse source");
+Expect(parsedHid.Lx == GamepadState.AxisCenter, "strict parsed centered axes");
 Expect(parsed.IsPressed(GamepadButtons.South), "parsed south");
 Expect(parsed.IsPressed(GamepadButtons.East), "parsed east");
 Expect(parsed.IsPressed(GamepadButtons.West), "parsed west");
@@ -100,6 +103,13 @@ Expect(parsed.IsPressed(GamepadButtons.R2), "parsed R2");
 Expect(parsed.Lx == GamepadState.AxisCenter && parsed.Ry == GamepadState.AxisCenter, "parsed centered axes");
 Expect(parsed.AccelValid && parsed.GyroValid, "parsed motion");
 Expect(parsed.AccelX == 1 && parsed.GyroZ == 6, "parsed motion values");
+
+byte[] viiperLikeReport = new byte[64];
+viiperLikeReport[0] = 0x05;
+viiperLikeReport[3] = 0xCF;
+viiperLikeReport[4] = 0x33;
+viiperLikeReport[5] = 0xC6;
+Expect(!parser.TryParseHidInputReport(viiperLikeReport, out _, out _), "strict parser rejects VIIPER ns2pro input report");
 
 byte[] nsFeedback = new byte[34];
 nsFeedback[0] = 0x50;

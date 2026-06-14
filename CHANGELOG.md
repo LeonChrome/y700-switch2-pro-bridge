@@ -15,6 +15,9 @@
   device: Pro2 / Nintendo preserves VIIPER's HD rumble blocks, while 新和联胜 /
   PS5 and Xbox / XInput map ordinary motors into the V5.9 raw02-compatible HID
   frame shape.
+- Fixed a V6.0 real-input false positive: opening a HID candidate no longer
+  counts as connected until a live standard Pro2 report is parsed, and VIIPER
+  virtual `ns2pro` reports are rejected as a real input source.
 - Added a bundled VIIPER v0.7.0 Windows runtime under `tools/viiper/v0.7.0`,
   embedded the runtime/license into the V6.0 preview EXE, and added a Manager
   button to start it locally.
@@ -23,7 +26,7 @@
 
 ```text
 release/v6.0/新和联胜VIIPER版本-aio-v6.0.0-preview.exe
-sha256 3fb8dc0e2b197cc9de30aebf285aa9439a3f2db1207db1896276ea66652568b6
+sha256 ba17cedddc8893a18fe75e50dad70470dd6407f180664a1d3de1fd31f9eabd37
 ```
 
 ## V5.9.3 新和联胜稳定版

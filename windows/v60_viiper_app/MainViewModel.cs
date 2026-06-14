@@ -170,6 +170,10 @@ public sealed class MainViewModel : INotifyPropertyChanged
         var progress = new Progress<string>(AppendLog);
         await inputSource.StartAsync(progress, CancellationToken.None);
         InputStatus = inputSource.Status;
+        if (!inputSource.IsRunning)
+        {
+            Status = "真实 Pro2 输入未连接。V6.0 当前依赖 Windows 蓝牙先完成配对。";
+        }
     }
 
     private async Task DisconnectPro2InputAsync()
@@ -191,6 +195,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
             {
                 await ConnectPro2InputAsync();
             }
+            bool inputLive = inputSource.IsRunning &&
+                             inputSource.TryGetLatest(out _, out TimeSpan inputAge) &&
+                             inputAge <= TimeSpan.FromMilliseconds(500);
             Running = true;
             Status = "正在启动 " + profile.Label + " 虚拟手柄...";
             AppendLog("[START] mode=" + profile.Label + " type=" + profile.DeviceType);
@@ -199,11 +206,11 @@ public sealed class MainViewModel : INotifyPropertyChanged
                 new ViiperProtocolClient(Host, ParsePort()),
                 profile,
                 progress,
-                inputSource.IsRunning ? inputSource : null,
-                inputSource.IsRunning ? inputSource : null);
+                inputLive ? inputSource : null,
+                inputLive ? inputSource : null);
             await session.StartAsync(CancellationToken.None);
             Status = profile.Label + " 虚拟设备已连接。当前输入源：" +
-                (inputSource.IsRunning ? "Windows HID Pro2，rumble 写回已启用" : "neutral/synthetic") + "。";
+                (inputLive ? "Windows HID Pro2 live，rumble 写回已启用" : "neutral/synthetic，尚未确认真实 Pro2 输入") + "。";
         }
         catch (Exception ex)
         {

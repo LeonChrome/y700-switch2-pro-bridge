@@ -23,9 +23,11 @@ public sealed class Pro2HidInputSource : IGamepadInputSource, IGamepadOutputSink
     private int outputReportLength;
     private CancellationTokenSource? cts;
     private Task? readTask;
+    private string currentDeviceDescription = "";
     private GamepadState latest = GamepadState.Neutral();
     private DateTimeOffset latestAt;
     private uint updates;
+    private uint ignoredReports;
     private string status = "未连接真实 Pro2 输入。";
 
     public bool IsRunning { get; private set; }
@@ -38,8 +40,8 @@ public sealed class Pro2HidInputSource : IGamepadInputSource, IGamepadOutputSink
 
     public IReadOnlyList<string> DescribeCandidates()
     {
-        return FindCandidates()
-            .Select(DescribeDevice)
+        return FindCandidates(includeLikelyVirtual: true)
+            .Select(DescribeCandidate)
             .ToList();
     }
 
@@ -51,10 +53,10 @@ public sealed class Pro2HidInputSource : IGamepadInputSource, IGamepadOutputSink
             return;
         }
 
-        List<HidDevice> candidates = FindCandidates();
+        List<HidDevice> candidates = FindCandidates(includeLikelyVirtual: false);
         if (candidates.Count == 0)
         {
-            Status = "没有找到 Windows HID Pro2/Switch Pro 输入。请先在 Windows 蓝牙里配对手柄。";
+            Status = "没有找到真实 Windows HID Pro2/Switch Pro 输入。请先在 Windows 蓝牙里配对手柄；VIIPER 虚拟设备不会当作真实输入。";
             progress.Report("[PRO2_INPUT] no candidate hid devices.");
             return;
         }
@@ -66,31 +68,44 @@ public sealed class Pro2HidInputSource : IGamepadInputSource, IGamepadOutputSink
             {
                 if (!device.TryOpen(out HidStream? opened) || opened == null)
                 {
-                    progress.Report("[PRO2_INPUT] open skipped: " + DescribeDevice(device));
+                    progress.Report("[PRO2_INPUT] open skipped: " + DescribeCandidate(device));
                     continue;
                 }
 
+                ResetLiveState();
                 stream = opened;
                 stream.ReadTimeout = 250;
                 stream.WriteTimeout = 80;
                 outputReportLength = device.GetMaxOutputReportLength();
                 cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                currentDeviceDescription = DescribeCandidate(device);
                 IsRunning = true;
-                Status = "真实 Pro2 输入已连接：" + DescribeDevice(device);
-                progress.Report("[PRO2_INPUT] opened " + DescribeDevice(device) +
+                Status = "已打开候选 HID，正在等待真实 Pro2 输入报告：" + currentDeviceDescription;
+                progress.Report("[PRO2_INPUT] opened candidate " + currentDeviceDescription +
                                 " input_len=" + device.GetMaxInputReportLength() +
                                 " output_len=" + (outputReportLength > 0 ? outputReportLength.ToString() : "unknown"));
                 readTask = Task.Run(() => ReadLoopAsync(device, opened, progress, cts.Token), CancellationToken.None);
-                return;
+
+                if (await WaitForLiveInputAsync(TimeSpan.FromSeconds(2.5), cancellationToken))
+                {
+                    Status = "真实 Pro2 输入已连接并 live：" + currentDeviceDescription;
+                    progress.Report("[PRO2_INPUT] confirmed live " + currentDeviceDescription);
+                    return;
+                }
+
+                progress.Report("[PRO2_INPUT] candidate rejected: opened but no parseable Switch Pro live input within 2.5s. " +
+                                currentDeviceDescription);
+                await CloseCurrentAsync("候选 HID 没有真实输入，继续尝试下一项。");
             }
             catch (Exception ex)
             {
-                progress.Report("[PRO2_INPUT] open failed: " + DescribeDevice(device) + " / " + ex.Message);
+                progress.Report("[PRO2_INPUT] open failed: " + DescribeCandidate(device) + " / " + ex.Message);
+                await CloseCurrentAsync("打开候选失败，继续尝试下一项。");
             }
         }
 
-        Status = "找到 HID 候选设备，但全部无法打开。请确认没有 Steam/Input 工具独占真实手柄。";
-        await StopAsync();
+        Status = "没有确认到真实 Pro2 live 输入。请先在 Windows 蓝牙里配对并唤醒手柄，再点“连接 Pro2 输入”。";
+        await CloseCurrentAsync(Status);
     }
 
     public bool TryGetLatest(out GamepadState state, out TimeSpan age)
@@ -159,11 +174,17 @@ public sealed class Pro2HidInputSource : IGamepadInputSource, IGamepadOutputSink
 
     public async Task StopAsync()
     {
+        await CloseCurrentAsync("真实 Pro2 输入已停止。");
+    }
+
+    private async Task CloseCurrentAsync(string nextStatus)
+    {
         IsRunning = false;
         cts?.Cancel();
         stream?.Dispose();
         stream = null;
         outputReportLength = 0;
+        currentDeviceDescription = "";
         if (readTask != null)
         {
             try
@@ -183,7 +204,7 @@ public sealed class Pro2HidInputSource : IGamepadInputSource, IGamepadOutputSink
         }
         cts?.Dispose();
         cts = null;
-        Status = "真实 Pro2 输入已停止。";
+        Status = nextStatus;
     }
 
     public async ValueTask DisposeAsync()
@@ -230,7 +251,7 @@ public sealed class Pro2HidInputSource : IGamepadInputSource, IGamepadOutputSink
                 continue;
             }
 
-            if (parser.TryParse(buffer.AsSpan(0, read), out GamepadState state, out string source))
+            if (parser.TryParseHidInputReport(buffer.AsSpan(0, read), out GamepadState state, out string source))
             {
                 lock (gate)
                 {
@@ -238,7 +259,7 @@ public sealed class Pro2HidInputSource : IGamepadInputSource, IGamepadOutputSink
                     state.Updates = updates;
                     latest = state;
                     latestAt = DateTimeOffset.UtcNow;
-                    status = "真实 Pro2 输入 live，updates=" + updates + " source=" + source;
+                    status = "真实 Pro2 输入 live，updates=" + updates + " source=" + source + " device=" + currentDeviceDescription;
                 }
 
                 DateTimeOffset now = DateTimeOffset.UtcNow;
@@ -248,18 +269,65 @@ public sealed class Pro2HidInputSource : IGamepadInputSource, IGamepadOutputSink
                     progress.Report("[PRO2_INPUT] live source=" + source + " updates=" + updates);
                 }
             }
+            else
+            {
+                ignoredReports++;
+                DateTimeOffset now = DateTimeOffset.UtcNow;
+                if (now - lastLog > TimeSpan.FromSeconds(5))
+                {
+                    lastLog = now;
+                    int preview = Math.Min(read, 8);
+                    progress.Report("[PRO2_INPUT] ignored non-Pro2-standard report len=" + read +
+                                    " first=" + Convert.ToHexString(buffer.AsSpan(0, preview)).ToLowerInvariant() +
+                                    " ignored=" + ignoredReports);
+                }
+            }
         }
 
         IsRunning = false;
         Status = "真实 Pro2 输入读取已结束。";
     }
 
-    private static List<HidDevice> FindCandidates()
+    private async Task<bool> WaitForLiveInputAsync(TimeSpan timeout, CancellationToken cancellationToken)
+    {
+        DateTimeOffset deadline = DateTimeOffset.UtcNow + timeout;
+        while (DateTimeOffset.UtcNow < deadline)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (!IsRunning)
+            {
+                return false;
+            }
+
+            if (TryGetLatest(out _, out TimeSpan age) && age <= TimeSpan.FromMilliseconds(500))
+            {
+                return true;
+            }
+
+            await Task.Delay(50, cancellationToken);
+        }
+
+        return false;
+    }
+
+    private void ResetLiveState()
+    {
+        lock (gate)
+        {
+            latest = GamepadState.Neutral();
+            latestAt = default;
+            updates = 0;
+            ignoredReports = 0;
+        }
+    }
+
+    private static List<HidDevice> FindCandidates(bool includeLikelyVirtual)
     {
         return DeviceList.Local.GetHidDevices()
             .Where(IsCandidate)
+            .Where(device => includeLikelyVirtual || !IsLikelyVirtualOrBridge(device))
             .OrderByDescending(ScoreDevice)
-            .ThenBy(DescribeDevice, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(DescribeCandidate, StringComparer.OrdinalIgnoreCase)
             .ToList();
     }
 
@@ -273,7 +341,7 @@ public sealed class Pro2HidInputSource : IGamepadInputSource, IGamepadOutputSink
         string text = (SafeProduct(device) + " " + SafeManufacturer(device) + " " + device.DevicePath).ToLowerInvariant();
         int score = 0;
         if (device.ProductID == 0x2009) score += 30;
-        if (text.Contains("bluetooth")) score += 20;
+        if (LooksBluetoothBacked(text)) score += 35;
         if (text.Contains("pro controller")) score += 15;
         if (text.Contains("switch")) score += 10;
         if (text.Contains("usbip")) score -= 50;
@@ -281,9 +349,39 @@ public sealed class Pro2HidInputSource : IGamepadInputSource, IGamepadOutputSink
         return score;
     }
 
-    private static string DescribeDevice(HidDevice device)
+    private static bool IsLikelyVirtualOrBridge(HidDevice device)
     {
-        return $"VID_{device.VendorID:X4}&PID_{device.ProductID:X4} {SafeManufacturer(device)} / {SafeProduct(device)}";
+        string text = (SafeProduct(device) + " " + SafeManufacturer(device) + " " + device.DevicePath).ToLowerInvariant();
+        return text.Contains("viiper") ||
+               text.Contains("usbip") ||
+               text.Contains("virtual usb") ||
+               text.Contains("root#usbip");
+    }
+
+    private static bool LooksBluetoothBacked(string text)
+    {
+        return text.Contains("bluetooth") ||
+               text.Contains("bth") ||
+               text.Contains("bthenum") ||
+               text.Contains("bthle");
+    }
+
+    private static string DescribeCandidate(HidDevice device)
+    {
+        string path = device.DevicePath ?? "";
+        string transport = LooksBluetoothBacked(path.ToLowerInvariant()) ? "bluetooth" :
+            IsLikelyVirtualOrBridge(device) ? "virtual/usbip" : "hid";
+        return $"VID_{device.VendorID:X4}&PID_{device.ProductID:X4} {SafeManufacturer(device)} / {SafeProduct(device)} transport={transport} path={ShortPath(path)}";
+    }
+
+    private static string ShortPath(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return "";
+        }
+
+        return path.Length <= 96 ? path : path[..96] + "...";
     }
 
     private static string SafeProduct(HidDevice device)

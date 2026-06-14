@@ -27,6 +27,10 @@ real controller in Windows, then the Manager reads the resulting HID input
 device through HidSharp, feeds VIIPER, and uses the same HID handle for
 best-effort host rumble writeback.
 
+Starting the local VIIPER server does not connect the real Pro2 controller.
+VIIPER only creates virtual USB devices. The real controller must already be
+paired and awake in Windows Bluetooth before `连接 Pro2 输入` can succeed.
+
 ## Dependency Boundary
 
 VIIPER itself is GPL-3.0, while its client libraries are documented as MIT.
@@ -83,6 +87,10 @@ It can:
     frame shape used by the V5.9 haptic path.
   - 新和联胜 / PS5 maps DualSense ordinary motors through that compatible rumble
     shape; VIIPER does not expose DualSense audio haptics.
+- reject input-source false positives: opening a `057E:2009/2069` HID candidate
+  is not enough; V6.0 waits for a live standard Pro2 input report before it marks
+  the real controller connected. VIIPER-created virtual `ns2pro` reports are not
+  accepted as real input.
 
 It does not yet:
 
