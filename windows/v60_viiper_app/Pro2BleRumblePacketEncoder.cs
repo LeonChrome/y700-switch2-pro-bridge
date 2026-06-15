@@ -10,17 +10,17 @@ public static class Pro2BleRumblePacketEncoder
     private const int LeftFrameOffset = 2;
     private const int RightFrameOffset = 0x12;
     private const int RumbleFrameBytes = 5;
-    private const int HdScalePercent = 100;
-
     public static bool TryEncodeRaw02(
         ReadOnlySpan<byte> report,
         byte packetId,
         Span<byte> packet,
         out bool active,
-        out string error)
+        out string error,
+        double gain = 1.0)
     {
         active = false;
         error = "";
+        gain = ClampGain(gain);
 
         if (packet.Length < BlePacketSize)
         {
@@ -48,13 +48,14 @@ public static class Pro2BleRumblePacketEncoder
 
         Span<byte> left = stackalloc byte[RumbleFrameBytes];
         Span<byte> right = stackalloc byte[RumbleFrameBytes];
-        active = SwitchFrameHasEffect(report.Slice(LeftFrameOffset, RumbleFrameBytes)) ||
-                 SwitchFrameHasEffect(report.Slice(RightFrameOffset, RumbleFrameBytes));
+        active = gain > 0 &&
+                 (SwitchFrameHasEffect(report.Slice(LeftFrameOffset, RumbleFrameBytes)) ||
+                  SwitchFrameHasEffect(report.Slice(RightFrameOffset, RumbleFrameBytes)));
 
         if (active && !IsNeutralSwitchRumble(report))
         {
-            EncodeBleVibrationFromSwitchFrame(report, LeftFrameOffset, left);
-            EncodeBleVibrationFromSwitchFrame(report, RightFrameOffset, right);
+            EncodeBleVibrationFromSwitchFrame(report, LeftFrameOffset, gain, left);
+            EncodeBleVibrationFromSwitchFrame(report, RightFrameOffset, gain, right);
         }
         else
         {
@@ -101,16 +102,24 @@ public static class Pro2BleRumblePacketEncoder
         return highAmp != 0 || lowAmp != 0;
     }
 
-    private static int MapSwitchAmpToBle(int value)
+    private static int MapSwitchAmpToBle(int value, double gain)
     {
-        long scaled = (long)value * 1023L * HdScalePercent;
-        long mapped = (scaled + 1450000L) / 2900000L;
-        return Clamp((int)mapped, 0, 1023);
+        double mapped = value * 1023.0 * gain / 29000.0;
+        if (mapped <= 0)
+        {
+            return 0;
+        }
+        if (mapped >= 1023)
+        {
+            return 1023;
+        }
+        return Clamp((int)Math.Round(mapped), 0, 1023);
     }
 
     private static void EncodeBleVibrationFromSwitchFrame(
         ReadOnlySpan<byte> report,
         int offset,
+        double gain,
         Span<byte> output)
     {
         if (report.Length < offset + RumbleFrameBytes)
@@ -133,10 +142,10 @@ public static class Pro2BleRumblePacketEncoder
         BuildBleVibrationData(
             (ushort)lowFreq,
             false,
-            (ushort)MapSwitchAmpToBle(lowAmp),
+            (ushort)MapSwitchAmpToBle(lowAmp, gain),
             (ushort)highFreq,
             false,
-            (ushort)MapSwitchAmpToBle(highAmp),
+            (ushort)MapSwitchAmpToBle(highAmp, gain),
             output);
     }
 
@@ -209,5 +218,14 @@ public static class Pro2BleRumblePacketEncoder
         }
 
         return value;
+    }
+
+    private static double ClampGain(double value)
+    {
+        if (double.IsNaN(value) || double.IsInfinity(value))
+        {
+            return 1.0;
+        }
+        return Math.Clamp(value, 0.0, 3.0);
     }
 }

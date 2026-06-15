@@ -4,16 +4,18 @@
     <TargetFramework>net8.0-windows10.0.26100.0</TargetFramework>
     <SupportedOSPlatformVersion>10.0.19041.0</SupportedOSPlatformVersion>
     <UseWPF>true</UseWPF>
+    <UseWindowsForms>true</UseWindowsForms>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>Y700Switch2V60Viiper</AssemblyName>
-    <AssemblyTitle>PRO2 手柄无线接收器控制板 V6.0 VIIPER Windows 版</AssemblyTitle>
+    <AssemblyTitle>PRO2 手柄无线接收器控制板 V6.1 VIIPER Windows 版</AssemblyTitle>
     <Product>PRO2 手柄无线接收器控制板</Product>
-    <Description>V6.0 Windows-only VIIPER route for Pro2 wireless three-mode emulation.</Description>
-    <Version>6.0.0-preview.10</Version>
-    <AssemblyVersion>6.0.0.0</AssemblyVersion>
-    <FileVersion>6.0.0.10</FileVersion>
-    <InformationalVersion>6.0.0-preview.10-high-resolution-viiper-feed</InformationalVersion>
+    <Description>V6.1 Windows-only VIIPER route for Pro2 wireless three-mode emulation.</Description>
+    <Version>6.1.0</Version>
+    <AssemblyVersion>6.1.0.0</AssemblyVersion>
+    <FileVersion>6.1.0.0</FileVersion>
+    <InformationalVersion>6.1.0-viiper-stability-tray</InformationalVersion>
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <PublishSingleFile>true</PublishSingleFile>
     <SelfContained>true</SelfContained>
@@ -21,7 +23,12 @@
     <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
   </PropertyGroup>
   <ItemGroup>
-    <EmbeddedResource Include="..\..\tools\viiper\v0.7.0\viiper.exe" LogicalName="Embedded.viiper.exe" />
-    <EmbeddedResource Include="..\..\tools\viiper\v0.7.0\licenses.txt" LogicalName="Embedded.viiper.licenses.txt" />
+    <Resource Include="Assets\Characters\kratos.png" />
+    <Resource Include="Assets\Characters\mario.png" />
+    <Resource Include="Assets\Characters\master-chief.png" />
+    <EmbeddedResource Include="..\..\tools\viiper\haptic-v0.8.0\viiper-haptic.exe" LogicalName="Embedded.viiper.haptic.exe" />
+    <EmbeddedResource Include="..\..\tools\viiper\haptic-v0.8.0\LICENSE.txt" LogicalName="Embedded.viiper.haptic.license" />
+    <EmbeddedResource Include="..\..\tools\usbip-win2\v0.9.7.7\USBip-0.9.7.7-x64.exe" LogicalName="Embedded.usbip.installer" />
+    <EmbeddedResource Include="..\..\tools\usbip-win2\v0.9.7.7\LICENSE.txt" LogicalName="Embedded.usbip.license" />
   </ItemGroup>
 </Project>

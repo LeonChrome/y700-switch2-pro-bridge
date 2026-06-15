@@ -21,16 +21,16 @@ public sealed record ViiperDeviceProfile(
     public static ViiperDeviceProfile DualSenseLike { get; } = new(
         ViiperVirtualMode.DualSenseLike,
         "新和联胜 / PS5",
-        "dualsense",
+        "dualsensehaptic",
         33,
-        6,
+        DualSenseHapticFrame.WireSize,
         TimeSpan.FromMilliseconds(4));
 
     public static ViiperDeviceProfile Pro2 { get; } = new(
         ViiperVirtualMode.Pro2,
         "Pro2 / Nintendo",
         "ns2pro",
-        27,
+        24,
         34,
         TimeSpan.FromMilliseconds(4));
 
@@ -76,8 +76,9 @@ public static class VirtualPadPackets
     {
         return profile.Mode switch
         {
-            ViiperVirtualMode.DualSenseLike when data.Length >= 6 =>
-                $"DualSense output: small={data[0]}, large={data[1]}, led=({data[2]},{data[3]},{data[4]}), player={data[5]}",
+            ViiperVirtualMode.DualSenseLike when
+                DualSenseHapticFrame.TryParse(data, out DualSenseHapticFrame frame, out _) =>
+                $"DualSense haptic frame: kind={frame.Kind}, bytes={frame.Payload.Length}",
             ViiperVirtualMode.Pro2 when data.Length >= 34 =>
                 $"NS2Pro output: flags=0x{data[32]:X2}, player_led=0x{data[33]:X2}, L={Hex(data.AsSpan(0, 6))}, R={Hex(data.AsSpan(16, 6))}",
             ViiperVirtualMode.Xbox when data.Length >= 2 =>
@@ -95,13 +96,11 @@ public static class VirtualPadPackets
 
     private static byte[] Ns2ProNeutral()
     {
-        byte[] b = new byte[27];
+        byte[] b = new byte[24];
         WriteU16(b, 4, 0x0800);
         WriteU16(b, 6, 0x0800);
         WriteU16(b, 8, 0x0800);
         WriteU16(b, 10, 0x0800);
-        b[24] = 9;
-        b[26] = 1;
         return b;
     }
 
@@ -128,7 +127,7 @@ public static class VirtualPadPackets
 
     private static byte[] Ns2ProFromGamepad(GamepadState state)
     {
-        byte[] b = new byte[27];
+        byte[] b = new byte[24];
         WriteU32(b, 0, Ns2ProButtons(state));
         WriteU16(b, 4, SnapAxisCenter(state.Lx));
         WriteU16(b, 6, SnapAxisCenter(state.Ly));
@@ -140,9 +139,6 @@ public static class VirtualPadPackets
         WriteI16(b, 18, state.GyroValid ? state.GyroX : (short)0);
         WriteI16(b, 20, state.GyroValid ? state.GyroY : (short)0);
         WriteI16(b, 22, state.GyroValid ? state.GyroZ : (short)0);
-        b[24] = Ns2ProBatteryLevel(state.BatteryPercent);
-        b[25] = state.BatteryCharging ? (byte)1 : (byte)0;
-        b[26] = 1;
         return b;
     }
 
@@ -277,17 +273,6 @@ public static class VirtualPadPackets
         }
         uint scaled = ((uint)value * 255u + TriggerMax / 2u) / TriggerMax;
         return (byte)Math.Min(255u, scaled);
-    }
-
-    private static byte Ns2ProBatteryLevel(byte batteryPercent)
-    {
-        if (batteryPercent == GamepadState.BatteryUnknown)
-        {
-            return 9;
-        }
-
-        int level = (batteryPercent * 9 + 50) / 100;
-        return (byte)Math.Clamp(level, 0, 9);
     }
 
     private static ushort ClampAxis(ushort value)

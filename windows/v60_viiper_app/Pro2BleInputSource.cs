@@ -23,7 +23,8 @@ public sealed class Pro2BleInputSource : IGamepadInputSource, IGamepadInputMetri
     private const ushort NintendoCompanyId = 0x0553;
     private const ushort FastestLegacyConnectionIntervalUnits = 6;
     private const ushort MinimumAcceptedConnectionIntervalUnits = 12;
-    private const double MinimumAcceptedNotifyRateHz = 62.0;
+    private const double MinimumTargetNotifyRateHz = 62.0;
+    private const double MinimumUsableNotifyRateHz = 40.0;
     private const double FastNotifyRateHz = 115.0;
 
     private static readonly byte[][] InitCommands =
@@ -48,6 +49,7 @@ public sealed class Pro2BleInputSource : IGamepadInputSource, IGamepadInputMetri
     private readonly object gate = new();
     private readonly object writeGate = new();
     private readonly Pro2HidReportParser parser = new();
+    private readonly Pro2InputStabilityFilter inputStability = new();
     private readonly List<BleCandidate> lastCandidates = [];
     private BluetoothLEAdvertisementWatcher? watcher;
     private BluetoothLEDevice? device;
@@ -63,6 +65,7 @@ public sealed class Pro2BleInputSource : IGamepadInputSource, IGamepadInputMetri
     private uint updates;
     private uint rawNotifyCount;
     private uint parseFailCount;
+    private uint axisSpikeRejectCount;
     private long firstRawNotifyTicks;
     private long lastRawNotifyTicks;
     private long lastRawNotifyGapTicks;
@@ -72,6 +75,18 @@ public sealed class Pro2BleInputSource : IGamepadInputSource, IGamepadInputMetri
     private long lastParsedNotifyGapTicks;
     private long maxParsedNotifyGapTicks;
     private byte rumblePacketId;
+    private CancellationTokenSource? rumbleWriterCts;
+    private SemaphoreSlim? rumbleSignal;
+    private Task? rumbleWriterTask;
+    private byte[]? pendingRumblePacket;
+    private uint rumbleQueuedCount;
+    private uint rumbleWrittenCount;
+    private uint rumbleCoalescedCount;
+    private uint rumbleFailureCount;
+    private uint inputGap45Count;
+    private uint inputGap250Count;
+    private uint inputGap750Count;
+    private double rumbleGain = 1.0;
     private string status = "未连接真实 Pro2 BLE。";
     private string connectedLabel = "";
     private string lastNotifySummary = "";
@@ -83,9 +98,21 @@ public sealed class Pro2BleInputSource : IGamepadInputSource, IGamepadInputMetri
     private IProgress<string>? connectionProgress;
     private string linkRateClass = "unknown";
     private string lastPerformanceFailure = "";
+    private string lastPerformanceWarning = "";
 
     public bool IsRunning { get; private set; }
-    public bool IsOutputReady => IsRunning && rumbleCharacteristic != null;
+    public bool IsOutputReady =>
+        IsRunning &&
+        rumbleCharacteristic != null &&
+        rumbleWriterTask is { IsCompleted: false };
+    public bool IsPerformanceDegraded
+    {
+        get { lock (gate) return !string.IsNullOrWhiteSpace(lastPerformanceWarning); }
+    }
+    public string LinkRateClass
+    {
+        get { lock (gate) return linkRateClass; }
+    }
 
     public string Status
     {
@@ -101,6 +128,29 @@ public sealed class Pro2BleInputSource : IGamepadInputSource, IGamepadInputMetri
             {
                 return BuildMetricsSummaryNoLock();
             }
+        }
+    }
+
+    public double RumbleGain
+    {
+        get
+        {
+            lock (writeGate)
+            {
+                return rumbleGain;
+            }
+        }
+    }
+
+    public void SetRumbleGain(double value)
+    {
+        if (double.IsNaN(value) || double.IsInfinity(value))
+        {
+            value = 1.0;
+        }
+        lock (writeGate)
+        {
+            rumbleGain = Math.Clamp(value, 0.0, 3.0);
         }
     }
 
@@ -139,6 +189,7 @@ public sealed class Pro2BleInputSource : IGamepadInputSource, IGamepadInputMetri
         lock (gate)
         {
             lastPerformanceFailure = "";
+            lastPerformanceWarning = "";
         }
         progress.Report("[PRO2_BLE] scanning without Windows HID pairing. Wake the Pro2 and keep it near the PC.");
         List<BleCandidate> candidates = await ScanCandidatesAsync(progress, TimeSpan.FromSeconds(8), cancellationToken);
@@ -165,7 +216,10 @@ public sealed class Pro2BleInputSource : IGamepadInputSource, IGamepadInputMetri
                 {
                     connectedLabel = DescribeCandidate(candidate);
                     Status = "真实 Pro2 BLE 已连接并 live：" + connectedLabel +
-                             " / " + MetricsSummary;
+                             " / " + MetricsSummary +
+                             (string.IsNullOrWhiteSpace(lastPerformanceWarning)
+                                 ? ""
+                                 : " / 警告：" + lastPerformanceWarning);
                     IsRunning = true;
                     return;
                 }
@@ -226,20 +280,37 @@ public sealed class Pro2BleInputSource : IGamepadInputSource, IGamepadInputMetri
                         packetId,
                         packet,
                         out _,
-                        out error))
+                        out error,
+                        rumbleGain))
                 {
                     return false;
                 }
 
-                Task<string?> task = WriteRumblePacketAsync(packet);
-                if (!task.Wait(TimeSpan.FromMilliseconds(200)))
+                if (rumbleWriterTask is not { IsCompleted: false } ||
+                    rumbleSignal == null)
                 {
-                    error = "BLE rumble write timeout";
+                    error = "BLE rumble writer is not running";
                     return false;
                 }
 
-                error = task.Result ?? "";
-                return string.IsNullOrWhiteSpace(error);
+                bool coalesced = pendingRumblePacket != null;
+                pendingRumblePacket = packet;
+                rumbleQueuedCount++;
+                if (coalesced)
+                {
+                    rumbleCoalescedCount++;
+                }
+                else
+                {
+                    try
+                    {
+                        rumbleSignal.Release();
+                    }
+                    catch (SemaphoreFullException)
+                    {
+                    }
+                }
+                return true;
             }
         }
         catch (Exception ex)
@@ -380,12 +451,13 @@ public sealed class Pro2BleInputSource : IGamepadInputSource, IGamepadInputMetri
             progress.Report("[PRO2_BLE] waiting for FD2 live input...");
             if (await WaitForLiveInputAsync(TimeSpan.FromSeconds(3), cancellationToken))
             {
-                if (!await EnsureMinimumBlePerformanceAsync(progress, cancellationToken))
+                if (!await EnsureUsableBlePerformanceAsync(progress, cancellationToken))
                 {
                     return false;
                 }
 
                 IsRunning = true;
+                StartRumbleWriter(progress);
                 progress.Report("[PRO2_BLE] live input confirmed updates=" + updates +
                                 " raw_notify=" + rawNotifyCount +
                                 " rumble=" + (rumbleCharacteristic != null) +
@@ -409,12 +481,13 @@ public sealed class Pro2BleInputSource : IGamepadInputSource, IGamepadInputMetri
             progress.Report("[PRO2_BLE] waiting for legacy C0F8 live input fallback...");
             if (await WaitForLiveInputAsync(TimeSpan.FromSeconds(5), cancellationToken))
             {
-                if (!await EnsureMinimumBlePerformanceAsync(progress, cancellationToken))
+                if (!await EnsureUsableBlePerformanceAsync(progress, cancellationToken))
                 {
                     return false;
                 }
 
                 IsRunning = true;
+                StartRumbleWriter(progress);
                 progress.Report("[PRO2_BLE] live input confirmed updates=" + updates +
                                 " raw_notify=" + rawNotifyCount +
                                 " fallback=legacy rumble=" + (rumbleCharacteristic != null) +
@@ -562,6 +635,23 @@ public sealed class Pro2BleInputSource : IGamepadInputSource, IGamepadInputMetri
         lock (gate)
         {
             rawNotifyCount++;
+            if (lastRawNotifyTicks != 0)
+            {
+                double gapMilliseconds =
+                    (nowTicks - lastRawNotifyTicks) * 1000.0 / Stopwatch.Frequency;
+                if (gapMilliseconds >= 45)
+                {
+                    inputGap45Count++;
+                }
+                if (gapMilliseconds >= 250)
+                {
+                    inputGap250Count++;
+                }
+                if (gapMilliseconds >= 750)
+                {
+                    inputGap750Count++;
+                }
+            }
             NoteSample(
                 nowTicks,
                 ref firstRawNotifyTicks,
@@ -582,6 +672,13 @@ public sealed class Pro2BleInputSource : IGamepadInputSource, IGamepadInputMetri
 
         lock (gate)
         {
+            if (!inputStability.TryAccept(state, out GamepadState stableState, out string filterReason))
+            {
+                axisSpikeRejectCount++;
+                lastNotifySummary += " filtered=" + filterReason;
+                return;
+            }
+
             updates++;
             NoteSample(
                 nowTicks,
@@ -589,8 +686,8 @@ public sealed class Pro2BleInputSource : IGamepadInputSource, IGamepadInputMetri
                 ref lastParsedNotifyTicks,
                 ref lastParsedNotifyGapTicks,
                 ref maxParsedNotifyGapTicks);
-            state.Updates = updates;
-            latest = state;
+            stableState.Updates = updates;
+            latest = stableState;
             latestAt = DateTimeOffset.UtcNow;
             status = "真实 Pro2 BLE live，updates=" + updates + " source=" + source +
                      " raw_notify=" + rawNotifyCount + " " + BuildMetricsSummaryNoLock();
@@ -654,7 +751,7 @@ public sealed class Pro2BleInputSource : IGamepadInputSource, IGamepadInputMetri
         }
     }
 
-    private async Task<bool> EnsureMinimumBlePerformanceAsync(
+    private async Task<bool> EnsureUsableBlePerformanceAsync(
         IProgress<string> progress,
         CancellationToken cancellationToken)
     {
@@ -667,9 +764,9 @@ public sealed class Pro2BleInputSource : IGamepadInputSource, IGamepadInputMetri
         }
 
         BlePerformanceSnapshot native = GetPerformanceSnapshot();
-        if (MeetsMinimumPerformance(native))
+        if (MeetsTargetPerformance(native))
         {
-            SetLinkRateClass(native);
+            SetLinkRateClass(native, degraded: false);
             progress.Report("[PRO2_BLE_LINK] native link accepted " + FormatPerformanceSnapshot(native));
             return true;
         }
@@ -680,16 +777,16 @@ public sealed class Pro2BleInputSource : IGamepadInputSource, IGamepadInputMetri
             if (TryRequestWindows11ThroughputFallback(device, progress))
             {
                 ResetPerformanceCounters();
-                DateTimeOffset deadline = DateTimeOffset.UtcNow + TimeSpan.FromSeconds(3);
+                DateTimeOffset deadline = DateTimeOffset.UtcNow + TimeSpan.FromSeconds(5);
                 while (DateTimeOffset.UtcNow < deadline)
                 {
                     cancellationToken.ThrowIfCancellationRequested();
                     await Task.Delay(150, cancellationToken);
                     TryCaptureWindows11ConnectionParameters(device, "fallback_poll", progress: null);
                     BlePerformanceSnapshot current = GetPerformanceSnapshot();
-                    if (MeetsMinimumPerformance(current))
+                    if (MeetsTargetPerformance(current))
                     {
-                        SetLinkRateClass(current);
+                        SetLinkRateClass(current, degraded: false);
                         progress.Report("[PRO2_BLE_LINK] throughput fallback accepted " +
                                         FormatPerformanceSnapshot(current));
                         return true;
@@ -701,9 +798,9 @@ public sealed class Pro2BleInputSource : IGamepadInputSource, IGamepadInputMetri
         {
             await Task.Delay(1800, cancellationToken);
             BlePerformanceSnapshot measured = GetPerformanceSnapshot();
-            if (measured.NotifyRateHz >= MinimumAcceptedNotifyRateHz)
+            if (MeetsTargetPerformance(measured))
             {
-                SetLinkRateClass(measured);
+                SetLinkRateClass(measured, degraded: false);
                 progress.Report("[PRO2_BLE_LINK] notification-rate fallback accepted " +
                                 FormatPerformanceSnapshot(measured));
                 return true;
@@ -711,6 +808,19 @@ public sealed class Pro2BleInputSource : IGamepadInputSource, IGamepadInputMetri
         }
 
         BlePerformanceSnapshot failed = GetPerformanceSnapshot();
+        if (HasUsableLivePerformance(failed))
+        {
+            string warning = "BLE 输入保持 live，但没有达到 66.7 Hz 目标：" +
+                             FormatPerformanceSnapshot(failed);
+            lock (gate)
+            {
+                lastPerformanceWarning = warning;
+            }
+            SetLinkRateClass(failed, degraded: true);
+            progress.Report("[PRO2_BLE_LINK] DEGRADED_ACCEPTED " + warning);
+            return true;
+        }
+
         lock (gate)
         {
             linkRateClass = "below_minimum";
@@ -829,15 +939,156 @@ public sealed class Pro2BleInputSource : IGamepadInputSource, IGamepadInputMetri
         }
     }
 
-    private async Task<string?> WriteRumblePacketAsync(byte[] packet)
+    private void StartRumbleWriter(IProgress<string> progress)
     {
-        if (rumbleCharacteristic == null)
+        if (rumbleWriterTask is { IsCompleted: false })
         {
-            return "rumble characteristic null";
+            return;
         }
 
-        GattCommunicationStatus status = await WriteCharacteristicAsync(rumbleCharacteristic, packet);
-        return status == GattCommunicationStatus.Success ? null : status.ToString();
+        rumbleWriterCts = new CancellationTokenSource();
+        rumbleSignal = new SemaphoreSlim(0, 1);
+        lock (writeGate)
+        {
+            pendingRumblePacket = null;
+            rumbleQueuedCount = 0;
+            rumbleWrittenCount = 0;
+            rumbleCoalescedCount = 0;
+            rumbleFailureCount = 0;
+        }
+        rumbleWriterTask = Task.Run(
+            () => RumbleWriterLoopAsync(progress, rumbleWriterCts.Token));
+        progress.Report("[PRO2_OUTPUT] asynchronous coalescing BLE writer started.");
+    }
+
+    private async Task RumbleWriterLoopAsync(
+        IProgress<string> progress,
+        CancellationToken cancellationToken)
+    {
+        long lastWriteTicks = 0;
+        while (!cancellationToken.IsCancellationRequested)
+        {
+            SemaphoreSlim? signal = rumbleSignal;
+            if (signal == null)
+            {
+                return;
+            }
+
+            await signal.WaitAsync(cancellationToken);
+            double minimumWriteIntervalMs;
+            lock (gate)
+            {
+                minimumWriteIntervalMs = connectionIntervalUnits == 0
+                    ? 8
+                    : Math.Clamp(connectionIntervalUnits * 1.25, 7.5, 15);
+            }
+            if (lastWriteTicks != 0)
+            {
+                double elapsedMs =
+                    (Stopwatch.GetTimestamp() - lastWriteTicks) *
+                    1000.0 /
+                    Stopwatch.Frequency;
+                double remainingMs = minimumWriteIntervalMs - elapsedMs;
+                if (remainingMs > 0)
+                {
+                    await Task.Delay(
+                        TimeSpan.FromMilliseconds(remainingMs),
+                        cancellationToken);
+                }
+            }
+
+            byte[]? packet;
+            lock (writeGate)
+            {
+                packet = pendingRumblePacket;
+                pendingRumblePacket = null;
+            }
+            if (packet == null)
+            {
+                continue;
+            }
+
+            GattCharacteristic? characteristic = rumbleCharacteristic;
+            if (characteristic == null)
+            {
+                continue;
+            }
+
+            try
+            {
+                GattCommunicationStatus status =
+                    await WriteCharacteristicAsync(characteristic, packet);
+                lastWriteTicks = Stopwatch.GetTimestamp();
+                lock (writeGate)
+                {
+                    if (status == GattCommunicationStatus.Success)
+                    {
+                        rumbleWrittenCount++;
+                    }
+                    else
+                    {
+                        rumbleFailureCount++;
+                    }
+                }
+                if (status != GattCommunicationStatus.Success)
+                {
+                    progress.Report("[PRO2_OUTPUT] BLE writer status=" + status);
+                }
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                return;
+            }
+            catch (Exception ex)
+            {
+                lock (writeGate)
+                {
+                    rumbleFailureCount++;
+                }
+                progress.Report("[PRO2_OUTPUT] BLE writer exception=" + ex.Message);
+            }
+        }
+    }
+
+    private async Task StopRumbleWriterAsync()
+    {
+        CancellationTokenSource? writerCts = rumbleWriterCts;
+        Task? writerTask = rumbleWriterTask;
+        SemaphoreSlim? signal = rumbleSignal;
+        rumbleWriterCts = null;
+        rumbleWriterTask = null;
+        rumbleSignal = null;
+        lock (writeGate)
+        {
+            pendingRumblePacket = null;
+        }
+
+        if (writerCts != null)
+        {
+            writerCts.Cancel();
+        }
+        if (signal != null)
+        {
+            try
+            {
+                signal.Release();
+            }
+            catch (SemaphoreFullException)
+            {
+            }
+        }
+        if (writerTask != null)
+        {
+            try
+            {
+                await writerTask;
+            }
+            catch (OperationCanceledException)
+            {
+            }
+        }
+        signal?.Dispose();
+        writerCts?.Dispose();
     }
 
     private static async Task<GattCommunicationStatus> WriteCharacteristicAsync(
@@ -854,6 +1105,7 @@ public sealed class Pro2BleInputSource : IGamepadInputSource, IGamepadInputMetri
     private async Task CloseCurrentAsync(string nextStatus)
     {
         IsRunning = false;
+        await StopRumbleWriterAsync();
         watcher?.Stop();
         watcher = null;
 
@@ -900,6 +1152,7 @@ public sealed class Pro2BleInputSource : IGamepadInputSource, IGamepadInputMetri
             updates = 0;
             rawNotifyCount = 0;
             parseFailCount = 0;
+            axisSpikeRejectCount = 0;
             firstRawNotifyTicks = 0;
             lastRawNotifyTicks = 0;
             lastRawNotifyGapTicks = 0;
@@ -908,6 +1161,9 @@ public sealed class Pro2BleInputSource : IGamepadInputSource, IGamepadInputMetri
             lastParsedNotifyTicks = 0;
             lastParsedNotifyGapTicks = 0;
             maxParsedNotifyGapTicks = 0;
+            inputGap45Count = 0;
+            inputGap250Count = 0;
+            inputGap750Count = 0;
             lastNotifySummary = "";
             connectionPreferenceStatus = "not_requested";
             connectionIntervalUnits = 0;
@@ -915,6 +1171,8 @@ public sealed class Pro2BleInputSource : IGamepadInputSource, IGamepadInputMetri
             connectionLinkTimeout = 0;
             lastConnectionParametersSummary = "";
             linkRateClass = "unknown";
+            lastPerformanceWarning = "";
+            inputStability.Reset();
         }
     }
 
@@ -925,6 +1183,7 @@ public sealed class Pro2BleInputSource : IGamepadInputSource, IGamepadInputMetri
             updates = 0;
             rawNotifyCount = 0;
             parseFailCount = 0;
+            axisSpikeRejectCount = 0;
             firstRawNotifyTicks = 0;
             lastRawNotifyTicks = 0;
             lastRawNotifyGapTicks = 0;
@@ -933,6 +1192,9 @@ public sealed class Pro2BleInputSource : IGamepadInputSource, IGamepadInputMetri
             lastParsedNotifyTicks = 0;
             lastParsedNotifyGapTicks = 0;
             maxParsedNotifyGapTicks = 0;
+            inputGap45Count = 0;
+            inputGap250Count = 0;
+            inputGap750Count = 0;
         }
     }
 
@@ -952,6 +1214,15 @@ public sealed class Pro2BleInputSource : IGamepadInputSource, IGamepadInputMetri
                " ble_timeout_ms=" + (connectionLinkTimeout * 10) +
                " ble_pref=" + connectionPreferenceStatus +
                " ble_rate_class=" + linkRateClass +
+               " ble_gap45=" + inputGap45Count +
+               " ble_gap250=" + inputGap250Count +
+               " ble_gap750=" + inputGap750Count +
+               " axis_spike=" + axisSpikeRejectCount +
+               " rumble_q=" + rumbleQueuedCount +
+               " rumble_w=" + rumbleWrittenCount +
+               " rumble_merge=" + rumbleCoalescedCount +
+               " rumble_fail=" + rumbleFailureCount +
+               " rumble_gain=" + RumbleGain.ToString("F1") +
                " parse_fail=" + parseFailCount;
     }
 
@@ -968,24 +1239,59 @@ public sealed class Pro2BleInputSource : IGamepadInputSource, IGamepadInputMetri
         }
     }
 
-    private static bool MeetsMinimumPerformance(BlePerformanceSnapshot snapshot)
+    private static bool MeetsTargetPerformance(BlePerformanceSnapshot snapshot)
     {
         bool connectionFastEnough =
             snapshot.ConnectionIntervalUnits == 0 ||
             snapshot.ConnectionIntervalUnits <= MinimumAcceptedConnectionIntervalUnits;
         return connectionFastEnough &&
                snapshot.RawNotifications >= 20 &&
-               snapshot.NotifyRateHz >= MinimumAcceptedNotifyRateHz;
+               snapshot.NotifyRateHz >= MinimumTargetNotifyRateHz &&
+               snapshot.ParsedRateHz >= MinimumTargetNotifyRateHz * 0.9;
     }
 
-    private void SetLinkRateClass(BlePerformanceSnapshot snapshot)
+    private static bool HasUsableLivePerformance(BlePerformanceSnapshot snapshot)
     {
-        string rateClass =
-            (snapshot.ConnectionIntervalUnits == 0 ||
+        return ShouldKeepLiveInput(
+            snapshot.NotifyRateHz,
+            snapshot.ParsedRateHz,
+            snapshot.RawNotifications,
+            snapshot.ParsedNotifications);
+    }
+
+    public static bool ShouldKeepLiveInput(
+        double rawNotifyRateHz,
+        double parsedNotifyRateHz,
+        uint rawNotifications,
+        uint parsedNotifications)
+    {
+        return rawNotifications >= 40 &&
+               parsedNotifications >= 40 &&
+               rawNotifyRateHz >= MinimumUsableNotifyRateHz &&
+               parsedNotifyRateHz >= MinimumUsableNotifyRateHz &&
+               parsedNotifications >= rawNotifications * 0.9;
+    }
+
+    private void SetLinkRateClass(BlePerformanceSnapshot snapshot, bool degraded)
+    {
+        string rateClass;
+        if ((snapshot.ConnectionIntervalUnits == 0 ||
              snapshot.ConnectionIntervalUnits <= FastestLegacyConnectionIntervalUnits) &&
-            snapshot.NotifyRateHz >= FastNotifyRateHz
-                ? "133hz"
-                : "66.7hz";
+            snapshot.NotifyRateHz >= FastNotifyRateHz)
+        {
+            rateClass = "133hz";
+        }
+        else if (degraded)
+        {
+            rateClass = snapshot.ConnectionIntervalUnits <= MinimumAcceptedConnectionIntervalUnits
+                ? "66.7hz_link_degraded"
+                : "live_degraded";
+        }
+        else
+        {
+            rateClass = "66.7hz";
+        }
+
         lock (gate)
         {
             linkRateClass = rateClass;

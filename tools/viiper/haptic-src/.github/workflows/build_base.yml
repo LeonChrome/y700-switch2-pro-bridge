@@ -1,0 +1,227 @@
+name: VIIPER Build Base
+
+on:
+    workflow_call:
+        inputs:
+            artifact_suffix:
+                required: false
+                type: string
+                default: ""
+                description: "Suffix to add to artifact names"
+            upload_artifacts:
+                required: false
+                type: boolean
+                default: false
+                description: "Whether to upload build artifacts"
+
+jobs:
+    test:
+        name: Test
+        runs-on: ubuntu-latest
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@v6
+              with:
+                  fetch-depth: 0
+
+            - name: Set up Go
+              uses: actions/setup-go@v6.4.0
+              with:
+                  go-version: stable
+                  cache: true
+                  cache-dependency-path: |
+                      go.sum
+
+            - name: Setup just
+              uses: extractions/setup-just@v3
+
+            - name: Install goversioninfo (Windows)
+              if: ${{ matrix.target.goos == 'windows' }}
+              shell: pwsh
+              run: |
+                  go install github.com/josephspurrier/goversioninfo/cmd/goversioninfo@v1.7.0
+
+            - name: Show Go version
+              run: go version
+
+            - name: Lint
+              uses: golangci/golangci-lint-action@v9.2.0
+              with:
+                  version: latest
+                  install-mode: goinstall
+
+            - name: Run tests
+              run: just test-coverage
+
+            - name: Upload coverage to Codecov
+              uses: codecov/codecov-action@v6
+              with:
+                  token: ${{ secrets.CODECOV_TOKEN }}
+                  directory: .
+                  fail_ci_if_error: false
+
+    build:
+        name: Build binaries (${{ matrix.target.goos }}/${{ matrix.target.goarch }})
+        runs-on: ${{ matrix.target.runner }}
+        needs: test
+        strategy:
+            fail-fast: false
+            matrix:
+                target:
+                    - { goos: linux, goarch: amd64, ext: "", runner: ubuntu-latest }
+                    - { goos: linux, goarch: arm64, ext: "", runner: ubuntu-latest }
+                    - { goos: windows, goarch: amd64, ext: ".exe", runner: windows-latest }
+                    - { goos: windows, goarch: arm64, ext: ".exe", runner: windows-latest }
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@v6
+              with:
+                  fetch-depth: 0
+
+            - name: Set up Go
+              uses: actions/setup-go@v6.4.0
+              with:
+                  go-version: 1.26
+                  cache: true
+                  cache-dependency-path: |
+                      go.sum
+
+            - name: Setup just
+              uses: extractions/setup-just@v3
+
+            - name: Install goversioninfo
+              shell: pwsh
+              run: |
+                  go install github.com/josephspurrier/goversioninfo/cmd/goversioninfo@v1.7.0
+
+            - name: Build
+              env:
+                  GOOS: ${{ matrix.target.goos }}
+                  GOARCH: ${{ matrix.target.goarch }}
+                  CGO_ENABLED: 0
+                  BUILD_TYPE: Release
+                  OUTPUT_NAME: viiper-${{ matrix.target.goos }}-${{ matrix.target.goarch }}${{ matrix.target.ext }}
+              run: |
+                  just build Release
+
+            - name: Package (Linux)
+              if: ${{ matrix.target.goos == 'linux' }}
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  rm -rf dist/package
+                  mkdir -p dist/package
+                  cp dist/viiper-${{ matrix.target.goos }}-${{ matrix.target.goarch }} dist/package/viiper
+                  cp dist/licenses.txt dist/package/licenses.txt
+                  tar -czf dist/viiper-${{ matrix.target.goos }}-${{ matrix.target.goarch }}.tar.gz -C dist/package viiper licenses.txt
+
+            - name: Package (Windows)
+              if: ${{ matrix.target.goos == 'windows' }}
+              shell: pwsh
+              run: |
+                  Remove-Item -Recurse -Force dist/package -ErrorAction SilentlyContinue
+                  New-Item -ItemType Directory -Force -Path dist/package | Out-Null
+                  Copy-Item dist/viiper-${{ matrix.target.goos }}-${{ matrix.target.goarch }}${{ matrix.target.ext }} dist/package/viiper.exe -Force
+                  Copy-Item dist/licenses.txt dist/package/licenses.txt -Force
+                  Compress-Archive -Path dist/package/viiper.exe, dist/package/licenses.txt -DestinationPath dist/viiper-${{ matrix.target.goos }}-${{ matrix.target.goarch }}.zip -Force
+
+            - name: Upload artifact (Linux)
+              if: ${{ inputs.upload_artifacts && matrix.target.goos == 'linux' }}
+              uses: actions/upload-artifact@v7
+              with:
+                  name: VIIPER-${{ matrix.target.goos }}-${{ matrix.target.goarch }}${{ inputs.artifact_suffix }}
+                  path: dist/viiper-${{ matrix.target.goos }}-${{ matrix.target.goarch }}.tar.gz
+                  if-no-files-found: error
+
+            - name: Upload artifact (Windows)
+              if: ${{ inputs.upload_artifacts && matrix.target.goos == 'windows' }}
+              uses: actions/upload-artifact@v7
+              with:
+                  name: VIIPER-${{ matrix.target.goos }}-${{ matrix.target.goarch }}${{ inputs.artifact_suffix }}
+                  path: dist/viiper-${{ matrix.target.goos }}-${{ matrix.target.goarch }}.zip
+                  if-no-files-found: error
+
+    libviiper-linux:
+        name: Build libVIIPER (linux/amd64)
+        runs-on: ubuntu-latest
+        needs: test
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@v6
+              with:
+                  fetch-depth: 0
+
+            - name: Set up Go
+              uses: actions/setup-go@v6.4.0
+              with:
+                  go-version: 1.26
+                  cache: true
+                  cache-dependency-path: |
+                      go.sum
+
+            - name: Setup just
+              uses: extractions/setup-just@v3
+
+            - name: Build
+              run: |
+                  just build-libVIIPER Release
+
+            - name: Package
+              run: cd dist/libVIIPER && zip libVIIPER-linux-amd64.zip libVIIPER.so libVIIPER.h licenses.txt
+
+            - name: Upload artifact
+              if: ${{ inputs.upload_artifacts }}
+              uses: actions/upload-artifact@v7
+              with:
+                  name: libVIIPER-linux-amd64${{ inputs.artifact_suffix }}
+                  path: dist/libVIIPER/libVIIPER-linux-amd64.zip
+                  if-no-files-found: error
+
+    libviiper-windows:
+        name: Build libVIIPER (windows/amd64)
+        runs-on: windows-latest
+        needs: test
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@v6
+              with:
+                  fetch-depth: 0
+
+            - name: Set up Go
+              uses: actions/setup-go@v6.4.0
+              with:
+                  go-version: 1.26
+                  cache: true
+                  cache-dependency-path: |
+                      go.sum
+
+            - name: Setup just
+              uses: extractions/setup-just@v3
+
+            - name: Install build tools
+              shell: pwsh
+              run: |
+                  winget install -e --id MartinStorsjo.LLVM-MinGW.UCRT --accept-package-agreements --accept-source-agreements
+                  winget install -e --id Kitware.CMake --accept-package-agreements --accept-source-agreements
+                  if (Test-Path "C:\Program Files\LLVM-MinGW\bin") {
+                    "C:\Program Files\LLVM-MinGW\bin" | Out-File -FilePath $env:GITHUB_PATH -Append
+                  }
+                  exit 0
+
+            - name: Build
+              shell: bash
+              run: |
+                  just build-libVIIPER Release
+
+            - name: Package
+              shell: pwsh
+              run: |
+                  Compress-Archive -Path dist/libVIIPER/libVIIPER.dll, dist/libVIIPER/libVIIPER.def, dist/libVIIPER/libVIIPER.h, dist/libVIIPER/licenses.txt -DestinationPath dist/libVIIPER/libVIIPER-windows-amd64.zip -Force
+
+            - name: Upload artifact
+              if: ${{ inputs.upload_artifacts }}
+              uses: actions/upload-artifact@v7
+              with:
+                  name: libVIIPER-windows-amd64${{ inputs.artifact_suffix }}
+                  path: dist/libVIIPER/libVIIPER-windows-amd64.zip
+                  if-no-files-found: error

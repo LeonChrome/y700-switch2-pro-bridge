@@ -17,6 +17,55 @@ static void Pack12(byte[] data, int offset, ushort x, ushort y)
     data[offset + 2] = (byte)((y >> 4) & 0xff);
 }
 
+static (int Low, int High) DecodeBleAmplitudes(
+    ReadOnlySpan<byte> packet,
+    int frameOffset)
+{
+    ulong value = 0;
+    for (int i = 0; i < 5; i++)
+    {
+        value |= (ulong)packet[frameOffset + i] << (8 * i);
+    }
+    return (
+        (int)((value >> 10) & 0x03ff),
+        (int)((value >> 30) & 0x03ff));
+}
+
+static byte[] HapticFrame(byte kind, ReadOnlySpan<byte> payload)
+{
+    byte[] frame = new byte[DualSenseHapticFrame.WireSize];
+    frame[0] = kind;
+    BinaryPrimitives.WriteUInt16LittleEndian(
+        frame.AsSpan(1, 2),
+        (ushort)payload.Length);
+    payload.CopyTo(frame.AsSpan(4));
+    return frame;
+}
+
+static byte[] HapticPcmPacket(
+    ref double leftPhase,
+    ref double rightPhase,
+    double leftHz,
+    double rightHz)
+{
+    byte[] packet = new byte[384];
+    const double sampleRate = 48000;
+    for (int i = 0; i < 48; i++)
+    {
+        short left = (short)Math.Round(Math.Sin(leftPhase) * 12000);
+        short right = (short)Math.Round(Math.Sin(rightPhase) * 12000);
+        BinaryPrimitives.WriteInt16LittleEndian(
+            packet.AsSpan(i * 8 + 4, 2),
+            left);
+        BinaryPrimitives.WriteInt16LittleEndian(
+            packet.AsSpan(i * 8 + 6, 2),
+            right);
+        leftPhase += 2 * Math.PI * leftHz / sampleRate;
+        rightPhase += 2 * Math.PI * rightHz / sampleRate;
+    }
+    return packet;
+}
+
 var state = new GamepadState
 {
     Buttons = GamepadButtons.South |
@@ -60,14 +109,13 @@ Expect(ds[8] == 0x09, "DualSense dpad bitfield");
 Expect(ds[9] == 255 && ds[10] == 255, "DualSense triggers");
 
 byte[] ns = VirtualPadPackets.FromGamepad(ViiperDeviceProfile.Pro2, state);
-Expect(ns.Length == 27, "NS2Pro wire size");
+Expect(ns.Length == 24, "NS2Pro wire size");
 uint nsButtons = BinaryPrimitives.ReadUInt32LittleEndian(ns.AsSpan(0, 4));
 Expect(nsButtons == 0x0003FAFF, "NS2Pro button bitfield");
 Expect(BinaryPrimitives.ReadUInt16LittleEndian(ns.AsSpan(4, 2)) == 0, "NS2Pro LX min");
 Expect(BinaryPrimitives.ReadUInt16LittleEndian(ns.AsSpan(6, 2)) == 4095, "NS2Pro LY max");
-Expect(ns[24] == 5 && ns[25] == 1 && ns[26] == 1, "NS2Pro battery and power state");
 byte[] nsNeutral = VirtualPadPackets.NeutralInput(ViiperDeviceProfile.Pro2);
-Expect(nsNeutral.Length == 27 && nsNeutral[24] == 9 && nsNeutral[26] == 1, "NS2Pro neutral power state");
+Expect(nsNeutral.Length == 24, "NS2Pro neutral wire size");
 
 byte[] xb = VirtualPadPackets.FromGamepad(ViiperDeviceProfile.Xbox, state);
 Expect(xb.Length == 20, "Xbox wire size");
@@ -186,6 +234,137 @@ Expect(
     "encode stop raw02 to BLE packet: " + stopBleError);
 Expect(!stopBleActive, "BLE stop packet is neutral");
 
+byte[] gainZeroBle = new byte[Pro2BleRumblePacketEncoder.BlePacketSize];
+Expect(
+    Pro2BleRumblePacketEncoder.TryEncodeRaw02(
+        ordinaryPacket.Report,
+        0x02,
+        gainZeroBle,
+        out bool gainZeroActive,
+        out string gainZeroError,
+        0),
+    "encode zero-gain rumble: " + gainZeroError);
+(int gainZeroLow, int gainZeroHigh) =
+    DecodeBleAmplitudes(gainZeroBle, 2);
+Expect(!gainZeroActive, "zero gain disables physical rumble");
+Expect(gainZeroLow == 0 && gainZeroHigh == 0, "zero gain encodes zero amplitudes");
+
+byte[] gainOneBle = new byte[Pro2BleRumblePacketEncoder.BlePacketSize];
+Expect(
+    Pro2BleRumblePacketEncoder.TryEncodeRaw02(
+        ordinaryPacket.Report,
+        0x03,
+        gainOneBle,
+        out bool gainOneActive,
+        out string gainOneError,
+        1),
+    "encode 1x rumble: " + gainOneError);
+(int gainOneLow, int gainOneHigh) =
+    DecodeBleAmplitudes(gainOneBle, 2);
+Expect(gainOneActive, "1x gain keeps rumble active");
+Expect(gainOneLow is > 0 and < 1023 && gainOneHigh is > 0 and < 1023, "1x amplitudes remain proportional");
+
+byte[] gainThreeBle = new byte[Pro2BleRumblePacketEncoder.BlePacketSize];
+Expect(
+    Pro2BleRumblePacketEncoder.TryEncodeRaw02(
+        ordinaryPacket.Report,
+        0x04,
+        gainThreeBle,
+        out bool gainThreeActive,
+        out string gainThreeError,
+        3),
+    "encode 3x rumble: " + gainThreeError);
+(int gainThreeLow, int gainThreeHigh) =
+    DecodeBleAmplitudes(gainThreeBle, 2);
+Expect(gainThreeActive, "3x gain keeps rumble active");
+Expect(gainThreeLow == 1023 && gainThreeHigh == 1023, "3x amplitudes saturate at Pro2 maximum");
+Expect(
+    V60UserSettings.NormalizeRumbleMultiplier(-1) == 0 &&
+    V60UserSettings.NormalizeRumbleMultiplier(3.8) == 3 &&
+    V60UserSettings.NormalizeRumbleMultiplier(double.NaN) == 1,
+    "rumble multiplier is normalized to 0..3");
+
+var hapticScheduler = new DualSenseHapticRumbleScheduler();
+byte[] compatibilityReport = new byte[64];
+compatibilityReport[0] = 0x02;
+compatibilityReport[1] = 0x01;
+compatibilityReport[3] = 72;
+compatibilityReport[4] = 180;
+Expect(
+    hapticScheduler.TryProcess(
+        HapticFrame(1, compatibilityReport),
+        out Pro2OutputPacket compatibilityPacket,
+        out string compatibilitySummary,
+        out string compatibilityReason),
+    "DualSense compatibility output maps to ordinary rumble: " +
+    compatibilityReason);
+Expect(
+    compatibilityPacket.Source == "dualsense-ordinary" &&
+    compatibilityPacket.Active &&
+    compatibilitySummary.Contains("compatibility", StringComparison.Ordinal),
+    "DualSense compatibility mode selects ordinary rumble");
+
+double blockedLeftPhase = 0;
+double blockedRightPhase = 0;
+byte[] blockedAudio = HapticPcmPacket(
+    ref blockedLeftPhase,
+    ref blockedRightPhase,
+    140,
+    330);
+Expect(
+    !hapticScheduler.TryProcess(
+        HapticFrame(2, blockedAudio),
+        out _,
+        out _,
+        out string blockedReason) &&
+    blockedReason.Contains("blocked", StringComparison.OrdinalIgnoreCase),
+    "DualSense compatibility mode blocks HD audio");
+
+byte[] audioModeReport = new byte[64];
+audioModeReport[0] = 0x02;
+Expect(
+    hapticScheduler.TryProcess(
+        HapticFrame(1, audioModeReport),
+        out Pro2OutputPacket transitionStop,
+        out string audioModeSummary,
+        out string audioModeReason),
+    "DualSense audio mode transition emits a stop packet: " +
+    audioModeReason);
+Expect(
+    !transitionStop.Active &&
+    audioModeSummary.Contains("audio_haptics", StringComparison.Ordinal),
+    "DualSense audio mode is selected by host flags");
+
+double leftPhase = 0;
+double rightPhase = 0;
+Pro2OutputPacket? dualSenseHdPacket = null;
+for (int i = 0; i < 40; i++)
+{
+    byte[] pcm = HapticPcmPacket(
+        ref leftPhase,
+        ref rightPhase,
+        140,
+        330);
+    if (hapticScheduler.TryProcess(
+            HapticFrame(2, pcm),
+            out Pro2OutputPacket candidate,
+            out _,
+            out _) &&
+        candidate.Active)
+    {
+        dualSenseHdPacket = candidate;
+        break;
+    }
+}
+Expect(
+    dualSenseHdPacket != null,
+    "four-channel DualSense PCM produces HD raw02 output");
+Expect(
+    dualSenseHdPacket!.Source == "dualsense-hd-audio" &&
+    dualSenseHdPacket.Report.Length == 64 &&
+    dualSenseHdPacket.Report[0] == 0x02,
+    "DualSense HD output is a Pro2 raw02 report");
+
 string originalPath = @"C:\Windows\System32";
 string withUsbip = UsbipRuntimeLocator.BuildPathWithUsbipDirectory(
     originalPath,
@@ -195,20 +374,104 @@ Expect(
     UsbipRuntimeLocator.BuildPathWithUsbipDirectory(withUsbip, new UsbipRuntime(@"C:\USBip\usbip.exe", @"C:\USBip")) == withUsbip,
     "usbip dir is not duplicated in PATH");
 Expect(UsbipRuntimeLocator.FindBundledInstaller() != null, "bundled usbip-win2 installer is discoverable");
+string[] embeddedResources = typeof(UsbipRuntimeLocator).Assembly.GetManifestResourceNames();
+Expect(
+    embeddedResources.Contains(
+        "Embedded.viiper.haptic.exe",
+        StringComparer.Ordinal),
+    "single-file app embeds the haptic VIIPER server");
+Expect(
+    embeddedResources.Contains("Embedded.usbip.installer", StringComparer.Ordinal),
+    "single-file app embeds the usbip-win2 installer");
+Expect(
+    embeddedResources.Contains("Embedded.usbip.license", StringComparer.Ordinal),
+    "single-file app embeds the usbip-win2 license");
+Expect(
+    Pro2BleInputSource.ShouldKeepLiveInput(58.5, 58.5, 173, 173),
+    "real 15 ms / 58.5 Hz Pro2 session remains live instead of being rejected");
+Expect(
+    !Pro2BleInputSource.ShouldKeepLiveInput(20.0, 20.0, 80, 80),
+    "unusable low-rate BLE input is rejected");
+Expect(
+    !Pro2BleInputSource.ShouldKeepLiveInput(65.0, 5.0, 200, 15),
+    "mostly unparsed BLE notifications are rejected");
+
+var heldState = new GamepadState
+{
+    Buttons = GamepadButtons.South,
+    Lx = 3000,
+    R2 = GamepadState.TriggerMax
+};
+GamepadState held = InputContinuityPolicy.Resolve(
+    heldState,
+    TimeSpan.FromMilliseconds(540),
+    out string heldSource);
+Expect(heldSource == "pro2_ble_hold", "540 ms BLE gap uses last-state hold");
+Expect(held.IsPressed(GamepadButtons.South), "short BLE gap preserves buttons");
+Expect(held.Lx == 3000 && held.R2 == GamepadState.TriggerMax, "short BLE gap preserves analog state");
+
+GamepadState decayed = InputContinuityPolicy.Resolve(
+    heldState,
+    TimeSpan.FromMilliseconds(1125),
+    out string decayedSource);
+Expect(decayedSource == "pro2_ble_safe_hold", "longer BLE gap enters safe analog hold");
+Expect(decayed.Buttons == GamepadButtons.None, "safe hold releases buttons");
+Expect(decayed.Lx == heldState.Lx, "safe hold does not create visible stick drift");
+Expect(decayed.R2 == 0, "safe hold releases triggers");
+
+GamepadState stale = InputContinuityPolicy.Resolve(
+    heldState,
+    TimeSpan.FromMilliseconds(2100),
+    out string staleSource);
+Expect(staleSource == "neutral", "disconnected BLE input becomes neutral");
+Expect(stale.Buttons == GamepadButtons.None && stale.Lx == GamepadState.AxisCenter, "neutral fallback is safe");
+
+var stability = new Pro2InputStabilityFilter();
+GamepadState centerState = GamepadState.Neutral();
+Expect(
+    stability.TryAccept(centerState, out GamepadState acceptedCenter, out _) &&
+    acceptedCenter.Lx == GamepadState.AxisCenter,
+    "stability filter accepts initial center");
+var singleFrameSpike = new GamepadState
+{
+    Lx = GamepadState.AxisMax,
+    Ly = GamepadState.AxisCenter,
+    Rx = GamepadState.AxisCenter,
+    Ry = GamepadState.AxisCenter
+};
+Expect(
+    !stability.TryAccept(singleFrameSpike, out GamepadState rejectedSpike, out string spikeReason) &&
+    spikeReason == "axis_spike_pending" &&
+    rejectedSpike.Lx == GamepadState.AxisCenter,
+    "stability filter rejects one-frame axis spike");
+Expect(
+    stability.TryAccept(centerState, out GamepadState acceptedAfterSpike, out _) &&
+    acceptedAfterSpike.Lx == GamepadState.AxisCenter,
+    "stability filter returns to center after discarded spike");
+Expect(
+    !stability.TryAccept(singleFrameSpike, out _, out _),
+    "stability filter delays first confirmed large movement frame");
+Expect(
+    stability.TryAccept(singleFrameSpike, out GamepadState confirmedSpike, out _) &&
+    confirmedSpike.Lx == GamepadState.AxisMax,
+    "stability filter accepts repeated large movement as intentional");
 
 using (WindowsTimerResolutionScope timerResolution = WindowsTimerResolutionScope.Begin())
 {
     Expect(timerResolution.IsActive, "Windows 1 ms timer resolution request");
-    using var timer = new PeriodicTimer(TimeSpan.FromMilliseconds(4));
+    using var timer = new HighResolutionPeriodicTimer(TimeSpan.FromMilliseconds(4));
     var timerWatch = System.Diagnostics.Stopwatch.StartNew();
     const int timerSamples = 125;
     for (int i = 0; i < timerSamples; i++)
     {
-        Expect(await timer.WaitForNextTickAsync(), "high-resolution timer tick");
+        Expect(timer.WaitForNextTick(CancellationToken.None), "high-resolution timer tick");
     }
 
     double timerHz = timerSamples / timerWatch.Elapsed.TotalSeconds;
-    Expect(timerHz >= 180, "high-resolution timer cadence, actual=" + timerHz.ToString("F1"));
+    Expect(timerHz >= 220, "high-resolution timer cadence, actual=" + timerHz.ToString("F1"));
+    Expect(
+        timer.Backend == "high_resolution_waitable_timer_absolute",
+        "high-resolution waitable timer backend: " + timer.Backend);
 }
 
 Console.WriteLine("v60_packet_mapper_test: passed");

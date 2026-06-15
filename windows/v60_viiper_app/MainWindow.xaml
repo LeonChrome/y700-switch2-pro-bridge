@@ -1,132 +1,722 @@
 <Window x:Class="Y700Switch2V60Viiper.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="PRO2 手柄无线接收器控制板 V6.0 VIIPER Windows 版"
-        Width="1120"
-        Height="760"
-        MinWidth="920"
-        MinHeight="620"
-        Background="#F8FAFC">
+        xmlns:automation="clr-namespace:System.Windows.Automation;assembly=PresentationCore"
+        Title="PRO2 手柄无线接收器控制板 V6.1 · 角色选择大厅"
+        Width="1440"
+        Height="940"
+        MinWidth="1160"
+        MinHeight="760"
+        WindowStartupLocation="CenterScreen"
+        Background="#050713"
+        FontFamily="Microsoft YaHei UI"
+        Foreground="#F8FAFC"
+        UseLayoutRounding="True"
+        SnapsToDevicePixels="True">
     <Window.Resources>
-        <Style x:Key="Panel" TargetType="Border">
-            <Setter Property="Background" Value="White"/>
-            <Setter Property="CornerRadius" Value="14"/>
-            <Setter Property="Padding" Value="16"/>
-            <Setter Property="Margin" Value="0,0,0,14"/>
-            <Setter Property="BorderBrush" Value="#E2E8F0"/>
+        <BooleanToVisibilityConverter x:Key="BoolToVisibility"/>
+
+        <LinearGradientBrush x:Key="WindowBackground" StartPoint="0,0" EndPoint="1,1">
+            <GradientStop Color="#050713" Offset="0"/>
+            <GradientStop Color="#10142A" Offset="0.5"/>
+            <GradientStop Color="#080A16" Offset="1"/>
+        </LinearGradientBrush>
+
+        <LinearGradientBrush x:Key="ConsoleBackground" StartPoint="0,0" EndPoint="1,1">
+            <GradientStop Color="#E60A1020" Offset="0"/>
+            <GradientStop Color="#E612172A" Offset="1"/>
+        </LinearGradientBrush>
+
+        <Style x:Key="SectionLabel" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="11"/>
+            <Setter Property="FontWeight" Value="Bold"/>
+            <Setter Property="Foreground" Value="#7783A7"/>
+        </Style>
+
+        <Style x:Key="HeroButton" TargetType="Button">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Foreground" Value="#F8FAFC"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Padding" Value="0"/>
+            <Setter Property="Margin" Value="10,0"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <ContentPresenter/>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="HeroCard" TargetType="Border">
+            <Setter Property="CornerRadius" Value="26"/>
             <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="BorderBrush" Value="#33415F"/>
+            <Setter Property="Opacity" Value="0.78"/>
+            <Setter Property="RenderTransformOrigin" Value="0.5,0.5"/>
+            <Setter Property="RenderTransform">
+                <Setter.Value>
+                    <ScaleTransform ScaleX="0.97" ScaleY="0.97"/>
+                </Setter.Value>
+            </Setter>
+            <Setter Property="Effect">
+                <Setter.Value>
+                    <DropShadowEffect BlurRadius="20" ShadowDepth="8" Opacity="0.35" Color="#000000"/>
+                </Setter.Value>
+            </Setter>
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Opacity" Value="0.96"/>
+                    <Setter Property="RenderTransform">
+                        <Setter.Value>
+                            <ScaleTransform ScaleX="1.005" ScaleY="1.005"/>
+                        </Setter.Value>
+                    </Setter>
+                </Trigger>
+            </Style.Triggers>
         </Style>
-        <Style x:Key="TitleText" TargetType="TextBlock">
-            <Setter Property="Foreground" Value="#0F172A"/>
-            <Setter Property="FontSize" Value="22"/>
-            <Setter Property="FontWeight" Value="SemiBold"/>
+
+        <Style x:Key="HeroImage" TargetType="Image">
+            <Setter Property="Stretch" Value="Uniform"/>
+            <Setter Property="RenderOptions.BitmapScalingMode" Value="HighQuality"/>
+            <Setter Property="RenderTransformOrigin" Value="0.5,0.62"/>
+            <Setter Property="RenderTransform">
+                <Setter.Value>
+                    <TransformGroup>
+                        <ScaleTransform ScaleX="1" ScaleY="1"/>
+                        <TranslateTransform Y="0"/>
+                    </TransformGroup>
+                </Setter.Value>
+            </Setter>
+            <Style.Triggers>
+                <EventTrigger RoutedEvent="MouseEnter">
+                    <BeginStoryboard>
+                        <Storyboard>
+                            <DoubleAnimation Duration="0:0:0.22"
+                                             To="1.055"
+                                             Storyboard.TargetProperty="(UIElement.RenderTransform).(TransformGroup.Children)[0].(ScaleTransform.ScaleX)"/>
+                            <DoubleAnimation Duration="0:0:0.22"
+                                             To="1.055"
+                                             Storyboard.TargetProperty="(UIElement.RenderTransform).(TransformGroup.Children)[0].(ScaleTransform.ScaleY)"/>
+                            <DoubleAnimation Duration="0:0:0.22"
+                                             To="-8"
+                                             Storyboard.TargetProperty="(UIElement.RenderTransform).(TransformGroup.Children)[1].(TranslateTransform.Y)"/>
+                        </Storyboard>
+                    </BeginStoryboard>
+                </EventTrigger>
+                <EventTrigger RoutedEvent="MouseLeave">
+                    <BeginStoryboard>
+                        <Storyboard>
+                            <DoubleAnimation Duration="0:0:0.28"
+                                             To="1"
+                                             Storyboard.TargetProperty="(UIElement.RenderTransform).(TransformGroup.Children)[0].(ScaleTransform.ScaleX)"/>
+                            <DoubleAnimation Duration="0:0:0.28"
+                                             To="1"
+                                             Storyboard.TargetProperty="(UIElement.RenderTransform).(TransformGroup.Children)[0].(ScaleTransform.ScaleY)"/>
+                            <DoubleAnimation Duration="0:0:0.28"
+                                             To="0"
+                                             Storyboard.TargetProperty="(UIElement.RenderTransform).(TransformGroup.Children)[1].(TranslateTransform.Y)"/>
+                        </Storyboard>
+                    </BeginStoryboard>
+                </EventTrigger>
+            </Style.Triggers>
         </Style>
-        <Style x:Key="HintText" TargetType="TextBlock">
-            <Setter Property="Foreground" Value="#475569"/>
-            <Setter Property="TextWrapping" Value="Wrap"/>
-        </Style>
-        <Style x:Key="ButtonBase" TargetType="Button">
-            <Setter Property="Padding" Value="14,8"/>
+
+        <Style x:Key="ConsoleButton" TargetType="Button">
+            <Setter Property="Foreground" Value="#EAF2FF"/>
+            <Setter Property="Background" Value="#1C2643"/>
+            <Setter Property="BorderBrush" Value="#425071"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Padding" Value="13,8"/>
             <Setter Property="Margin" Value="0,0,8,8"/>
-            <Setter Property="MinWidth" Value="128"/>
+            <Setter Property="MinWidth" Value="116"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Chrome"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="9"
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Chrome" Property="Background" Value="#2A385E"/>
+                                <Setter TargetName="Chrome" Property="BorderBrush" Value="#6A80B8"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="Chrome" Property="Opacity" Value="0.72"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="Chrome" Property="Opacity" Value="0.38"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="DarkTextBox" TargetType="TextBox">
+            <Setter Property="Foreground" Value="#E6EEFF"/>
+            <Setter Property="Background" Value="#0A0F20"/>
+            <Setter Property="BorderBrush" Value="#33415F"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Padding" Value="9,7"/>
+            <Setter Property="CaretBrush" Value="#58E1FF"/>
+        </Style>
+
+        <Style TargetType="ToolTip">
+            <Setter Property="Foreground" Value="#EDF4FF"/>
+            <Setter Property="Background" Value="#F0121829"/>
+            <Setter Property="BorderBrush" Value="#516181"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Padding" Value="10,7"/>
+        </Style>
+
+        <Style x:Key="EnterButton" TargetType="Button">
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="FontSize" Value="17"/>
+            <Setter Property="FontWeight" Value="Bold"/>
+            <Setter Property="Padding" Value="30,17"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Grid>
+                            <Border x:Name="Glow"
+                                    CornerRadius="18"
+                                    Background="#7A00D7FF"
+                                    Opacity="0.36"
+                                    Margin="-5">
+                                <Border.Effect>
+                                    <BlurEffect Radius="18"/>
+                                </Border.Effect>
+                            </Border>
+                            <Border x:Name="ButtonSurface"
+                                    CornerRadius="15"
+                                    BorderThickness="1"
+                                    BorderBrush="#9DEEFF">
+                                <Border.Background>
+                                    <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
+                                        <GradientStop Color="#007AA8" Offset="0"/>
+                                        <GradientStop Color="#6D28D9" Offset="1"/>
+                                    </LinearGradientBrush>
+                                </Border.Background>
+                                <ContentPresenter HorizontalAlignment="Center"
+                                                  VerticalAlignment="Center"
+                                                  Margin="{TemplateBinding Padding}"/>
+                            </Border>
+                        </Grid>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Glow" Property="Opacity" Value="0.72"/>
+                                <Setter TargetName="ButtonSurface" Property="BorderBrush" Value="White"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="ButtonSurface" Property="Opacity" Value="0.72"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="ButtonSurface" Property="Opacity" Value="0.42"/>
+                                <Setter TargetName="Glow" Property="Opacity" Value="0.12"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
         </Style>
     </Window.Resources>
 
-    <Grid Margin="18">
-        <Grid.RowDefinitions>
-            <RowDefinition Height="Auto"/>
-            <RowDefinition Height="*"/>
-        </Grid.RowDefinitions>
+    <Grid Background="{StaticResource WindowBackground}">
+        <Ellipse Width="720" Height="720" HorizontalAlignment="Left" VerticalAlignment="Top"
+                 Margin="-360,-380,0,0" Fill="#27195AD6" IsHitTestVisible="False">
+            <Ellipse.Effect>
+                <BlurEffect Radius="120"/>
+            </Ellipse.Effect>
+        </Ellipse>
+        <Ellipse Width="680" Height="680" HorizontalAlignment="Right" VerticalAlignment="Bottom"
+                 Margin="0,0,-360,-410" Fill="#2435C8D4" IsHitTestVisible="False">
+            <Ellipse.Effect>
+                <BlurEffect Radius="130"/>
+            </Ellipse.Effect>
+        </Ellipse>
 
-        <Border Style="{StaticResource Panel}">
-            <StackPanel>
-                <TextBlock Style="{StaticResource TitleText}" Text="V6.0 VIIPER Windows-only 三模桥"/>
-                <TextBlock Style="{StaticResource HintText}" Margin="0,8,0,0"
-                           Text="这条路线不依赖 ESP32。当前版本控制 VIIPER 创建虚拟 USB 手柄，并由 EXE 自己作为 BLE central 连接真实 Pro2，再把 host rumble 写回真实手柄。"/>
-            </StackPanel>
-        </Border>
+        <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+            <Grid Margin="30,22,30,28" MaxWidth="1500" HorizontalAlignment="Center">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
 
-        <Grid Grid.Row="1">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="360"/>
-                <ColumnDefinition Width="16"/>
-                <ColumnDefinition Width="*"/>
-            </Grid.ColumnDefinitions>
-
-            <StackPanel Grid.Column="0">
-                <Border Style="{StaticResource Panel}">
-                    <StackPanel>
-                        <TextBlock FontSize="16" FontWeight="SemiBold" Foreground="#0F172A" Text="VIIPER Server"/>
-                        <TextBlock Style="{StaticResource HintText}" Margin="0,6,0,10"
-                                   Text="默认连接 localhost:3242。发布包已附带 usbip-win2 安装器；驱动安装需要管理员确认。VIIPER server 只负责虚拟 USB，不会连接真实 Pro2。"/>
-                        <TextBlock Text="Host" Foreground="#334155"/>
-                        <TextBox Text="{Binding Host, UpdateSourceTrigger=PropertyChanged}" Margin="0,3,0,8"/>
-                        <TextBlock Text="Port" Foreground="#334155"/>
-                        <TextBox Text="{Binding Port, UpdateSourceTrigger=PropertyChanged}" Margin="0,3,0,12"/>
-                        <WrapPanel>
-                            <Button Style="{StaticResource ButtonBase}" Content="安装/修复 usbip-win2" Command="{Binding InstallUsbipCommand}"/>
-                            <Button Style="{StaticResource ButtonBase}" Content="启动本地 VIIPER" Command="{Binding StartViiperServerCommand}"/>
-                            <Button Style="{StaticResource ButtonBase}" Content="Ping VIIPER" Command="{Binding PingCommand}"/>
-                            <Button Style="{StaticResource ButtonBase}" Content="停止虚拟设备" Command="{Binding StopCommand}"/>
-                        </WrapPanel>
-                    </StackPanel>
-                </Border>
-
-                <Border Style="{StaticResource Panel}">
-                    <StackPanel>
-                        <TextBlock FontSize="16" FontWeight="SemiBold" Foreground="#0F172A" Text="真实 Pro2 BLE 输入"/>
-                        <TextBlock Style="{StaticResource HintText}" Margin="0,6,0,10"
-                                   Text="不需要手动和 Windows 蓝牙 HID 配对。唤醒 Pro2 并确保它没有连到 ESP32、Switch、手机或旧进程；EXE 会扫描 BLE、连接 GATT、订阅 FD2 输入流。"/>
-                        <WrapPanel>
-                            <Button Style="{StaticResource ButtonBase}" Content="扫描 Pro2 BLE" Command="{Binding ScanPro2InputCommand}"/>
-                            <Button Style="{StaticResource ButtonBase}" Content="连接 Pro2 BLE" Command="{Binding ConnectPro2InputCommand}"/>
-                            <Button Style="{StaticResource ButtonBase}" Content="断开 Pro2 BLE" Command="{Binding DisconnectPro2InputCommand}"/>
-                        </WrapPanel>
-                        <TextBlock Style="{StaticResource HintText}" Text="{Binding InputStatus}" Margin="0,4,0,0"/>
-                    </StackPanel>
-                </Border>
-
-                <Border Style="{StaticResource Panel}">
-                    <StackPanel>
-                        <TextBlock FontSize="16" FontWeight="SemiBold" Foreground="#0F172A" Text="三模输出"/>
-                        <TextBlock Style="{StaticResource HintText}" Margin="0,6,0,12"
-                                   Text="创建虚拟 USB 身份后，窗口会优先发送真实 Pro2 输入；若未连接或输入过期，则回退 neutral。游戏/Steam 发回来的 Pro2 HD rumble 会原样写回，PS5/Xbox 普通马达会映射为 Pro2 兼容 rumble。"/>
-                        <Button Style="{StaticResource ButtonBase}" Content="启动 新和联胜 / PS5" Command="{Binding StartDualSenseCommand}" IsEnabled="{Binding CanStart}"/>
-                        <Button Style="{StaticResource ButtonBase}" Content="启动 Pro2 / Nintendo" Command="{Binding StartPro2Command}" IsEnabled="{Binding CanStart}"/>
-                        <Button Style="{StaticResource ButtonBase}" Content="启动 Xbox / XInput" Command="{Binding StartXboxCommand}" IsEnabled="{Binding CanStart}"/>
-                    </StackPanel>
-                </Border>
-
-                <Border Style="{StaticResource Panel}">
-                    <StackPanel>
-                        <TextBlock FontSize="16" FontWeight="SemiBold" Foreground="#0F172A" Text="状态"/>
-                        <TextBlock Style="{StaticResource HintText}" Text="{Binding Status}" Margin="0,8,0,0"/>
-                    </StackPanel>
-                </Border>
-            </StackPanel>
-
-            <Border Grid.Column="2" Style="{StaticResource Panel}">
                 <Grid>
-                    <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="*"/>
-                    </Grid.RowDefinitions>
-                    <DockPanel>
-                        <TextBlock DockPanel.Dock="Left" FontSize="16" FontWeight="SemiBold" Foreground="#0F172A" Text="日志"/>
-                        <Button DockPanel.Dock="Right" Content="清空" Command="{Binding ClearLogCommand}" Padding="10,5"/>
-                    </DockPanel>
-                    <TextBox Grid.Row="1"
-                             Margin="0,10,0,0"
-                             Text="{Binding LogText, Mode=OneWay}"
-                             FontFamily="Consolas"
-                             FontSize="12"
-                             IsReadOnly="True"
-                             IsUndoEnabled="False"
-                             TextWrapping="NoWrap"
-                             VerticalScrollBarVisibility="Auto"
-                             HorizontalScrollBarVisibility="Auto"/>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <StackPanel>
+                        <TextBlock Style="{StaticResource SectionLabel}" Text="VIIPER ARENA · WINDOWS EXCLUSIVE"/>
+                        <TextBlock Margin="0,5,0,0" FontSize="30" FontWeight="Black" Text="选择你的无线身份"/>
+                        <TextBlock Margin="0,5,0,0" Foreground="#9AA8C7" FontSize="13"
+                                   Text="点击角色即可部署或直接切换模式。连接真实 Pro2 BLE 后，当前角色将从 neutral 切换为 live 输入。"/>
+                        <Border Margin="0,12,0,0" Padding="12,9" CornerRadius="10"
+                                Background="#18243C" BorderBrush="#3A527B" BorderThickness="1">
+                            <TextBlock Foreground="#BDD5FF" FontSize="12" FontWeight="SemiBold"
+                                       Text="{Binding RuntimeReadinessText}" TextWrapping="Wrap"/>
+                        </Border>
+                    </StackPanel>
+                    <StackPanel Grid.Column="1" HorizontalAlignment="Right">
+                        <Border Background="#1BFFFFFF" BorderBrush="#3AFFFFFF" BorderThickness="1"
+                                CornerRadius="14" Padding="14,9">
+                            <StackPanel Orientation="Horizontal">
+                                <Ellipse Width="8" Height="8" Fill="#5EF2A5" Margin="0,0,8,0">
+                                    <Ellipse.Effect>
+                                        <DropShadowEffect Color="#5EF2A5" BlurRadius="12" ShadowDepth="0"/>
+                                    </Ellipse.Effect>
+                                </Ellipse>
+                                <TextBlock FontWeight="Bold" Foreground="#C9FCE0" Text="V6.1 STABILITY"/>
+                            </StackPanel>
+                        </Border>
+                        <Button Margin="0,9,0,0" HorizontalAlignment="Right"
+                                Style="{StaticResource ConsoleButton}"
+                                Content="停止当前角色"
+                                automation:AutomationProperties.Name="停止虚拟设备"
+                                Command="{Binding StopCommand}"
+                                IsEnabled="{Binding CanStop}"/>
+                    </StackPanel>
                 </Grid>
-            </Border>
-        </Grid>
+
+                <Grid Grid.Row="1" Margin="0,24,0,10">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <StackPanel>
+                        <TextBlock Style="{StaticResource SectionLabel}" Text="CHARACTER SELECT"/>
+                        <TextBlock Margin="0,4,0,0" FontSize="16" FontWeight="Bold" Text="{Binding ModeHeadline}"/>
+                    </StackPanel>
+                    <StackPanel Grid.Column="1" HorizontalAlignment="Right">
+                        <TextBlock HorizontalAlignment="Right" FontSize="12" Foreground="#8390AE"
+                                   Text="{Binding SelectedHeroName}"/>
+                        <TextBlock HorizontalAlignment="Right" Margin="0,3,0,0" FontSize="11"
+                                   Foreground="#5EE7FF" Text="{Binding SelectedModeSubtitle}"/>
+                    </StackPanel>
+                </Grid>
+
+                <Grid Grid.Row="2" Height="485">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+
+                    <Button Grid.Column="0"
+                            Style="{StaticResource HeroButton}"
+                            Command="{Binding StartDualSenseCommand}"
+                            IsEnabled="{Binding CanOperate}"
+                            automation:AutomationProperties.Name="启动 新和联胜 / PS5"
+                            ToolTip="部署新和联胜 / PS5 模式">
+                        <Border>
+                            <Border.Style>
+                                <Style TargetType="Border" BasedOn="{StaticResource HeroCard}">
+                                    <Setter Property="Background">
+                                        <Setter.Value>
+                                            <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
+                                                <GradientStop Color="#561D0C18" Offset="0"/>
+                                                <GradientStop Color="#DD160A14" Offset="0.58"/>
+                                                <GradientStop Color="#F2070A12" Offset="1"/>
+                                            </LinearGradientBrush>
+                                        </Setter.Value>
+                                    </Setter>
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding IsDualSenseSelected}" Value="True">
+                                            <Setter Property="Opacity" Value="1"/>
+                                            <Setter Property="BorderBrush" Value="#FF5B49"/>
+                                            <Setter Property="BorderThickness" Value="2"/>
+                                            <Setter Property="RenderTransform">
+                                                <Setter.Value>
+                                                    <ScaleTransform ScaleX="1.025" ScaleY="1.025"/>
+                                                </Setter.Value>
+                                            </Setter>
+                                            <Setter Property="Effect">
+                                                <Setter.Value>
+                                                    <DropShadowEffect Color="#FF321F" BlurRadius="34" ShadowDepth="0" Opacity="0.55"/>
+                                                </Setter.Value>
+                                            </Setter>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Border.Style>
+                            <Grid>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="*"/>
+                                    <RowDefinition Height="Auto"/>
+                                </Grid.RowDefinitions>
+                                <Ellipse Width="300" Height="300" VerticalAlignment="Center" Fill="#24FF3C28"
+                                         Visibility="{Binding IsDualSenseSelected, Converter={StaticResource BoolToVisibility}}">
+                                    <Ellipse.Effect>
+                                        <BlurEffect Radius="54"/>
+                                    </Ellipse.Effect>
+                                    <Ellipse.Triggers>
+                                        <EventTrigger RoutedEvent="Loaded">
+                                            <BeginStoryboard>
+                                                <Storyboard RepeatBehavior="Forever" AutoReverse="True">
+                                                    <DoubleAnimation Storyboard.TargetProperty="Opacity"
+                                                                     From="0.28" To="0.72" Duration="0:0:1.3"/>
+                                                </Storyboard>
+                                            </BeginStoryboard>
+                                        </EventTrigger>
+                                    </Ellipse.Triggers>
+                                </Ellipse>
+                                <TextBlock Margin="20,16" HorizontalAlignment="Left" VerticalAlignment="Top"
+                                           FontSize="11" FontWeight="Bold" Foreground="#FF8A7C" Text="01 · GOD OF WAR"/>
+                                <Border Margin="0,14,16,0" Padding="9,5" HorizontalAlignment="Right"
+                                        VerticalAlignment="Top" CornerRadius="10" Background="#C9FF3B30"
+                                        Visibility="{Binding IsDualSenseActive, Converter={StaticResource BoolToVisibility}}">
+                                    <TextBlock FontSize="10" FontWeight="Black" Text="LIVE"/>
+                                </Border>
+                                <Image Grid.Row="0" Margin="42,34,42,-8" Style="{StaticResource HeroImage}"
+                                       Source="/Assets/Characters/kratos.png"/>
+                                <Border Grid.Row="1" Background="#D90B0D16" Padding="20,15" CornerRadius="0,0,24,24">
+                                    <StackPanel>
+                                        <TextBlock FontSize="22" FontWeight="Black" Text="新和联胜"/>
+                                        <TextBlock Margin="0,2,0,0" FontSize="12" FontWeight="Bold" Foreground="#FF7365"
+                                                   Text="PS5 · DUALSENSE"/>
+                                        <TextBlock Margin="0,8,0,0" FontSize="11" Foreground="#AEB7CC"
+                                                   Text="4CH HD 音频 + 普通震动调度 · 054C:0CE6"/>
+                                    </StackPanel>
+                                </Border>
+                            </Grid>
+                        </Border>
+                    </Button>
+
+                    <Button Grid.Column="1"
+                            Style="{StaticResource HeroButton}"
+                            Command="{Binding StartPro2Command}"
+                            IsEnabled="{Binding CanOperate}"
+                            automation:AutomationProperties.Name="启动 Pro2 / Nintendo"
+                            ToolTip="部署 Pro2 / Nintendo 模式">
+                        <Border>
+                            <Border.Style>
+                                <Style TargetType="Border" BasedOn="{StaticResource HeroCard}">
+                                    <Setter Property="Background">
+                                        <Setter.Value>
+                                            <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
+                                                <GradientStop Color="#402E0A18" Offset="0"/>
+                                                <GradientStop Color="#C1091730" Offset="0.58"/>
+                                                <GradientStop Color="#F2070A16" Offset="1"/>
+                                            </LinearGradientBrush>
+                                        </Setter.Value>
+                                    </Setter>
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding IsPro2Selected}" Value="True">
+                                            <Setter Property="Opacity" Value="1"/>
+                                            <Setter Property="BorderBrush" Value="#43A7FF"/>
+                                            <Setter Property="BorderThickness" Value="2"/>
+                                            <Setter Property="RenderTransform">
+                                                <Setter.Value>
+                                                    <ScaleTransform ScaleX="1.025" ScaleY="1.025"/>
+                                                </Setter.Value>
+                                            </Setter>
+                                            <Setter Property="Effect">
+                                                <Setter.Value>
+                                                    <DropShadowEffect Color="#167DFF" BlurRadius="34" ShadowDepth="0" Opacity="0.58"/>
+                                                </Setter.Value>
+                                            </Setter>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Border.Style>
+                            <Grid>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="*"/>
+                                    <RowDefinition Height="Auto"/>
+                                </Grid.RowDefinitions>
+                                <Ellipse Width="300" Height="300" VerticalAlignment="Center" Fill="#284A9CFF"
+                                         Visibility="{Binding IsPro2Selected, Converter={StaticResource BoolToVisibility}}">
+                                    <Ellipse.Effect>
+                                        <BlurEffect Radius="54"/>
+                                    </Ellipse.Effect>
+                                    <Ellipse.Triggers>
+                                        <EventTrigger RoutedEvent="Loaded">
+                                            <BeginStoryboard>
+                                                <Storyboard RepeatBehavior="Forever" AutoReverse="True">
+                                                    <DoubleAnimation Storyboard.TargetProperty="Opacity"
+                                                                     From="0.26" To="0.68" Duration="0:0:1.15"/>
+                                                </Storyboard>
+                                            </BeginStoryboard>
+                                        </EventTrigger>
+                                    </Ellipse.Triggers>
+                                </Ellipse>
+                                <TextBlock Margin="20,16" HorizontalAlignment="Left" VerticalAlignment="Top"
+                                           FontSize="11" FontWeight="Bold" Foreground="#70BCFF" Text="02 · MUSHROOM LINK"/>
+                                <Border Margin="0,14,16,0" Padding="9,5" HorizontalAlignment="Right"
+                                        VerticalAlignment="Top" CornerRadius="10" Background="#D3288AFF"
+                                        Visibility="{Binding IsPro2Active, Converter={StaticResource BoolToVisibility}}">
+                                    <TextBlock FontSize="10" FontWeight="Black" Text="LIVE"/>
+                                </Border>
+                                <Image Grid.Row="0" Margin="48,36,48,-12" Style="{StaticResource HeroImage}"
+                                       Source="/Assets/Characters/mario.png"/>
+                                <Border Grid.Row="1" Background="#D90B0D16" Padding="20,15" CornerRadius="0,0,24,24">
+                                    <StackPanel>
+                                        <TextBlock FontSize="22" FontWeight="Black" Text="PRO2"/>
+                                        <TextBlock Margin="0,2,0,0" FontSize="12" FontWeight="Bold" Foreground="#58B4FF"
+                                                   Text="NINTENDO · HD RUMBLE"/>
+                                        <TextBlock Margin="0,8,0,0" FontSize="11" Foreground="#AEB7CC"
+                                                   Text="原生震动块 · 057E:2069"/>
+                                    </StackPanel>
+                                </Border>
+                            </Grid>
+                        </Border>
+                    </Button>
+
+                    <Button Grid.Column="2"
+                            Style="{StaticResource HeroButton}"
+                            Command="{Binding StartXboxCommand}"
+                            IsEnabled="{Binding CanOperate}"
+                            automation:AutomationProperties.Name="启动 Xbox / XInput"
+                            ToolTip="部署 Xbox / XInput 模式">
+                        <Border>
+                            <Border.Style>
+                                <Style TargetType="Border" BasedOn="{StaticResource HeroCard}">
+                                    <Setter Property="Background">
+                                        <Setter.Value>
+                                            <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
+                                                <GradientStop Color="#3C16301B" Offset="0"/>
+                                                <GradientStop Color="#C00A2015" Offset="0.58"/>
+                                                <GradientStop Color="#F2070B12" Offset="1"/>
+                                            </LinearGradientBrush>
+                                        </Setter.Value>
+                                    </Setter>
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding IsXboxSelected}" Value="True">
+                                            <Setter Property="Opacity" Value="1"/>
+                                            <Setter Property="BorderBrush" Value="#71E151"/>
+                                            <Setter Property="BorderThickness" Value="2"/>
+                                            <Setter Property="RenderTransform">
+                                                <Setter.Value>
+                                                    <ScaleTransform ScaleX="1.025" ScaleY="1.025"/>
+                                                </Setter.Value>
+                                            </Setter>
+                                            <Setter Property="Effect">
+                                                <Setter.Value>
+                                                    <DropShadowEffect Color="#46D337" BlurRadius="34" ShadowDepth="0" Opacity="0.58"/>
+                                                </Setter.Value>
+                                            </Setter>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Border.Style>
+                            <Grid>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="*"/>
+                                    <RowDefinition Height="Auto"/>
+                                </Grid.RowDefinitions>
+                                <Ellipse Width="300" Height="300" VerticalAlignment="Center" Fill="#2856E64C"
+                                         Visibility="{Binding IsXboxSelected, Converter={StaticResource BoolToVisibility}}">
+                                    <Ellipse.Effect>
+                                        <BlurEffect Radius="54"/>
+                                    </Ellipse.Effect>
+                                    <Ellipse.Triggers>
+                                        <EventTrigger RoutedEvent="Loaded">
+                                            <BeginStoryboard>
+                                                <Storyboard RepeatBehavior="Forever" AutoReverse="True">
+                                                    <DoubleAnimation Storyboard.TargetProperty="Opacity"
+                                                                     From="0.24" To="0.67" Duration="0:0:1.35"/>
+                                                </Storyboard>
+                                            </BeginStoryboard>
+                                        </EventTrigger>
+                                    </Ellipse.Triggers>
+                                </Ellipse>
+                                <TextBlock Margin="20,16" HorizontalAlignment="Left" VerticalAlignment="Top"
+                                           FontSize="11" FontWeight="Bold" Foreground="#84E46D" Text="03 · SPARTAN LINK"/>
+                                <Border Margin="0,14,16,0" Padding="9,5" HorizontalAlignment="Right"
+                                        VerticalAlignment="Top" CornerRadius="10" Background="#D247C73A"
+                                        Visibility="{Binding IsXboxActive, Converter={StaticResource BoolToVisibility}}">
+                                    <TextBlock FontSize="10" FontWeight="Black" Text="LIVE"/>
+                                </Border>
+                                <Image Grid.Row="0" Margin="50,38,50,-8" Style="{StaticResource HeroImage}"
+                                       Source="/Assets/Characters/master-chief.png"/>
+                                <Border Grid.Row="1" Background="#D90B0D16" Padding="20,15" CornerRadius="0,0,24,24">
+                                    <StackPanel>
+                                        <TextBlock FontSize="22" FontWeight="Black" Text="XBOX"/>
+                                        <TextBlock Margin="0,2,0,0" FontSize="12" FontWeight="Bold" Foreground="#77E15B"
+                                                   Text="XINPUT · SPARTAN"/>
+                                        <TextBlock Margin="0,8,0,0" FontSize="11" Foreground="#AEB7CC"
+                                                   Text="双马达映射 · 045E:028E"/>
+                                    </StackPanel>
+                                </Border>
+                            </Grid>
+                        </Border>
+                    </Button>
+                </Grid>
+
+                <Border Grid.Row="3" Margin="10,25,10,18" Padding="24,17" CornerRadius="22"
+                        Background="#B90B1021" BorderBrush="#334562" BorderThickness="1">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <StackPanel VerticalAlignment="Center">
+                            <TextBlock Style="{StaticResource SectionLabel}" Text="PLAYER LINK"/>
+                            <TextBlock Margin="0,5,0,0" FontSize="15" FontWeight="Bold" Text="{Binding BleStateText}"/>
+                            <TextBlock Margin="0,4,0,0" FontSize="11" Foreground="#8390AE" Text="{Binding InputStatus}"
+                                       TextTrimming="CharacterEllipsis"/>
+                            <StackPanel Margin="0,10,0,0" Orientation="Horizontal" VerticalAlignment="Center">
+                                <TextBlock VerticalAlignment="Center" Style="{StaticResource SectionLabel}"
+                                           Text="震动倍率"/>
+                                <Slider Width="150" Margin="12,0,10,0"
+                                        Minimum="0" Maximum="3"
+                                        TickFrequency="0.1"
+                                        IsSnapToTickEnabled="True"
+                                        automation:AutomationProperties.Name="震动倍率"
+                                        Value="{Binding RumbleMultiplier, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                        ToolTip="三种模式统一倍率。超过 Pro2 最大振幅时自动按最大值输出。"/>
+                                <Border MinWidth="48" Padding="8,4" CornerRadius="8"
+                                        Background="#243452" BorderBrush="#4D6A98" BorderThickness="1">
+                                    <TextBlock HorizontalAlignment="Center" FontWeight="Bold"
+                                               Foreground="#D9ECFF" Text="{Binding RumbleMultiplierText}"/>
+                                </Border>
+                            </StackPanel>
+                        </StackPanel>
+
+                        <Button Grid.Column="1" Margin="26,0"
+                                MinWidth="320"
+                                Style="{StaticResource EnterButton}"
+                                Command="{Binding ConnectPro2InputCommand}"
+                                IsEnabled="{Binding CanOperate}"
+                                automation:AutomationProperties.Name="连接 Pro2 BLE"
+                                Content="{Binding BleButtonText}"/>
+
+                        <StackPanel Grid.Column="2" HorizontalAlignment="Right" VerticalAlignment="Center">
+                            <TextBlock HorizontalAlignment="Right" Style="{StaticResource SectionLabel}" Text="MISSION STATUS"/>
+                            <TextBlock HorizontalAlignment="Right" Margin="0,5,0,0" FontSize="13" FontWeight="Bold"
+                                       Foreground="#E4EAFE" Text="{Binding SelectedModeLabel}"/>
+                            <TextBlock HorizontalAlignment="Right" Margin="0,4,0,0" MaxWidth="430" FontSize="11"
+                                       Foreground="#8390AE" Text="{Binding Status}" TextWrapping="Wrap"/>
+                        </StackPanel>
+                    </Grid>
+                </Border>
+
+                <Expander Grid.Row="4"
+                          automation:AutomationProperties.Name="系统控制台"
+                          IsExpanded="False"
+                          Foreground="#E9EEFF">
+                    <Expander.Header>
+                        <Border Padding="15,10" CornerRadius="11" Background="#141C31" BorderBrush="#33415F" BorderThickness="1">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock FontWeight="Bold" Text="系统控制台"/>
+                                <TextBlock Margin="12,0,0,0" Foreground="#71809F"
+                                           Text="VIIPER · USBIP · BLE SCAN · DIAGNOSTICS"/>
+                            </StackPanel>
+                        </Border>
+                    </Expander.Header>
+                    <Border Margin="0,10,0,0" Padding="18" CornerRadius="16"
+                            Background="{StaticResource ConsoleBackground}"
+                            BorderBrush="#2B3855" BorderThickness="1">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="310"/>
+                                <ColumnDefinition Width="18"/>
+                                <ColumnDefinition Width="350"/>
+                                <ColumnDefinition Width="18"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+
+                            <StackPanel>
+                                <TextBlock Style="{StaticResource SectionLabel}" Text="VIIPER SERVER"/>
+                                <TextBlock Margin="0,9,0,3" Foreground="#A7B3CE" Text="Host"/>
+                                <TextBox Style="{StaticResource DarkTextBox}"
+                                         automation:AutomationProperties.Name="VIIPER Host"
+                                         Text="{Binding Host, UpdateSourceTrigger=PropertyChanged}"
+                                         IsEnabled="{Binding CanManageRuntime}"/>
+                                <TextBlock Margin="0,9,0,3" Foreground="#A7B3CE" Text="Port"/>
+                                <TextBox Style="{StaticResource DarkTextBox}"
+                                         automation:AutomationProperties.Name="VIIPER Port"
+                                         Text="{Binding Port, UpdateSourceTrigger=PropertyChanged}"
+                                         IsEnabled="{Binding CanManageRuntime}"/>
+                                <WrapPanel Margin="0,12,0,0">
+                                    <Button Style="{StaticResource ConsoleButton}"
+                                            Content="安装/修复 USBIP"
+                                            Command="{Binding InstallUsbipCommand}"
+                                            IsEnabled="{Binding CanManageRuntime}"/>
+                                    <Button Style="{StaticResource ConsoleButton}"
+                                            Content="启动本地 VIIPER"
+                                            automation:AutomationProperties.Name="启动本地 VIIPER"
+                                            Command="{Binding StartViiperServerCommand}"
+                                            IsEnabled="{Binding CanManageRuntime}"/>
+                                    <Button Style="{StaticResource ConsoleButton}"
+                                            Content="Ping VIIPER"
+                                            automation:AutomationProperties.Name="Ping VIIPER"
+                                            Command="{Binding PingCommand}"
+                                            IsEnabled="{Binding CanOperate}"/>
+                                </WrapPanel>
+                            </StackPanel>
+
+                            <StackPanel Grid.Column="2">
+                                <TextBlock Style="{StaticResource SectionLabel}" Text="PRO2 BLE CONTROL"/>
+                                <TextBlock Margin="0,9,0,12" Foreground="#A7B3CE" Text="{Binding InputStatus}" TextWrapping="Wrap"/>
+                                <WrapPanel>
+                                    <Button Style="{StaticResource ConsoleButton}"
+                                            Content="扫描 Pro2 BLE"
+                                            automation:AutomationProperties.Name="扫描 Pro2 BLE"
+                                            Command="{Binding ScanPro2InputCommand}"
+                                            IsEnabled="{Binding CanManualBleControl}"/>
+                                    <Button Style="{StaticResource ConsoleButton}"
+                                            Content="启动自动连接"
+                                            Command="{Binding ConnectPro2InputCommand}"
+                                            IsEnabled="{Binding CanOperate}"/>
+                                    <Button Style="{StaticResource ConsoleButton}"
+                                            Content="停止自动重连并断开"
+                                            automation:AutomationProperties.Name="停止自动重连并断开"
+                                            Command="{Binding DisconnectPro2InputCommand}"
+                                            IsEnabled="{Binding CanOperate}"/>
+                                </WrapPanel>
+                                <Border Margin="0,12,0,0" Padding="12" CornerRadius="10" Background="#171F35">
+                                    <StackPanel>
+                                        <TextBlock Foreground="#93A1BF" Text="{Binding Status}" TextWrapping="Wrap"/>
+                                        <TextBlock Margin="0,7,0,0" Foreground="#6F80A2" FontSize="10"
+                                                   Text="正常使用无需操作本区域。进入游戏后会持续扫描、自动连接，并在断联后自动恢复。"/>
+                                    </StackPanel>
+                                </Border>
+                            </StackPanel>
+
+                            <Grid Grid.Column="4">
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="220"/>
+                                </Grid.RowDefinitions>
+                                <DockPanel>
+                                    <TextBlock DockPanel.Dock="Left" Style="{StaticResource SectionLabel}" Text="LIVE DIAGNOSTICS"/>
+                                    <Button DockPanel.Dock="Right" Style="{StaticResource ConsoleButton}"
+                                            MinWidth="70" Padding="8,4" Content="清空" Command="{Binding ClearLogCommand}"/>
+                                </DockPanel>
+                                <TextBox Grid.Row="1"
+                                         Margin="0,9,0,0"
+                                         Style="{StaticResource DarkTextBox}"
+                                         automation:AutomationProperties.Name="实时日志"
+                                         Text="{Binding LogText, Mode=OneWay}"
+                                         FontFamily="Consolas"
+                                         FontSize="11"
+                                         IsReadOnly="True"
+                                         IsUndoEnabled="False"
+                                         TextWrapping="NoWrap"
+                                         VerticalScrollBarVisibility="Auto"
+                                         HorizontalScrollBarVisibility="Auto"/>
+                            </Grid>
+                        </Grid>
+                    </Border>
+                </Expander>
+            </Grid>
+        </ScrollViewer>
     </Grid>
 </Window>

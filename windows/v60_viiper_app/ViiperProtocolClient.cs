@@ -16,6 +16,7 @@ public sealed class ViiperProtocolClient
     private readonly string host;
     private readonly int port;
     private readonly TimeSpan timeout = TimeSpan.FromSeconds(5);
+    private readonly TimeSpan deviceCreateTimeout = TimeSpan.FromSeconds(20);
 
     public ViiperProtocolClient(string host, int port)
     {
@@ -63,7 +64,11 @@ public sealed class ViiperProtocolClient
         {
             ["type"] = deviceType
         });
-        string response = await RequestAsync("bus/" + busId + "/add", payload, cancellationToken);
+        string response = await RequestAsync(
+            "bus/" + busId + "/add",
+            payload,
+            cancellationToken,
+            deviceCreateTimeout);
         using JsonDocument doc = JsonDocument.Parse(response);
         JsonElement root = doc.RootElement;
         return new ViiperDevice(
@@ -84,50 +89,69 @@ public sealed class ViiperProtocolClient
         string devId,
         CancellationToken cancellationToken)
     {
-        var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         linked.CancelAfter(timeout);
 
         var tcp = new TcpClient { NoDelay = true };
-        await tcp.ConnectAsync(host, port, linked.Token);
-        NetworkStream stream = tcp.GetStream();
-        byte[] request = Encoding.UTF8.GetBytes("bus/" + busId + "/" + devId + "\0");
-        await stream.WriteAsync(request, linked.Token);
-        return new ViiperDeviceStream(tcp, stream);
+        try
+        {
+            await tcp.ConnectAsync(host, port, linked.Token);
+            NetworkStream stream = tcp.GetStream();
+            byte[] request = Encoding.UTF8.GetBytes("bus/" + busId + "/" + devId + "\0");
+            await stream.WriteAsync(request, linked.Token);
+            return new ViiperDeviceStream(tcp, stream);
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            tcp.Dispose();
+            throw new TimeoutException(
+                "VIIPER API stream timed out: " + host + ":" + port +
+                " bus=" + busId + " dev=" + devId);
+        }
     }
 
     private async Task<string> RequestAsync(
         string path,
         string? payload,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        TimeSpan? requestTimeout = null)
     {
-        var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        linked.CancelAfter(timeout);
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        linked.CancelAfter(requestTimeout ?? timeout);
 
         using var tcp = new TcpClient { NoDelay = true };
-        await tcp.ConnectAsync(host, port, linked.Token);
-        await using NetworkStream stream = tcp.GetStream();
-
-        string line = string.IsNullOrWhiteSpace(payload)
-            ? path + "\0"
-            : path + " " + payload + "\0";
-        byte[] request = Encoding.UTF8.GetBytes(line);
-        await stream.WriteAsync(request, linked.Token);
-
-        using var memory = new MemoryStream();
-        byte[] buffer = new byte[4096];
-        while (true)
+        try
         {
-            int read = await stream.ReadAsync(buffer, linked.Token);
-            if (read == 0)
-            {
-                break;
-            }
-            memory.Write(buffer, 0, read);
-        }
+            await tcp.ConnectAsync(host, port, linked.Token);
+            await using NetworkStream stream = tcp.GetStream();
 
-        string response = Encoding.UTF8.GetString(memory.ToArray()).TrimEnd('\0', '\r', '\n', ' ');
-        ThrowIfProblem(response);
-        return response;
+            string line = string.IsNullOrWhiteSpace(payload)
+                ? path + "\0"
+                : path + " " + payload + "\0";
+            byte[] request = Encoding.UTF8.GetBytes(line);
+            await stream.WriteAsync(request, linked.Token);
+
+            using var memory = new MemoryStream();
+            byte[] buffer = new byte[4096];
+            while (true)
+            {
+                int read = await stream.ReadAsync(buffer, linked.Token);
+                if (read == 0)
+                {
+                    break;
+                }
+                memory.Write(buffer, 0, read);
+            }
+
+            string response = Encoding.UTF8.GetString(memory.ToArray()).TrimEnd('\0', '\r', '\n', ' ');
+            ThrowIfProblem(response);
+            return response;
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            throw new TimeoutException(
+                "VIIPER API request timed out: " + host + ":" + port + " path=" + path);
+        }
     }
 
     private static void ThrowIfProblem(string response)

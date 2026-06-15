@@ -1,12 +1,17 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Reflection;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace Y700Switch2V60Viiper;
 
 public sealed record UsbipRuntime(string ExePath, string DirectoryPath);
 public sealed record UsbipInstaller(string InstallerPath, string? LicensePath);
+public sealed record UsbipProbeResult(bool Ready, string Detail);
 
 public static class UsbipRuntimeLocator
 {
@@ -38,7 +43,7 @@ public static class UsbipRuntimeLocator
             }
         }
 
-        return null;
+        return ExtractEmbeddedInstaller();
     }
 
     public static string BuildPathWithUsbipDirectory(string currentPath, UsbipRuntime runtime)
@@ -57,6 +62,64 @@ public static class UsbipRuntimeLocator
         }
 
         return runtime.DirectoryPath + Path.PathSeparator + safeCurrentPath;
+    }
+
+    public static async Task<UsbipProbeResult> ProbeAsync(
+        UsbipRuntime runtime,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            using Process? process = Process.Start(new ProcessStartInfo
+            {
+                FileName = runtime.ExePath,
+                Arguments = "port",
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                WorkingDirectory = runtime.DirectoryPath
+            });
+            if (process == null)
+            {
+                return new UsbipProbeResult(false, "usbip.exe 无法启动");
+            }
+
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            timeout.CancelAfter(TimeSpan.FromSeconds(5));
+            try
+            {
+                await process.WaitForExitAsync(timeout.Token);
+            }
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+            {
+                try
+                {
+                    process.Kill(entireProcessTree: true);
+                }
+                catch
+                {
+                }
+                return new UsbipProbeResult(false, "usbip port 检测超过 5 秒");
+            }
+
+            string output = ((await process.StandardOutput.ReadToEndAsync()) + " " +
+                             (await process.StandardError.ReadToEndAsync())).Trim();
+            return process.ExitCode == 0
+                ? new UsbipProbeResult(true, string.IsNullOrWhiteSpace(output) ? "driver command ready" : output)
+                : new UsbipProbeResult(
+                    false,
+                    "usbip port exit=" + process.ExitCode +
+                    (string.IsNullOrWhiteSpace(output) ? "" : " / " + output));
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            return new UsbipProbeResult(false, ex.Message);
+        }
     }
 
     private static bool ContainsDirectory(IEnumerable<string> parts, string target)
@@ -221,5 +284,56 @@ public static class UsbipRuntimeLocator
         {
             yield return Path.GetFullPath(relative);
         }
+    }
+
+    private static UsbipInstaller? ExtractEmbeddedInstaller()
+    {
+        Assembly assembly = Assembly.GetExecutingAssembly();
+        string root = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "PRO2WirelessReceiverControlBoard",
+            "embedded",
+            "v6.1.0",
+            "usbip-win2",
+            BundledVersion);
+        Directory.CreateDirectory(root);
+        string installer = Path.Combine(root, InstallerFileName);
+        string license = Path.Combine(root, "LICENSE.txt");
+
+        if (!ExtractResourceIfAvailable(assembly, "Embedded.usbip.installer", installer))
+        {
+            return null;
+        }
+
+        bool hasLicense = ExtractResourceIfAvailable(
+            assembly,
+            "Embedded.usbip.license",
+            license);
+        return new UsbipInstaller(installer, hasLicense ? license : null);
+    }
+
+    private static bool ExtractResourceIfAvailable(
+        Assembly assembly,
+        string resourceName,
+        string destination)
+    {
+        using Stream? source = assembly.GetManifestResourceStream(resourceName);
+        if (source == null)
+        {
+            return false;
+        }
+
+        if (File.Exists(destination) && new FileInfo(destination).Length == source.Length)
+        {
+            return true;
+        }
+
+        string temp = destination + ".tmp";
+        using (FileStream output = File.Create(temp))
+        {
+            source.CopyTo(output);
+        }
+        File.Move(temp, destination, overwrite: true);
+        return true;
     }
 }

@@ -35,7 +35,7 @@ public static class Pro2OutputPacketMapper
                     reason = "xinput feedback too short";
                     return false;
                 }
-                packet = BuildOrdinary(feedback[1], feedback[0], "xinput");
+                packet = BuildOrdinaryPacket(feedback[1], feedback[0], "xinput");
                 return true;
             case ViiperVirtualMode.DualSenseLike:
                 if (feedback.Length < 2)
@@ -43,7 +43,7 @@ public static class Pro2OutputPacketMapper
                     reason = "dualsense feedback too short";
                     return false;
                 }
-                packet = BuildOrdinary(feedback[0], feedback[1], "dualsense-ordinary");
+                packet = BuildOrdinaryPacket(feedback[0], feedback[1], "dualsense-ordinary");
                 return true;
             default:
                 reason = "unsupported profile";
@@ -85,12 +85,47 @@ public static class Pro2OutputPacketMapper
         return true;
     }
 
-    private static Pro2OutputPacket BuildOrdinary(byte weak, byte strong, string source)
+    public static Pro2OutputPacket BuildOrdinaryPacket(
+        byte weak,
+        byte strong,
+        string source)
     {
         byte[] report = NewSwitch2OutputReport();
         BuildOrdinarySide(weak, strong, report.AsSpan(RumbleSideOffsetLeft, 16));
         BuildOrdinarySide(weak, strong, report.AsSpan(RumbleSideOffsetRight, 16));
         return new Pro2OutputPacket(report, source, weak != 0 || strong != 0, null);
+    }
+
+    public static Pro2OutputPacket BuildRaw02Packet(
+        ushort lowFrequencyLeft,
+        ushort lowAmplitudeLeft,
+        ushort highFrequencyLeft,
+        ushort highAmplitudeLeft,
+        ushort lowFrequencyRight,
+        ushort lowAmplitudeRight,
+        ushort highFrequencyRight,
+        ushort highAmplitudeRight,
+        string source)
+    {
+        byte[] report = NewSwitch2OutputReport();
+        EncodeSwitchRumbleFrame(
+            highFrequencyLeft,
+            highAmplitudeLeft,
+            lowFrequencyLeft,
+            lowAmplitudeLeft,
+            report.AsSpan(RumbleFrameOffsetLeft, RumbleFrameBytes));
+        EncodeSwitchRumbleFrame(
+            highFrequencyRight,
+            highAmplitudeRight,
+            lowFrequencyRight,
+            lowAmplitudeRight,
+            report.AsSpan(RumbleFrameOffsetRight, RumbleFrameBytes));
+        bool active =
+            lowAmplitudeLeft != 0 ||
+            highAmplitudeLeft != 0 ||
+            lowAmplitudeRight != 0 ||
+            highAmplitudeRight != 0;
+        return new Pro2OutputPacket(report, source, active, null);
     }
 
     private static byte[] NewSwitch2OutputReport()

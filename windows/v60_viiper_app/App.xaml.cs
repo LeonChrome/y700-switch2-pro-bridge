@@ -2,6 +2,6 @@ using System.Windows;
 
 namespace Y700Switch2V60Viiper;
 
-public partial class App : Application
+public partial class App : System.Windows.Application
 {
 }
