@@ -5,6 +5,7 @@ namespace Y700Switch2V60Viiper;
 
 public sealed class Pro2HidReportParser
 {
+    private const int Fd2FullReportMinLength = 60;
     private const ushort Center12 = GamepadState.AxisCenter;
     private const ushort CenterLearnMaxDelta = 256;
     private const ushort AxisDeadzone = 64;
@@ -29,21 +30,46 @@ public sealed class Pro2HidReportParser
 
         // Raw GATT captures used by the ESP32 route are useful in diagnostics and
         // let this parser be tested without a Windows HID handle.
-        if (report.Length >= 16 && LooksLikeFd2Payload(report))
+        if (TryParseFd2Payload(report, out state, out source))
         {
-            ParseFd2Payload(report, state);
-            source = "fd2_payload";
             return true;
         }
 
-        if (report.Length >= 11 && LooksLikeLegacyPayload(report))
+        if (TryParseLegacyPayload(report, out state, out source))
         {
-            ParseLegacyPayload(report, state);
-            source = "legacy_payload";
             return true;
         }
 
         return false;
+    }
+
+    public bool TryParseFd2Payload(ReadOnlySpan<byte> report, out GamepadState state, out string source)
+    {
+        state = GamepadState.Neutral();
+        source = "";
+        if (report.Length < Fd2FullReportMinLength ||
+            !LooksLikeFd2Payload(report))
+        {
+            return false;
+        }
+
+        ParseFd2Payload(report, state);
+        source = "fd2_payload";
+        return true;
+    }
+
+    public bool TryParseLegacyPayload(ReadOnlySpan<byte> report, out GamepadState state, out string source)
+    {
+        state = GamepadState.Neutral();
+        source = "";
+        if (report.Length < 11 || !LooksLikeLegacyPayload(report))
+        {
+            return false;
+        }
+
+        ParseLegacyPayload(report, state);
+        source = "legacy_payload";
+        return true;
     }
 
     public bool TryParseHidInputReport(ReadOnlySpan<byte> report, out GamepadState state, out string source)

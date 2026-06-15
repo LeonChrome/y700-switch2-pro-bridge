@@ -8,19 +8,20 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>Y700Switch2V60Viiper</AssemblyName>
-    <AssemblyTitle>PRO2 手柄无线接收器控制板 V6.1 VIIPER Windows 版</AssemblyTitle>
+    <AssemblyTitle>PRO2 手柄无线接收器控制板 V6.1.1 VIIPER Windows 版</AssemblyTitle>
     <Product>PRO2 手柄无线接收器控制板</Product>
-    <Description>V6.1 Windows-only VIIPER route for Pro2 wireless three-mode emulation.</Description>
-    <Version>6.1.0</Version>
-    <AssemblyVersion>6.1.0.0</AssemblyVersion>
-    <FileVersion>6.1.0.0</FileVersion>
-    <InformationalVersion>6.1.0-viiper-stability-tray</InformationalVersion>
+    <Description>V6.1.1 Windows-only VIIPER route with Pro2 BLE stick stability filtering.</Description>
+    <Version>6.1.1</Version>
+    <AssemblyVersion>6.1.1.0</AssemblyVersion>
+    <FileVersion>6.1.1.0</FileVersion>
+    <InformationalVersion>6.1.1-viiper-stick-stability</InformationalVersion>
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <PublishSingleFile>true</PublishSingleFile>
     <SelfContained>true</SelfContained>
     <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
     <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+    <DefaultItemExcludes>$(DefaultItemExcludes);obj\**;artifacts\**</DefaultItemExcludes>
   </PropertyGroup>
   <ItemGroup>
     <Resource Include="Assets\Characters\kratos.png" />

@@ -29,7 +29,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private ViiperBridgeSession? session;
     private string host = "127.0.0.1";
     private string port = "3242";
-    private string status = "V6.1 VIIPER Windows-only 新和联胜版本已就绪。如未安装 usbip-win2，请先点击安装/修复。";
+    private string status = "V6.1.1 VIIPER Windows-only 新和联胜版本已就绪。如未安装 usbip-win2，请先点击安装/修复。";
     private string inputStatus = "真实 Pro2 BLE 输入未连接。";
     private bool running;
     private bool busy;
@@ -66,7 +66,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         inputSource.SetRumbleGain(rumbleMultiplier);
         RefreshRuntimeReadiness();
         AppendLog("[SESSION_LOG] " + sessionLog.FilePath);
-        AppendLog("V6.1 说明：当前 EXE 已能创建 VIIPER 三模虚拟 USB 手柄，并由 Windows 端 BLE central 直接连接真实 Pro2，不再要求 Windows HID 蓝牙配对。");
+        AppendLog("V6.1.1 说明：当前 EXE 已能创建 VIIPER 三模虚拟 USB 手柄，并强化 Pro2 BLE 摇杆稳定滤波，不再要求 Windows HID 蓝牙配对。");
         AppendLog("[RUNTIME] " + RuntimeReadinessText);
         AppendLog("[RUMBLE_GAIN] multiplier=" + rumbleMultiplier.ToString("F1"));
     }
@@ -1049,7 +1049,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "PRO2WirelessReceiverControlBoard",
             "embedded",
-            "v6.1.0",
+            "v6.1.1",
             "viiper",
             "haptic-v0.8.0");
         Directory.CreateDirectory(root);

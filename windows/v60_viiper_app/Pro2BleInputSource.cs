@@ -661,7 +661,12 @@ public sealed class Pro2BleInputSource : IGamepadInputSource, IGamepadInputMetri
             lastNotifySummary = sender.Uuid + " len=" + data.Length + " head=" + ShortHex(data, 24);
         }
 
-        if (!parser.TryParse(data, out GamepadState state, out string source))
+        bool parsed = sender.Uuid == NotifyFd2Uuid
+            ? parser.TryParseFd2Payload(data, out GamepadState state, out string source)
+            : sender.Uuid == NotifyLegacyUuid
+                ? parser.TryParseLegacyPayload(data, out state, out source)
+                : parser.TryParse(data, out state, out source);
+        if (!parsed)
         {
             lock (gate)
             {
@@ -676,7 +681,6 @@ public sealed class Pro2BleInputSource : IGamepadInputSource, IGamepadInputMetri
             {
                 axisSpikeRejectCount++;
                 lastNotifySummary += " filtered=" + filterReason;
-                return;
             }
 
             updates++;

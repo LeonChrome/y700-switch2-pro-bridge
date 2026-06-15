@@ -4,10 +4,12 @@ namespace Y700Switch2V60Viiper;
 
 public sealed class Pro2InputStabilityFilter
 {
-    private const int AxisJumpThreshold = 1200;
+    private const int AxisJumpThreshold = 900;
     private const int ConfirmationTolerance = 384;
+    private const int ConfirmingFramesRequired = 4;
     private GamepadState? lastAccepted;
     private GamepadState? pendingAxisJump;
+    private int pendingAxisJumpFrames;
 
     public bool TryAccept(
         GamepadState parsed,
@@ -28,18 +30,29 @@ public sealed class Pro2InputStabilityFilter
             if (pendingAxisJump != null &&
                 AxesAreSimilar(pendingAxisJump, parsed))
             {
-                pendingAxisJump = null;
-                Accept(parsed, out accepted);
-                return true;
+                pendingAxisJumpFrames++;
+                if (pendingAxisJumpFrames >= ConfirmingFramesRequired)
+                {
+                    pendingAxisJump = null;
+                    pendingAxisJumpFrames = 0;
+                    Accept(parsed, out accepted);
+                    return true;
+                }
+            }
+            else
+            {
+                pendingAxisJump = parsed.Clone();
+                pendingAxisJumpFrames = 1;
             }
 
-            pendingAxisJump = parsed.Clone();
-            reason = "axis_spike_pending";
-            accepted = lastAccepted.Clone();
+            reason = "axis_spike_hold";
+            accepted = HoldAxes(lastAccepted, parsed);
+            lastAccepted = accepted.Clone();
             return false;
         }
 
         pendingAxisJump = null;
+        pendingAxisJumpFrames = 0;
         Accept(parsed, out accepted);
         return true;
     }
@@ -48,12 +61,23 @@ public sealed class Pro2InputStabilityFilter
     {
         lastAccepted = null;
         pendingAxisJump = null;
+        pendingAxisJumpFrames = 0;
     }
 
     private void Accept(GamepadState state, out GamepadState accepted)
     {
         accepted = state.Clone();
         lastAccepted = accepted.Clone();
+    }
+
+    private static GamepadState HoldAxes(GamepadState previous, GamepadState current)
+    {
+        GamepadState accepted = current.Clone();
+        accepted.Lx = previous.Lx;
+        accepted.Ly = previous.Ly;
+        accepted.Rx = previous.Rx;
+        accepted.Ry = previous.Ry;
+        return accepted;
     }
 
     private static bool IsLargeAxisJump(GamepadState previous, GamepadState current)

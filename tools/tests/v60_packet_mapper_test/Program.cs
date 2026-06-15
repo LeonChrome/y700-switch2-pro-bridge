@@ -167,12 +167,18 @@ BinaryPrimitives.WriteInt16LittleEndian(fd2.AsSpan(48, 2), -7);
 BinaryPrimitives.WriteInt16LittleEndian(fd2.AsSpan(58, 2), 77);
 Expect(parser.TryParse(fd2, out GamepadState fd2Parsed, out string fd2Source), "parse FD2 BLE payload");
 Expect(fd2Source == "fd2_payload", "FD2 parse source");
+Expect(parser.TryParseFd2Payload(fd2, out GamepadState fd2DirectParsed, out string fd2DirectSource), "parse FD2 payload directly");
+Expect(fd2DirectSource == "fd2_payload" && fd2DirectParsed.Lx == GamepadState.AxisCenter, "direct FD2 parse source");
 Expect(fd2Parsed.IsPressed(GamepadButtons.South), "FD2 parsed south");
 Expect(fd2Parsed.IsPressed(GamepadButtons.R2), "FD2 parsed R2");
 Expect(fd2Parsed.IsPressed(GamepadButtons.DPadUp), "FD2 parsed dpad up");
 Expect(fd2Parsed.R2 == GamepadState.TriggerMax, "FD2 parsed analog R2");
 Expect(fd2Parsed.AccelValid && fd2Parsed.GyroValid, "FD2 parsed motion");
 Expect(fd2Parsed.AccelX == -7 && fd2Parsed.GyroZ == 77, "FD2 parsed motion values");
+byte[] shortFd2 = new byte[16];
+BinaryPrimitives.WriteUInt32LittleEndian(shortFd2.AsSpan(4, 4), 0x00000004u);
+Pack12(shortFd2, 10, 2048, 2048);
+Expect(!parser.TryParseFd2Payload(shortFd2, out _, out _), "direct FD2 parser rejects short non-full payload");
 
 byte[] viiperLikeReport = new byte[64];
 viiperLikeReport[0] = 0x05;
@@ -434,6 +440,7 @@ Expect(
     "stability filter accepts initial center");
 var singleFrameSpike = new GamepadState
 {
+    Buttons = GamepadButtons.South,
     Lx = GamepadState.AxisMax,
     Ly = GamepadState.AxisCenter,
     Rx = GamepadState.AxisCenter,
@@ -441,9 +448,10 @@ var singleFrameSpike = new GamepadState
 };
 Expect(
     !stability.TryAccept(singleFrameSpike, out GamepadState rejectedSpike, out string spikeReason) &&
-    spikeReason == "axis_spike_pending" &&
-    rejectedSpike.Lx == GamepadState.AxisCenter,
-    "stability filter rejects one-frame axis spike");
+    spikeReason == "axis_spike_hold" &&
+    rejectedSpike.Lx == GamepadState.AxisCenter &&
+    rejectedSpike.IsPressed(GamepadButtons.South),
+    "stability filter holds one-frame axis spike while preserving buttons");
 Expect(
     stability.TryAccept(centerState, out GamepadState acceptedAfterSpike, out _) &&
     acceptedAfterSpike.Lx == GamepadState.AxisCenter,
@@ -452,9 +460,15 @@ Expect(
     !stability.TryAccept(singleFrameSpike, out _, out _),
     "stability filter delays first confirmed large movement frame");
 Expect(
+    !stability.TryAccept(singleFrameSpike, out _, out _),
+    "stability filter delays second confirmed large movement frame");
+Expect(
+    !stability.TryAccept(singleFrameSpike, out _, out _),
+    "stability filter delays third confirmed large movement frame");
+Expect(
     stability.TryAccept(singleFrameSpike, out GamepadState confirmedSpike, out _) &&
     confirmedSpike.Lx == GamepadState.AxisMax,
-    "stability filter accepts repeated large movement as intentional");
+    "stability filter accepts sustained large movement as intentional");
 
 using (WindowsTimerResolutionScope timerResolution = WindowsTimerResolutionScope.Begin())
 {
