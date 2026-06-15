@@ -110,12 +110,15 @@ public sealed class ViiperBridgeSession : IAsyncDisposable
 
     private async Task InputLoopAsync(CancellationToken cancellationToken)
     {
+        using WindowsTimerResolutionScope timerResolution = WindowsTimerResolutionScope.Begin();
         using var timer = new PeriodicTimer(profile.SendInterval);
         var rateWatch = Stopwatch.StartNew();
         ulong frames = 0;
         ulong lastRateFrames = 0;
         long lastRateTicks = 0;
         string lastSource = "";
+        progress.Report("[VIIPER_TIMER] requested_ms=1 active=" + timerResolution.IsActive +
+                        " result=" + timerResolution.Result);
         while (await timer.WaitForNextTickAsync(cancellationToken))
         {
             ViiperDeviceStream? current = stream;

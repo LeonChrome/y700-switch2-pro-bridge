@@ -102,6 +102,9 @@ It can:
 - feed all three VIIPER virtual device types at a 4 ms / 250 Hz target cadence,
   matching the V5.9 ESP32 USB report cadence instead of throttling XInput to
   62.5 Hz;
+- request Windows' 1 ms multimedia timer resolution while the VIIPER input
+  loop is active; without it, a 4 ms .NET periodic timer can be rounded to the
+  default ~15.6 ms scheduler tick and appear as only ~64-66 Hz;
 - log the measured VIIPER feed rate separately from the real Pro2 BLE raw and
   parsed notification rates, including latest and maximum parsed packet gaps;
 - preserve a native Pro2/Windows 7.5 ms connection when available, allowing

@@ -196,4 +196,19 @@ Expect(
     "usbip dir is not duplicated in PATH");
 Expect(UsbipRuntimeLocator.FindBundledInstaller() != null, "bundled usbip-win2 installer is discoverable");
 
+using (WindowsTimerResolutionScope timerResolution = WindowsTimerResolutionScope.Begin())
+{
+    Expect(timerResolution.IsActive, "Windows 1 ms timer resolution request");
+    using var timer = new PeriodicTimer(TimeSpan.FromMilliseconds(4));
+    var timerWatch = System.Diagnostics.Stopwatch.StartNew();
+    const int timerSamples = 125;
+    for (int i = 0; i < timerSamples; i++)
+    {
+        Expect(await timer.WaitForNextTickAsync(), "high-resolution timer tick");
+    }
+
+    double timerHz = timerSamples / timerWatch.Elapsed.TotalSeconds;
+    Expect(timerHz >= 180, "high-resolution timer cadence, actual=" + timerHz.ToString("F1"));
+}
+
 Console.WriteLine("v60_packet_mapper_test: passed");
