@@ -42,7 +42,9 @@ var state = new GamepadState
     L2 = GamepadState.TriggerMax,
     R2 = GamepadState.TriggerMax,
     AccelValid = true,
-    AccelZ = -8192
+    AccelZ = -8192,
+    BatteryPercent = 50,
+    BatteryCharging = true
 };
 
 byte[] ds = VirtualPadPackets.FromGamepad(ViiperDeviceProfile.DualSenseLike, state);
@@ -58,11 +60,14 @@ Expect(ds[8] == 0x09, "DualSense dpad bitfield");
 Expect(ds[9] == 255 && ds[10] == 255, "DualSense triggers");
 
 byte[] ns = VirtualPadPackets.FromGamepad(ViiperDeviceProfile.Pro2, state);
-Expect(ns.Length == 24, "NS2Pro wire size");
+Expect(ns.Length == 27, "NS2Pro wire size");
 uint nsButtons = BinaryPrimitives.ReadUInt32LittleEndian(ns.AsSpan(0, 4));
 Expect(nsButtons == 0x0003FAFF, "NS2Pro button bitfield");
 Expect(BinaryPrimitives.ReadUInt16LittleEndian(ns.AsSpan(4, 2)) == 0, "NS2Pro LX min");
 Expect(BinaryPrimitives.ReadUInt16LittleEndian(ns.AsSpan(6, 2)) == 4095, "NS2Pro LY max");
+Expect(ns[24] == 5 && ns[25] == 1 && ns[26] == 1, "NS2Pro battery and power state");
+byte[] nsNeutral = VirtualPadPackets.NeutralInput(ViiperDeviceProfile.Pro2);
+Expect(nsNeutral.Length == 27 && nsNeutral[24] == 9 && nsNeutral[26] == 1, "NS2Pro neutral power state");
 
 byte[] xb = VirtualPadPackets.FromGamepad(ViiperDeviceProfile.Xbox, state);
 Expect(xb.Length == 20, "Xbox wire size");

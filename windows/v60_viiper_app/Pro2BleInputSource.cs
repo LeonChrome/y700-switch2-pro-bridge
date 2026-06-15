@@ -1,6 +1,7 @@
 using System;
 using System.Buffers.Binary;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -11,7 +12,7 @@ using Windows.Storage.Streams;
 
 namespace Y700Switch2V60Viiper;
 
-public sealed class Pro2BleInputSource : IGamepadInputSource, IGamepadOutputSink
+public sealed class Pro2BleInputSource : IGamepadInputSource, IGamepadInputMetricsSource, IGamepadOutputSink
 {
     private static readonly Guid NotifyFd2Uuid = Guid.Parse("ab7de9be-89fe-49ad-828f-118f09df7fd2");
     private static readonly Guid NotifyLegacyUuid = Guid.Parse("7492866c-ec3e-4619-8258-32755ffcc0f8");
@@ -56,6 +57,14 @@ public sealed class Pro2BleInputSource : IGamepadInputSource, IGamepadOutputSink
     private uint updates;
     private uint rawNotifyCount;
     private uint parseFailCount;
+    private long firstRawNotifyTicks;
+    private long lastRawNotifyTicks;
+    private long lastRawNotifyGapTicks;
+    private long maxRawNotifyGapTicks;
+    private long firstParsedNotifyTicks;
+    private long lastParsedNotifyTicks;
+    private long lastParsedNotifyGapTicks;
+    private long maxParsedNotifyGapTicks;
     private byte rumblePacketId;
     private string status = "未连接真实 Pro2 BLE。";
     private string connectedLabel = "";
@@ -68,6 +77,17 @@ public sealed class Pro2BleInputSource : IGamepadInputSource, IGamepadOutputSink
     {
         get { lock (gate) return status; }
         private set { lock (gate) status = value; }
+    }
+
+    public string MetricsSummary
+    {
+        get
+        {
+            lock (gate)
+            {
+                return BuildMetricsSummaryNoLock();
+            }
+        }
     }
 
     public IReadOnlyList<string> DescribeCandidates()
@@ -502,9 +522,16 @@ public sealed class Pro2BleInputSource : IGamepadInputSource, IGamepadOutputSink
     private void OnNotifyValueChanged(GattCharacteristic sender, GattValueChangedEventArgs args)
     {
         byte[] data = ReadBuffer(args.CharacteristicValue);
+        long nowTicks = Stopwatch.GetTimestamp();
         lock (gate)
         {
             rawNotifyCount++;
+            NoteSample(
+                nowTicks,
+                ref firstRawNotifyTicks,
+                ref lastRawNotifyTicks,
+                ref lastRawNotifyGapTicks,
+                ref maxRawNotifyGapTicks);
             lastNotifySummary = sender.Uuid + " len=" + data.Length + " head=" + ShortHex(data, 24);
         }
 
@@ -520,11 +547,17 @@ public sealed class Pro2BleInputSource : IGamepadInputSource, IGamepadOutputSink
         lock (gate)
         {
             updates++;
+            NoteSample(
+                nowTicks,
+                ref firstParsedNotifyTicks,
+                ref lastParsedNotifyTicks,
+                ref lastParsedNotifyGapTicks,
+                ref maxParsedNotifyGapTicks);
             state.Updates = updates;
             latest = state;
             latestAt = DateTimeOffset.UtcNow;
             status = "真实 Pro2 BLE live，updates=" + updates + " source=" + source +
-                     " raw_notify=" + rawNotifyCount;
+                     " raw_notify=" + rawNotifyCount + " " + BuildMetricsSummaryNoLock();
         }
     }
 
@@ -609,8 +642,61 @@ public sealed class Pro2BleInputSource : IGamepadInputSource, IGamepadOutputSink
             updates = 0;
             rawNotifyCount = 0;
             parseFailCount = 0;
+            firstRawNotifyTicks = 0;
+            lastRawNotifyTicks = 0;
+            lastRawNotifyGapTicks = 0;
+            maxRawNotifyGapTicks = 0;
+            firstParsedNotifyTicks = 0;
+            lastParsedNotifyTicks = 0;
+            lastParsedNotifyGapTicks = 0;
+            maxParsedNotifyGapTicks = 0;
             lastNotifySummary = "";
         }
+    }
+
+    private string BuildMetricsSummaryNoLock()
+    {
+        return "ble_raw_hz=" + SampleRate(rawNotifyCount, firstRawNotifyTicks, lastRawNotifyTicks).ToString("F1") +
+               " ble_parsed_hz=" + SampleRate(updates, firstParsedNotifyTicks, lastParsedNotifyTicks).ToString("F1") +
+               " ble_last_gap_ms=" + TicksToMilliseconds(lastParsedNotifyGapTicks).ToString("F1") +
+               " ble_max_gap_ms=" + TicksToMilliseconds(maxParsedNotifyGapTicks).ToString("F1") +
+               " parse_fail=" + parseFailCount;
+    }
+
+    private static void NoteSample(
+        long nowTicks,
+        ref long firstTicks,
+        ref long lastTicks,
+        ref long lastGapTicks,
+        ref long maxGapTicks)
+    {
+        if (firstTicks == 0)
+        {
+            firstTicks = nowTicks;
+        }
+
+        if (lastTicks != 0)
+        {
+            lastGapTicks = Math.Max(0, nowTicks - lastTicks);
+            maxGapTicks = Math.Max(maxGapTicks, lastGapTicks);
+        }
+
+        lastTicks = nowTicks;
+    }
+
+    private static double SampleRate(uint count, long firstTicks, long lastTicks)
+    {
+        if (count < 2 || firstTicks == 0 || lastTicks <= firstTicks)
+        {
+            return 0;
+        }
+
+        return (count - 1) * (double)Stopwatch.Frequency / (lastTicks - firstTicks);
+    }
+
+    private static double TicksToMilliseconds(long ticks)
+    {
+        return ticks <= 0 ? 0 : ticks * 1000.0 / Stopwatch.Frequency;
     }
 
     private static IBuffer ToBuffer(byte[] data)

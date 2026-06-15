@@ -6,6 +6,9 @@ namespace Y700Switch2V60Viiper;
 
 public partial class MainWindow : Window
 {
+    private bool shutdownInProgress;
+    private bool shutdownComplete;
+
     public MainWindow()
     {
         InitializeComponent();
@@ -16,9 +19,30 @@ public partial class MainWindow : Window
 
     private async void MainWindow_Closing(object? sender, CancelEventArgs e)
     {
-        if (DataContext is MainViewModel viewModel)
+        if (shutdownComplete)
         {
-            await viewModel.ShutdownAsync();
+            return;
+        }
+
+        e.Cancel = true;
+        if (shutdownInProgress)
+        {
+            return;
+        }
+
+        shutdownInProgress = true;
+        try
+        {
+            if (DataContext is MainViewModel viewModel)
+            {
+                await viewModel.ShutdownAsync();
+            }
+        }
+        finally
+        {
+            shutdownComplete = true;
+            shutdownInProgress = false;
+            Close();
         }
     }
 

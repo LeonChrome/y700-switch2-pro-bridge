@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -110,7 +111,10 @@ public sealed class ViiperBridgeSession : IAsyncDisposable
     private async Task InputLoopAsync(CancellationToken cancellationToken)
     {
         using var timer = new PeriodicTimer(profile.SendInterval);
+        var rateWatch = Stopwatch.StartNew();
         ulong frames = 0;
+        ulong lastRateFrames = 0;
+        long lastRateTicks = 0;
         string lastSource = "";
         while (await timer.WaitForNextTickAsync(cancellationToken))
         {
@@ -137,10 +141,30 @@ public sealed class ViiperBridgeSession : IAsyncDisposable
 
             await current.WriteAsync(packet, cancellationToken);
             frames++;
-            if (frames % 250 == 0 || source != lastSource)
+            bool rateDue = frames % 250 == 0;
+            bool sourceChanged = source != lastSource;
+            if (rateDue || sourceChanged)
             {
                 lastSource = source;
-                progress.Report("[VIIPER] fed " + frames + " " + source + " " + profile.Label + " frames.");
+                double targetHz = 1.0 / profile.SendInterval.TotalSeconds;
+                string rateSummary = "target_hz=" + targetHz.ToString("F1");
+                if (rateDue)
+                {
+                    long nowTicks = rateWatch.ElapsedTicks;
+                    double elapsedSeconds = (nowTicks - lastRateTicks) / (double)Stopwatch.Frequency;
+                    double actualHz = elapsedSeconds > 0
+                        ? (frames - lastRateFrames) / elapsedSeconds
+                        : 0;
+                    lastRateTicks = nowTicks;
+                    lastRateFrames = frames;
+                    rateSummary += " actual_hz=" + actualHz.ToString("F1");
+                }
+
+                string inputMetrics = inputSource is IGamepadInputMetricsSource metrics
+                    ? " " + metrics.MetricsSummary
+                    : "";
+                progress.Report("[VIIPER] fed " + frames + " " + source + " " + profile.Label +
+                                " frames " + rateSummary + inputMetrics);
             }
         }
     }

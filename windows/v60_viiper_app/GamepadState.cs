@@ -75,6 +75,11 @@ public interface IGamepadInputSource : IAsyncDisposable
     bool TryGetLatest(out GamepadState state, out TimeSpan age);
 }
 
+public interface IGamepadInputMetricsSource
+{
+    string MetricsSummary { get; }
+}
+
 public interface IGamepadOutputSink
 {
     bool IsOutputReady { get; }

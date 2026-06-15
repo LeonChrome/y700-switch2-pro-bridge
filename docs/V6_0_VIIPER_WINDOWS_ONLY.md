@@ -99,6 +99,15 @@ It can:
 - create a virtual `dualsense`, `ns2pro`, or `xbox360` device;
 - send live Pro2 input packets when the BLE source is fresh, and fall back to
   neutral input if the source is missing or stale;
+- feed all three VIIPER virtual device types at a 4 ms / 250 Hz target cadence,
+  matching the V5.9 ESP32 USB report cadence instead of throttling XInput to
+  62.5 Hz;
+- log the measured VIIPER feed rate separately from the real Pro2 BLE raw and
+  parsed notification rates, including latest and maximum parsed packet gaps;
+- emit the complete VIIPER v0.7.0 27-byte `ns2pro` input report, including
+  battery, charging, and powered fields;
+- wait for virtual-device, BLE, and locally launched VIIPER cleanup before the
+  WPF window exits, preventing an orphaned `viiper.exe` after normal close;
 - write host feedback back to the real Pro2 through the BLE cc48 rumble
   characteristic:
   - Pro2 / Nintendo mode preserves VIIPER's 16+16-byte `0x02` HD rumble blocks.
