@@ -104,6 +104,11 @@ It can:
   62.5 Hz;
 - log the measured VIIPER feed rate separately from the real Pro2 BLE raw and
   parsed notification rates, including latest and maximum parsed packet gaps;
+- on Windows 11, hold a `ThroughputOptimized` BLE connection-parameter request
+  for the Pro2 link and log the final interval negotiated by Windows, its
+  theoretical connection-event rate, latency, and request status;
+- retain Windows 10 compatibility with driver-controlled BLE parameters when
+  the Windows 11 preference API is unavailable;
 - emit the complete VIIPER v0.7.0 27-byte `ns2pro` input report, including
   battery, charging, and powered fields;
 - wait for virtual-device, BLE, and locally launched VIIPER cleanup before the

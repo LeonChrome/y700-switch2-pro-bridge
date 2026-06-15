@@ -3,6 +3,7 @@ using System.Buffers.Binary;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
+using System.Runtime.Versioning;
 using System.Threading;
 using System.Threading.Tasks;
 using Windows.Devices.Bluetooth;
@@ -46,6 +47,7 @@ public sealed class Pro2BleInputSource : IGamepadInputSource, IGamepadInputMetri
     private readonly List<BleCandidate> lastCandidates = [];
     private BluetoothLEAdvertisementWatcher? watcher;
     private BluetoothLEDevice? device;
+    private BluetoothLEPreferredConnectionParametersRequest? connectionParametersRequest;
     private GattCharacteristic? commandCharacteristic;
     private GattCharacteristic? fd2Characteristic;
     private GattCharacteristic? legacyCharacteristic;
@@ -69,6 +71,12 @@ public sealed class Pro2BleInputSource : IGamepadInputSource, IGamepadInputMetri
     private string status = "未连接真实 Pro2 BLE。";
     private string connectedLabel = "";
     private string lastNotifySummary = "";
+    private string connectionPreferenceStatus = "not_requested";
+    private ushort connectionIntervalUnits;
+    private ushort connectionLatency;
+    private ushort connectionLinkTimeout;
+    private string lastConnectionParametersSummary = "";
+    private IProgress<string>? connectionProgress;
 
     public bool IsRunning { get; private set; }
     public bool IsOutputReady => IsRunning && rumbleCharacteristic != null;
@@ -254,6 +262,7 @@ public sealed class Pro2BleInputSource : IGamepadInputSource, IGamepadInputMetri
         }
 
         device = opened;
+        connectionProgress = progress;
         progress.Report("[PRO2_BLE] opened address=" + FormatAddress(candidate.Address) +
                         " name=" + (opened.Name ?? candidate.Name ?? "<unnamed>"));
 
@@ -264,6 +273,8 @@ public sealed class Pro2BleInputSource : IGamepadInputSource, IGamepadInputMetri
             progress.Report("[PRO2_BLE] service discovery failed status=" + services.Status);
             return false;
         }
+
+        ConfigureWindowsConnectionParameters(opened, progress);
 
         foreach (GattDeviceService service in services.Services)
         {
@@ -359,7 +370,8 @@ public sealed class Pro2BleInputSource : IGamepadInputSource, IGamepadInputMetri
                 IsRunning = true;
                 progress.Report("[PRO2_BLE] live input confirmed updates=" + updates +
                                 " raw_notify=" + rawNotifyCount +
-                                " rumble=" + (rumbleCharacteristic != null));
+                                " rumble=" + (rumbleCharacteristic != null) +
+                                " " + MetricsSummary);
                 return true;
             }
 
@@ -382,7 +394,8 @@ public sealed class Pro2BleInputSource : IGamepadInputSource, IGamepadInputMetri
                 IsRunning = true;
                 progress.Report("[PRO2_BLE] live input confirmed updates=" + updates +
                                 " raw_notify=" + rawNotifyCount +
-                                " fallback=legacy rumble=" + (rumbleCharacteristic != null));
+                                " fallback=legacy rumble=" + (rumbleCharacteristic != null) +
+                                " " + MetricsSummary);
                 return true;
             }
         }
@@ -561,6 +574,105 @@ public sealed class Pro2BleInputSource : IGamepadInputSource, IGamepadInputMetri
         }
     }
 
+    private void ConfigureWindowsConnectionParameters(
+        BluetoothLEDevice opened,
+        IProgress<string> progress)
+    {
+        if (!OperatingSystem.IsWindowsVersionAtLeast(10, 0, 22000))
+        {
+            lock (gate)
+            {
+                connectionPreferenceStatus = "unsupported_pre_win11";
+            }
+            progress.Report("[PRO2_BLE_LINK] Windows 10 does not expose preferred BLE connection parameters; link rate remains driver-controlled.");
+            return;
+        }
+
+        try
+        {
+            ConfigureWindows11ConnectionParameters(opened, progress);
+        }
+        catch (Exception ex)
+        {
+            lock (gate)
+            {
+                connectionPreferenceStatus = "error_0x" + ex.HResult.ToString("X8");
+            }
+            progress.Report("[PRO2_BLE_LINK] throughput preference unavailable; continuing with driver defaults. " +
+                            ex.GetType().Name + ": " + ex.Message);
+        }
+    }
+
+    [SupportedOSPlatform("windows10.0.22000.0")]
+    private void ConfigureWindows11ConnectionParameters(
+        BluetoothLEDevice opened,
+        IProgress<string> progress)
+    {
+        opened.ConnectionParametersChanged += OnConnectionParametersChanged;
+
+        BluetoothLEPreferredConnectionParameters preferred =
+            BluetoothLEPreferredConnectionParameters.ThroughputOptimized;
+        progress.Report(
+            "[PRO2_BLE_LINK] requesting Windows throughput preference " +
+            FormatPreferredConnectionParameters(preferred));
+
+        connectionParametersRequest?.Dispose();
+        connectionParametersRequest = opened.RequestPreferredConnectionParameters(preferred);
+        lock (gate)
+        {
+            connectionPreferenceStatus = connectionParametersRequest.Status.ToString();
+        }
+
+        progress.Report("[PRO2_BLE_LINK] preferred request status=" +
+                        connectionParametersRequest.Status);
+        CaptureConnectionParameters(opened, "after_request", progress);
+    }
+
+    [SupportedOSPlatform("windows10.0.22000.0")]
+    private void OnConnectionParametersChanged(BluetoothLEDevice sender, object args)
+    {
+        try
+        {
+            CaptureConnectionParameters(sender, "changed", connectionProgress);
+        }
+        catch (Exception ex)
+        {
+            connectionProgress?.Report("[PRO2_BLE_LINK] connection parameter read failed after change: " +
+                                       ex.Message);
+        }
+    }
+
+    [SupportedOSPlatform("windows10.0.22000.0")]
+    private void CaptureConnectionParameters(
+        BluetoothLEDevice source,
+        string reason,
+        IProgress<string>? progress)
+    {
+        BluetoothLEConnectionParameters? parameters = source.GetConnectionParameters();
+        if (parameters == null)
+        {
+            progress?.Report("[PRO2_BLE_LINK] parameters reason=" + reason +
+                             " unavailable (device is not connected yet).");
+            return;
+        }
+
+        string summary = FormatConnectionParameters(parameters);
+        bool changed;
+        lock (gate)
+        {
+            connectionIntervalUnits = parameters.ConnectionInterval;
+            connectionLatency = parameters.ConnectionLatency;
+            connectionLinkTimeout = parameters.LinkTimeout;
+            changed = summary != lastConnectionParametersSummary;
+            lastConnectionParametersSummary = summary;
+        }
+
+        if (changed || reason != "changed")
+        {
+            progress?.Report("[PRO2_BLE_LINK] parameters reason=" + reason + " " + summary);
+        }
+    }
+
     private async Task<bool> WaitForLiveInputAsync(TimeSpan timeout, CancellationToken cancellationToken)
     {
         DateTimeOffset deadline = DateTimeOffset.UtcNow + timeout;
@@ -626,6 +738,13 @@ public sealed class Pro2BleInputSource : IGamepadInputSource, IGamepadInputMetri
         rumbleCharacteristic = null;
         ackTcs = null;
         connectedLabel = "";
+        if (device != null && OperatingSystem.IsWindowsVersionAtLeast(10, 0, 22000))
+        {
+            UnsubscribeWindows11ConnectionEvents(device);
+        }
+        connectionParametersRequest?.Dispose();
+        connectionParametersRequest = null;
+        connectionProgress = null;
         device?.Dispose();
         device = null;
         ResetLiveState();
@@ -651,16 +770,63 @@ public sealed class Pro2BleInputSource : IGamepadInputSource, IGamepadInputMetri
             lastParsedNotifyGapTicks = 0;
             maxParsedNotifyGapTicks = 0;
             lastNotifySummary = "";
+            connectionPreferenceStatus = "not_requested";
+            connectionIntervalUnits = 0;
+            connectionLatency = 0;
+            connectionLinkTimeout = 0;
+            lastConnectionParametersSummary = "";
         }
     }
 
     private string BuildMetricsSummaryNoLock()
     {
+        double connectionIntervalMs = connectionIntervalUnits * 1.25;
+        double connectionEventHz = connectionIntervalUnits == 0
+            ? 0
+            : 800.0 / connectionIntervalUnits;
         return "ble_raw_hz=" + SampleRate(rawNotifyCount, firstRawNotifyTicks, lastRawNotifyTicks).ToString("F1") +
                " ble_parsed_hz=" + SampleRate(updates, firstParsedNotifyTicks, lastParsedNotifyTicks).ToString("F1") +
                " ble_last_gap_ms=" + TicksToMilliseconds(lastParsedNotifyGapTicks).ToString("F1") +
                " ble_max_gap_ms=" + TicksToMilliseconds(maxParsedNotifyGapTicks).ToString("F1") +
+               " ble_conn_ms=" + connectionIntervalMs.ToString("F2") +
+               " ble_conn_event_hz=" + connectionEventHz.ToString("F1") +
+               " ble_latency=" + connectionLatency +
+               " ble_timeout_ms=" + (connectionLinkTimeout * 10) +
+               " ble_pref=" + connectionPreferenceStatus +
                " parse_fail=" + parseFailCount;
+    }
+
+    [SupportedOSPlatform("windows10.0.22000.0")]
+    private void UnsubscribeWindows11ConnectionEvents(BluetoothLEDevice source)
+    {
+        source.ConnectionParametersChanged -= OnConnectionParametersChanged;
+    }
+
+    private static string FormatPreferredConnectionParameters(
+        BluetoothLEPreferredConnectionParameters parameters)
+    {
+        double minMs = parameters.MinConnectionInterval * 1.25;
+        double maxMs = parameters.MaxConnectionInterval * 1.25;
+        return "interval_units=" + parameters.MinConnectionInterval + ".." +
+               parameters.MaxConnectionInterval +
+               " interval_ms=" + minMs.ToString("F2") + ".." + maxMs.ToString("F2") +
+               " event_hz=" + (800.0 / parameters.MaxConnectionInterval).ToString("F1") + ".." +
+               (800.0 / parameters.MinConnectionInterval).ToString("F1") +
+               " latency=" + parameters.ConnectionLatency +
+               " link_timeout_ms=" + (parameters.LinkTimeout * 10);
+    }
+
+    private static string FormatConnectionParameters(BluetoothLEConnectionParameters parameters)
+    {
+        double intervalMs = parameters.ConnectionInterval * 1.25;
+        double eventHz = parameters.ConnectionInterval == 0
+            ? 0
+            : 800.0 / parameters.ConnectionInterval;
+        return "interval_units=" + parameters.ConnectionInterval +
+               " interval_ms=" + intervalMs.ToString("F2") +
+               " event_hz=" + eventHz.ToString("F1") +
+               " latency=" + parameters.ConnectionLatency +
+               " link_timeout_ms=" + (parameters.LinkTimeout * 10);
     }
 
     private static void NoteSample(

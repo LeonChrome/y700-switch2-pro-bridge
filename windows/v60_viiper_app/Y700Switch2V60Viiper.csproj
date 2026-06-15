@@ -1,7 +1,8 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
-    <TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>
+    <TargetFramework>net8.0-windows10.0.26100.0</TargetFramework>
+    <SupportedOSPlatformVersion>10.0.19041.0</SupportedOSPlatformVersion>
     <UseWPF>true</UseWPF>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
@@ -9,10 +10,10 @@
     <AssemblyTitle>PRO2 手柄无线接收器控制板 V6.0 VIIPER Windows 版</AssemblyTitle>
     <Product>PRO2 手柄无线接收器控制板</Product>
     <Description>V6.0 Windows-only VIIPER route for Pro2 wireless three-mode emulation.</Description>
-    <Version>6.0.0-preview.7</Version>
+    <Version>6.0.0-preview.8</Version>
     <AssemblyVersion>6.0.0.0</AssemblyVersion>
-    <FileVersion>6.0.0.7</FileVersion>
-    <InformationalVersion>6.0.0-preview.7-250hz-ble-telemetry</InformationalVersion>
+    <FileVersion>6.0.0.8</FileVersion>
+    <InformationalVersion>6.0.0-preview.8-windows-ble-throughput</InformationalVersion>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <PublishSingleFile>true</PublishSingleFile>
     <SelfContained>true</SelfContained>
