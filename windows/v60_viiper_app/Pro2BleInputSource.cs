@@ -21,6 +21,10 @@ public sealed class Pro2BleInputSource : IGamepadInputSource, IGamepadInputMetri
     private static readonly Guid CmdUuid = Guid.Parse("649d4ac9-8eb7-4e6c-af44-1ea54fe5f005");
     private static readonly Guid RumbleUuid = Guid.Parse("cc483f51-9258-427d-a939-630c31f72b05");
     private const ushort NintendoCompanyId = 0x0553;
+    private const ushort FastestLegacyConnectionIntervalUnits = 6;
+    private const ushort MinimumAcceptedConnectionIntervalUnits = 12;
+    private const double MinimumAcceptedNotifyRateHz = 62.0;
+    private const double FastNotifyRateHz = 115.0;
 
     private static readonly byte[][] InitCommands =
     [
@@ -77,6 +81,8 @@ public sealed class Pro2BleInputSource : IGamepadInputSource, IGamepadInputMetri
     private ushort connectionLinkTimeout;
     private string lastConnectionParametersSummary = "";
     private IProgress<string>? connectionProgress;
+    private string linkRateClass = "unknown";
+    private string lastPerformanceFailure = "";
 
     public bool IsRunning { get; private set; }
     public bool IsOutputReady => IsRunning && rumbleCharacteristic != null;
@@ -130,6 +136,10 @@ public sealed class Pro2BleInputSource : IGamepadInputSource, IGamepadInputMetri
         }
 
         await StopAsync();
+        lock (gate)
+        {
+            lastPerformanceFailure = "";
+        }
         progress.Report("[PRO2_BLE] scanning without Windows HID pairing. Wake the Pro2 and keep it near the PC.");
         List<BleCandidate> candidates = await ScanCandidatesAsync(progress, TimeSpan.FromSeconds(8), cancellationToken);
         if (candidates.Count == 0)
@@ -154,7 +164,8 @@ public sealed class Pro2BleInputSource : IGamepadInputSource, IGamepadInputMetri
                 if (await ConnectCandidateAsync(candidate, progress, cancellationToken))
                 {
                     connectedLabel = DescribeCandidate(candidate);
-                    Status = "真实 Pro2 BLE 已连接并 live：" + connectedLabel;
+                    Status = "真实 Pro2 BLE 已连接并 live：" + connectedLabel +
+                             " / " + MetricsSummary;
                     IsRunning = true;
                     return;
                 }
@@ -167,7 +178,9 @@ public sealed class Pro2BleInputSource : IGamepadInputSource, IGamepadInputMetri
             await CloseCurrentAsync("候选 BLE 未确认 live，继续尝试下一项。");
         }
 
-        Status = "未能连接到真实 Pro2 BLE。请确保手柄处于可连接状态，并且没有被 ESP32、Switch、手机或旧进程占用。";
+        Status = string.IsNullOrWhiteSpace(lastPerformanceFailure)
+            ? "未能连接到真实 Pro2 BLE。请确保手柄处于可连接状态，并且没有被 ESP32、Switch、手机或旧进程占用。"
+            : lastPerformanceFailure;
     }
 
     public bool TryGetLatest(out GamepadState state, out TimeSpan age)
@@ -274,7 +287,7 @@ public sealed class Pro2BleInputSource : IGamepadInputSource, IGamepadInputMetri
             return false;
         }
 
-        ConfigureWindowsConnectionParameters(opened, progress);
+        ObserveWindowsConnectionParameters(opened, progress);
 
         foreach (GattDeviceService service in services.Services)
         {
@@ -367,6 +380,11 @@ public sealed class Pro2BleInputSource : IGamepadInputSource, IGamepadInputMetri
             progress.Report("[PRO2_BLE] waiting for FD2 live input...");
             if (await WaitForLiveInputAsync(TimeSpan.FromSeconds(3), cancellationToken))
             {
+                if (!await EnsureMinimumBlePerformanceAsync(progress, cancellationToken))
+                {
+                    return false;
+                }
+
                 IsRunning = true;
                 progress.Report("[PRO2_BLE] live input confirmed updates=" + updates +
                                 " raw_notify=" + rawNotifyCount +
@@ -391,6 +409,11 @@ public sealed class Pro2BleInputSource : IGamepadInputSource, IGamepadInputMetri
             progress.Report("[PRO2_BLE] waiting for legacy C0F8 live input fallback...");
             if (await WaitForLiveInputAsync(TimeSpan.FromSeconds(5), cancellationToken))
             {
+                if (!await EnsureMinimumBlePerformanceAsync(progress, cancellationToken))
+                {
+                    return false;
+                }
+
                 IsRunning = true;
                 progress.Report("[PRO2_BLE] live input confirmed updates=" + updates +
                                 " raw_notify=" + rawNotifyCount +
@@ -574,7 +597,7 @@ public sealed class Pro2BleInputSource : IGamepadInputSource, IGamepadInputMetri
         }
     }
 
-    private void ConfigureWindowsConnectionParameters(
+    private void ObserveWindowsConnectionParameters(
         BluetoothLEDevice opened,
         IProgress<string> progress)
     {
@@ -584,13 +607,13 @@ public sealed class Pro2BleInputSource : IGamepadInputSource, IGamepadInputMetri
             {
                 connectionPreferenceStatus = "unsupported_pre_win11";
             }
-            progress.Report("[PRO2_BLE_LINK] Windows 10 does not expose preferred BLE connection parameters; link rate remains driver-controlled.");
+            progress.Report("[PRO2_BLE_LINK] Windows 10 cannot read or request exact BLE connection parameters; the minimum rate will be verified from live notifications.");
             return;
         }
 
         try
         {
-            ConfigureWindows11ConnectionParameters(opened, progress);
+            ObserveWindows11ConnectionParameters(opened, progress);
         }
         catch (Exception ex)
         {
@@ -598,34 +621,23 @@ public sealed class Pro2BleInputSource : IGamepadInputSource, IGamepadInputMetri
             {
                 connectionPreferenceStatus = "error_0x" + ex.HResult.ToString("X8");
             }
-            progress.Report("[PRO2_BLE_LINK] throughput preference unavailable; continuing with driver defaults. " +
+            progress.Report("[PRO2_BLE_LINK] connection parameter observation unavailable; live notification rate will be used. " +
                             ex.GetType().Name + ": " + ex.Message);
         }
     }
 
     [SupportedOSPlatform("windows10.0.22000.0")]
-    private void ConfigureWindows11ConnectionParameters(
+    private void ObserveWindows11ConnectionParameters(
         BluetoothLEDevice opened,
         IProgress<string> progress)
     {
         opened.ConnectionParametersChanged += OnConnectionParametersChanged;
-
-        BluetoothLEPreferredConnectionParameters preferred =
-            BluetoothLEPreferredConnectionParameters.ThroughputOptimized;
-        progress.Report(
-            "[PRO2_BLE_LINK] requesting Windows throughput preference " +
-            FormatPreferredConnectionParameters(preferred));
-
-        connectionParametersRequest?.Dispose();
-        connectionParametersRequest = opened.RequestPreferredConnectionParameters(preferred);
         lock (gate)
         {
-            connectionPreferenceStatus = connectionParametersRequest.Status.ToString();
+            connectionPreferenceStatus = "observing_native";
         }
 
-        progress.Report("[PRO2_BLE_LINK] preferred request status=" +
-                        connectionParametersRequest.Status);
-        CaptureConnectionParameters(opened, "after_request", progress);
+        CaptureConnectionParameters(opened, "native_initial", progress);
     }
 
     [SupportedOSPlatform("windows10.0.22000.0")]
@@ -639,6 +651,124 @@ public sealed class Pro2BleInputSource : IGamepadInputSource, IGamepadInputMetri
         {
             connectionProgress?.Report("[PRO2_BLE_LINK] connection parameter read failed after change: " +
                                        ex.Message);
+        }
+    }
+
+    private async Task<bool> EnsureMinimumBlePerformanceAsync(
+        IProgress<string> progress,
+        CancellationToken cancellationToken)
+    {
+        progress.Report("[PRO2_BLE_LINK] allowing native Pro2/Windows parameter negotiation before applying fallback...");
+        await Task.Delay(1800, cancellationToken);
+
+        if (device != null && OperatingSystem.IsWindowsVersionAtLeast(10, 0, 22000))
+        {
+            TryCaptureWindows11ConnectionParameters(device, "native_settled", progress);
+        }
+
+        BlePerformanceSnapshot native = GetPerformanceSnapshot();
+        if (MeetsMinimumPerformance(native))
+        {
+            SetLinkRateClass(native);
+            progress.Report("[PRO2_BLE_LINK] native link accepted " + FormatPerformanceSnapshot(native));
+            return true;
+        }
+
+        if (device != null && OperatingSystem.IsWindowsVersionAtLeast(10, 0, 22000))
+        {
+            progress.Report("[PRO2_BLE_LINK] native link below 66.7 Hz class; applying Windows 15 ms throughput fallback.");
+            if (TryRequestWindows11ThroughputFallback(device, progress))
+            {
+                ResetPerformanceCounters();
+                DateTimeOffset deadline = DateTimeOffset.UtcNow + TimeSpan.FromSeconds(3);
+                while (DateTimeOffset.UtcNow < deadline)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    await Task.Delay(150, cancellationToken);
+                    TryCaptureWindows11ConnectionParameters(device, "fallback_poll", progress: null);
+                    BlePerformanceSnapshot current = GetPerformanceSnapshot();
+                    if (MeetsMinimumPerformance(current))
+                    {
+                        SetLinkRateClass(current);
+                        progress.Report("[PRO2_BLE_LINK] throughput fallback accepted " +
+                                        FormatPerformanceSnapshot(current));
+                        return true;
+                    }
+                }
+            }
+        }
+        else
+        {
+            await Task.Delay(1800, cancellationToken);
+            BlePerformanceSnapshot measured = GetPerformanceSnapshot();
+            if (measured.NotifyRateHz >= MinimumAcceptedNotifyRateHz)
+            {
+                SetLinkRateClass(measured);
+                progress.Report("[PRO2_BLE_LINK] notification-rate fallback accepted " +
+                                FormatPerformanceSnapshot(measured));
+                return true;
+            }
+        }
+
+        BlePerformanceSnapshot failed = GetPerformanceSnapshot();
+        lock (gate)
+        {
+            linkRateClass = "below_minimum";
+            lastPerformanceFailure = "BLE 链路未达到最低 66.7 Hz 等级：" +
+                                     FormatPerformanceSnapshot(failed);
+            status = lastPerformanceFailure;
+        }
+        progress.Report("[PRO2_BLE_LINK] REJECTED " + lastPerformanceFailure);
+        return false;
+    }
+
+    [SupportedOSPlatform("windows10.0.22000.0")]
+    private bool TryRequestWindows11ThroughputFallback(
+        BluetoothLEDevice source,
+        IProgress<string> progress)
+    {
+        try
+        {
+            BluetoothLEPreferredConnectionParameters preferred =
+                BluetoothLEPreferredConnectionParameters.ThroughputOptimized;
+            progress.Report("[PRO2_BLE_LINK] requesting fallback " +
+                            FormatPreferredConnectionParameters(preferred));
+            connectionParametersRequest?.Dispose();
+            connectionParametersRequest = source.RequestPreferredConnectionParameters(preferred);
+            lock (gate)
+            {
+                connectionPreferenceStatus = "fallback_" + connectionParametersRequest.Status;
+            }
+            progress.Report("[PRO2_BLE_LINK] fallback request status=" +
+                            connectionParametersRequest.Status);
+            return connectionParametersRequest.Status ==
+                   BluetoothLEPreferredConnectionParametersRequestStatus.Success;
+        }
+        catch (Exception ex)
+        {
+            lock (gate)
+            {
+                connectionPreferenceStatus = "fallback_error_0x" + ex.HResult.ToString("X8");
+            }
+            progress.Report("[PRO2_BLE_LINK] fallback request failed: " + ex.Message);
+            return false;
+        }
+    }
+
+    [SupportedOSPlatform("windows10.0.22000.0")]
+    private void TryCaptureWindows11ConnectionParameters(
+        BluetoothLEDevice source,
+        string reason,
+        IProgress<string>? progress)
+    {
+        try
+        {
+            CaptureConnectionParameters(source, reason, progress);
+        }
+        catch (Exception ex)
+        {
+            progress?.Report("[PRO2_BLE_LINK] parameter read failed reason=" + reason +
+                             " error=" + ex.Message);
         }
     }
 
@@ -679,7 +809,7 @@ public sealed class Pro2BleInputSource : IGamepadInputSource, IGamepadInputMetri
         while (DateTimeOffset.UtcNow < deadline)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            if (TryGetLatest(out _, out TimeSpan age) && age <= TimeSpan.FromMilliseconds(500))
+            if (HasFreshInput(TimeSpan.FromMilliseconds(500)))
             {
                 return true;
             }
@@ -688,6 +818,15 @@ public sealed class Pro2BleInputSource : IGamepadInputSource, IGamepadInputMetri
         }
 
         return false;
+    }
+
+    private bool HasFreshInput(TimeSpan maximumAge)
+    {
+        lock (gate)
+        {
+            return latestAt != default &&
+                   DateTimeOffset.UtcNow - latestAt <= maximumAge;
+        }
     }
 
     private async Task<string?> WriteRumblePacketAsync(byte[] packet)
@@ -775,6 +914,25 @@ public sealed class Pro2BleInputSource : IGamepadInputSource, IGamepadInputMetri
             connectionLatency = 0;
             connectionLinkTimeout = 0;
             lastConnectionParametersSummary = "";
+            linkRateClass = "unknown";
+        }
+    }
+
+    private void ResetPerformanceCounters()
+    {
+        lock (gate)
+        {
+            updates = 0;
+            rawNotifyCount = 0;
+            parseFailCount = 0;
+            firstRawNotifyTicks = 0;
+            lastRawNotifyTicks = 0;
+            lastRawNotifyGapTicks = 0;
+            maxRawNotifyGapTicks = 0;
+            firstParsedNotifyTicks = 0;
+            lastParsedNotifyTicks = 0;
+            lastParsedNotifyGapTicks = 0;
+            maxParsedNotifyGapTicks = 0;
         }
     }
 
@@ -793,7 +951,63 @@ public sealed class Pro2BleInputSource : IGamepadInputSource, IGamepadInputMetri
                " ble_latency=" + connectionLatency +
                " ble_timeout_ms=" + (connectionLinkTimeout * 10) +
                " ble_pref=" + connectionPreferenceStatus +
+               " ble_rate_class=" + linkRateClass +
                " parse_fail=" + parseFailCount;
+    }
+
+    private BlePerformanceSnapshot GetPerformanceSnapshot()
+    {
+        lock (gate)
+        {
+            return new BlePerformanceSnapshot(
+                connectionIntervalUnits,
+                SampleRate(rawNotifyCount, firstRawNotifyTicks, lastRawNotifyTicks),
+                SampleRate(updates, firstParsedNotifyTicks, lastParsedNotifyTicks),
+                rawNotifyCount,
+                updates);
+        }
+    }
+
+    private static bool MeetsMinimumPerformance(BlePerformanceSnapshot snapshot)
+    {
+        bool connectionFastEnough =
+            snapshot.ConnectionIntervalUnits == 0 ||
+            snapshot.ConnectionIntervalUnits <= MinimumAcceptedConnectionIntervalUnits;
+        return connectionFastEnough &&
+               snapshot.RawNotifications >= 20 &&
+               snapshot.NotifyRateHz >= MinimumAcceptedNotifyRateHz;
+    }
+
+    private void SetLinkRateClass(BlePerformanceSnapshot snapshot)
+    {
+        string rateClass =
+            (snapshot.ConnectionIntervalUnits == 0 ||
+             snapshot.ConnectionIntervalUnits <= FastestLegacyConnectionIntervalUnits) &&
+            snapshot.NotifyRateHz >= FastNotifyRateHz
+                ? "133hz"
+                : "66.7hz";
+        lock (gate)
+        {
+            linkRateClass = rateClass;
+            if (connectionPreferenceStatus == "observing_native")
+            {
+                connectionPreferenceStatus = "native";
+            }
+        }
+    }
+
+    private static string FormatPerformanceSnapshot(BlePerformanceSnapshot snapshot)
+    {
+        double intervalMs = snapshot.ConnectionIntervalUnits * 1.25;
+        double eventHz = snapshot.ConnectionIntervalUnits == 0
+            ? 0
+            : 800.0 / snapshot.ConnectionIntervalUnits;
+        return "interval_ms=" + intervalMs.ToString("F2") +
+               " event_hz=" + eventHz.ToString("F1") +
+               " raw_hz=" + snapshot.NotifyRateHz.ToString("F1") +
+               " parsed_hz=" + snapshot.ParsedRateHz.ToString("F1") +
+               " raw_count=" + snapshot.RawNotifications +
+               " parsed_count=" + snapshot.ParsedNotifications;
     }
 
     [SupportedOSPlatform("windows10.0.22000.0")]
@@ -923,4 +1137,11 @@ public sealed class Pro2BleInputSource : IGamepadInputSource, IGamepadInputMetri
         short Rssi,
         bool NintendoManufacturer,
         int Score);
+
+    private sealed record BlePerformanceSnapshot(
+        ushort ConnectionIntervalUnits,
+        double NotifyRateHz,
+        double ParsedRateHz,
+        uint RawNotifications,
+        uint ParsedNotifications);
 }
