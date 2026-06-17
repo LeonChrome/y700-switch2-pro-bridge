@@ -1,21 +1,13 @@
 using System;
 using System.IO;
 using System.Text;
-using System.Threading.Channels;
 using System.Threading.Tasks;
 
 namespace Y700Switch2V60Viiper;
 
 public sealed class SessionLogWriter : IAsyncDisposable
 {
-    private readonly Channel<string> channel =
-        Channel.CreateUnbounded<string>(
-            new UnboundedChannelOptions
-            {
-                SingleReader = true,
-                SingleWriter = false
-            });
-    private readonly Task writerTask;
+    private readonly object sync = new();
 
     public SessionLogWriter()
     {
@@ -27,42 +19,33 @@ public sealed class SessionLogWriter : IAsyncDisposable
         FilePath = Path.Combine(
             directory,
             "manager_" + DateTime.Now.ToString("yyyyMMdd_HHmmss") + ".log");
-        writerTask = Task.Run(WriteLoopAsync);
+        using FileStream file = new(
+            FilePath,
+            FileMode.Append,
+            FileAccess.Write,
+            FileShare.ReadWrite);
     }
 
     public string FilePath { get; }
 
     public void Write(string text)
     {
-        if (!string.IsNullOrEmpty(text))
+        if (string.IsNullOrEmpty(text))
         {
-            channel.Writer.TryWrite(text);
+            return;
         }
-    }
 
-    private async Task WriteLoopAsync()
-    {
-        await using FileStream file = new(
-            FilePath,
-            FileMode.Append,
-            FileAccess.Write,
-            FileShare.ReadWrite,
-            16 * 1024,
-            useAsync: true);
-        await using StreamWriter writer = new(file, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false))
+        lock (sync)
         {
-            AutoFlush = true
-        };
-
-        await foreach (string text in channel.Reader.ReadAllAsync())
-        {
-            await writer.WriteAsync(text);
+            File.AppendAllText(
+                FilePath,
+                text,
+                new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
         }
     }
 
     public async ValueTask DisposeAsync()
     {
-        channel.Writer.TryComplete();
-        await writerTask;
+        await Task.CompletedTask;
     }
 }

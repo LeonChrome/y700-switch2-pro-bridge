@@ -26,6 +26,12 @@ public enum VirtualBackendMode
     EmbeddedUsbipExperimental
 }
 
+public enum StickProcessingMode
+{
+    RawDirect,
+    StabilityGuard
+}
+
 public sealed record ViiperPushRateOption(
     ViiperPushRateMode Mode,
     string Label,
@@ -92,6 +98,31 @@ public sealed record VirtualBackendOption(
     public static VirtualBackendOption Default => All[0];
 
     public static VirtualBackendOption FromLabel(string? label)
+    {
+        return All.FirstOrDefault(o => string.Equals(o.Label, label, StringComparison.Ordinal)) ?? Default;
+    }
+}
+
+public sealed record StickProcessingOption(
+    StickProcessingMode Mode,
+    string Label,
+    string Description)
+{
+    public static IReadOnlyList<StickProcessingOption> All { get; } =
+    [
+        new(
+            StickProcessingMode.RawDirect,
+            "Raw Direct（推荐）",
+            "真实 Pro2 摇杆原始值直通到虚拟手柄，不做 hold/ramp/filter，最低延迟。"),
+        new(
+            StickProcessingMode.StabilityGuard,
+            "Stability Guard（诊断）",
+            "仅在怀疑真实 BLE 轴值坏跳时使用，会记录并短暂保护可疑单帧尖峰。")
+    ];
+
+    public static StickProcessingOption Default => All[0];
+
+    public static StickProcessingOption FromLabel(string? label)
     {
         return All.FirstOrDefault(o => string.Equals(o.Label, label, StringComparison.Ordinal)) ?? Default;
     }

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
 using System.Threading;
@@ -61,18 +62,9 @@ public sealed class ViiperBridgeSession : IAsyncDisposable
         string ping = await client.PingAsync(cancellationToken);
         progress.Report("[VIIPER] ping " + ping);
 
-        var buses = await client.BusListAsync(cancellationToken);
-        if (buses.Count == 0)
-        {
-            busId = await client.BusCreateAsync(cancellationToken);
-            createdBus = true;
-            progress.Report("[VIIPER] created bus " + busId);
-        }
-        else
-        {
-            busId = buses.Min();
-            progress.Report("[VIIPER] using bus " + busId);
-        }
+        busId = await client.BusCreateAsync(cancellationToken);
+        createdBus = true;
+        progress.Report("[VIIPER] created dedicated bus " + busId);
 
         device = await client.AddDeviceAsync(busId, profile.DeviceType, cancellationToken);
         usbipAttachCount = 1;
@@ -156,6 +148,9 @@ public sealed class ViiperBridgeSession : IAsyncDisposable
         ulong age33To50 = 0;
         ulong age50To100 = 0;
         ulong ageOver100 = 0;
+        var intervalSourceAgeSamples = new List<double>((int)PerformanceLogIntervalFrames);
+        var intervalLoopGapSamples = new List<double>((int)PerformanceLogIntervalFrames);
+        var intervalWriteSamplesMs = new List<double>((int)PerformanceLogIntervalFrames);
         double intervalWriteMsSum = 0;
         double intervalWriteMaxMs = 0;
         ulong intervalWriteSamples = 0;
@@ -186,6 +181,7 @@ public sealed class ViiperBridgeSession : IAsyncDisposable
                 {
                     intervalLoopGapOver16Ms++;
                 }
+                intervalLoopGapSamples.Add(loopGapMs);
             }
             lastLoopTicks = loopTicks;
 
@@ -220,6 +216,7 @@ public sealed class ViiperBridgeSession : IAsyncDisposable
                 {
                     double ageMs = age.TotalMilliseconds;
                     intervalSourceAgeMaxMs = Math.Max(intervalSourceAgeMaxMs, ageMs);
+                    intervalSourceAgeSamples.Add(ageMs);
                     CountAgeBucket(
                         ageMs,
                         ref age0To20,
@@ -252,6 +249,7 @@ public sealed class ViiperBridgeSession : IAsyncDisposable
                 double writeMs = TicksToMilliseconds(Stopwatch.GetTimestamp() - writeStartTicks);
                 intervalWriteSamples++;
                 intervalWriteMsSum += writeMs;
+                intervalWriteSamplesMs.Add(writeMs);
                 intervalWriteMaxMs = Math.Max(intervalWriteMaxMs, writeMs);
                 if (writeMs >= 2)
                 {
@@ -324,13 +322,19 @@ public sealed class ViiperBridgeSession : IAsyncDisposable
                         : intervalWriteMsSum / intervalWriteSamples;
                     rateSummary +=
                         " loop_gap_max_ms=" + intervalLoopGapMaxMs.ToString("F2") +
+                        " loop_gap_p95_ms=" + Percentile(intervalLoopGapSamples, 95).ToString("F2") +
+                        " loop_gap_p99_ms=" + Percentile(intervalLoopGapSamples, 99).ToString("F2") +
                         " loop_gap_over8=" + intervalLoopGapOver8Ms +
                         " loop_gap_over16=" + intervalLoopGapOver16Ms +
                         " viiper_write_avg_ms=" + avgWriteMs.ToString("F3") +
                         " viiper_write_max_ms=" + intervalWriteMaxMs.ToString("F3") +
+                        " viiper_write_p95_ms=" + Percentile(intervalWriteSamplesMs, 95).ToString("F3") +
+                        " viiper_write_p99_ms=" + Percentile(intervalWriteSamplesMs, 99).ToString("F3") +
                         " viiper_write_over2=" + intervalWriteOver2Ms +
                         " viiper_write_over8=" + intervalWriteOver8Ms +
                         " source_age_max_ms=" + intervalSourceAgeMaxMs.ToString("F1") +
+                        " source_age_p95_ms=" + Percentile(intervalSourceAgeSamples, 95).ToString("F1") +
+                        " source_age_p99_ms=" + Percentile(intervalSourceAgeSamples, 99).ToString("F1") +
                         " usbip_attach_count=" + usbipAttachCount +
                         " usbip_detach_count=" + UsbipDetachCount +
                         " device_recreate_count=" + DeviceRecreateCount +
@@ -347,7 +351,10 @@ public sealed class ViiperBridgeSession : IAsyncDisposable
                     intervalLoopGapMaxMs = 0;
                     intervalLoopGapOver8Ms = 0;
                     intervalLoopGapOver16Ms = 0;
+                    intervalLoopGapSamples.Clear();
                     intervalSourceAgeMaxMs = 0;
+                    intervalSourceAgeSamples.Clear();
+                    intervalWriteSamplesMs.Clear();
                     statePushCount = 0;
                     stateReuseCount = 0;
                     sameStatePushMax = currentSameStatePushes;
@@ -370,6 +377,27 @@ public sealed class ViiperBridgeSession : IAsyncDisposable
     private static double TicksToMilliseconds(long ticks)
     {
         return ticks * 1000.0 / Stopwatch.Frequency;
+    }
+
+    private static double Percentile(IReadOnlyList<double> values, double percentile)
+    {
+        if (values.Count == 0)
+        {
+            return 0;
+        }
+
+        double[] sorted = values.ToArray();
+        Array.Sort(sorted);
+        double position = (sorted.Length - 1) * Math.Clamp(percentile, 0, 100) / 100.0;
+        int lower = (int)Math.Floor(position);
+        int upper = (int)Math.Ceiling(position);
+        if (lower == upper)
+        {
+            return sorted[lower];
+        }
+
+        double weight = position - lower;
+        return sorted[lower] * (1.0 - weight) + sorted[upper] * weight;
     }
 
     private static void CountAgeBucket(

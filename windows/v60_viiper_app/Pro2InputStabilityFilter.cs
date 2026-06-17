@@ -57,7 +57,12 @@ public sealed class Pro2InputFilterResult
     public GamepadState RawState { get; }
     public GamepadState AcceptedState { get; }
     public IReadOnlyList<Pro2AxisFilterEvent> Events { get; }
-    public bool HasAxisIntervention => Events.Count > 0;
+    public bool HasAxisTelemetry => Events.Count > 0;
+    public int InterventionCount => Events.Count(e =>
+        e.Decision != Pro2AxisFilterDecisionKind.Accept ||
+        e.RawToFilteredDelta > 0 ||
+        e.InputSwallowed);
+    public bool HasAxisIntervention => InterventionCount > 0;
     public bool HasHoldOrReject => Events.Any(e =>
         e.Decision == Pro2AxisFilterDecisionKind.Hold ||
         e.Decision == Pro2AxisFilterDecisionKind.Reject);
@@ -245,6 +250,23 @@ public sealed class Pro2InputStabilityFilter
         if (fastReversal)
         {
             fastReversalCount++;
+        }
+
+        if (frameDeltaMs >= options.AxisLinkRecoveryGapMs &&
+            deltaFromGood >= options.AxisMotionDeltaThreshold)
+        {
+            return FollowFastMotion(
+                axis,
+                previous,
+                current,
+                rawValue,
+                nowTicks,
+                frameDeltaMs,
+                deltaFromGood,
+                "link_recovery_accept",
+                fastReversal,
+                centerCrossing,
+                events);
         }
 
         if (axis.SuspectActive)
@@ -472,7 +494,13 @@ public sealed class Pro2InputStabilityFilter
                 ? "idle_confirmed"
                 : "active_motion";
 
-        if (options.AxisRampEnabled)
+        bool idleMotion = reason.Contains("idle", StringComparison.Ordinal);
+        bool linkRecovery = reason.Contains("link_recovery", StringComparison.Ordinal);
+        bool lowLatencyBypass =
+            options.AxisLowLatencyMotionBypassEnabled &&
+            (!idleMotion || linkRecovery);
+
+        if (options.AxisRampEnabled && !lowLatencyBypass)
         {
             int maxStep = Math.Max(
                 1,
@@ -826,6 +854,15 @@ public sealed class Pro2InputStabilityFilter
             CandidateLastValue = value;
             LastRawValue = value;
             LastRawTicks = nowTicks;
+            if (CandidateStartTicks == 0)
+            {
+                CandidateStartTicks = nowTicks;
+                CandidateFrameCount = 1;
+            }
+            else
+            {
+                CandidateFrameCount++;
+            }
             CandidateDirection = Sign(value - LastGoodValue);
         }
 

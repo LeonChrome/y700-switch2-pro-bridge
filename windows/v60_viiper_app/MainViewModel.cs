@@ -31,11 +31,12 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private ViiperBridgeSession? session;
     private string host = "127.0.0.1";
     private string port = "3242";
-    private string status = "V6.2.0 VIIPER Windows-only 新和联胜版本已就绪。如未安装 usbip-win2，请先点击安装/修复。";
+    private string status = "V6.2.4 VIIPER Windows-only 新和联胜 Raw Stick 直通版已就绪。如未安装 usbip-win2，请先点击安装/修复。";
     private string inputStatus = "真实 Pro2 BLE 输入未连接。";
     private string selectedPushRateLabel = ViiperPushRateOption.Default.Label;
     private string selectedGyroModeLabel = ViiperGyroModeOption.Default.Label;
     private string selectedBackendLabel = VirtualBackendOption.Default.Label;
+    private string selectedStickProcessingLabel = StickProcessingOption.Default.Label;
     private bool running;
     private bool busy;
     private bool shuttingDown;
@@ -74,14 +75,22 @@ public sealed class MainViewModel : INotifyPropertyChanged
             ViiperGyroModeOption.FromLabel(userSettings.GyroModeLabel).Label;
         selectedBackendLabel =
             VirtualBackendOption.FromLabel(userSettings.BackendLabel).Label;
+        selectedStickProcessingLabel =
+            StickProcessingOption.FromLabel(userSettings.StickProcessingLabel).Label;
         inputSource.SetRumbleGain(rumbleMultiplier);
+        inputSource.SetStickProcessingMode(SelectedStickProcessingOption.Mode);
         RefreshRuntimeReadiness();
         AppendLog("[SESSION_LOG] " + sessionLog.FilePath);
-        AppendLog("V6.2.0 说明：吸收 TommyWabg 路线的 BLE throughput / dynamic GATT 思路，并加入短链路后端档位。");
+        if (!string.IsNullOrWhiteSpace(StartupProcessGuard.LastSummary))
+        {
+            AppendLog(StartupProcessGuard.LastSummary);
+        }
+        AppendLog("V6.2.4 说明：默认 Raw Direct 摇杆直通，不再让稳定滤波器参与正常游戏手感路径；Stability Guard 只作为诊断档。");
         AppendLog("[RUNTIME] " + RuntimeReadinessText);
         AppendLog("[RUMBLE_GAIN] multiplier=" + rumbleMultiplier.ToString("F1"));
         AppendLog("[LINK_TUNING] push_hz=" + SelectedPushRateOption.Hz.ToString("F1") +
                   " gyro_mode=" + SelectedGyroModeOption.Label +
+                  " stick=" + SelectedStickProcessingOption.Label +
                   " backend=" + SelectedBackendOption.Label);
     }
 
@@ -212,6 +221,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public IReadOnlyList<string> BackendChoices =>
         VirtualBackendOption.All.Select(o => o.Label).ToArray();
 
+    public IReadOnlyList<string> StickProcessingChoices =>
+        StickProcessingOption.All.Select(o => o.Label).ToArray();
+
     public string SelectedPushRate
     {
         get => selectedPushRateLabel;
@@ -277,9 +289,33 @@ public sealed class MainViewModel : INotifyPropertyChanged
         }
     }
 
+    public string SelectedStickProcessing
+    {
+        get => selectedStickProcessingLabel;
+        set
+        {
+            string normalized = StickProcessingOption.FromLabel(value).Label;
+            if (selectedStickProcessingLabel == normalized)
+            {
+                return;
+            }
+
+            selectedStickProcessingLabel = normalized;
+            userSettings.StickProcessingLabel = normalized;
+            inputSource.SetStickProcessingMode(SelectedStickProcessingOption.Mode);
+            SaveUserSettings("[STICK_MODE]");
+            AppendLog("[STICK_MODE] selected=" + SelectedStickProcessingOption.Label +
+                      " mode=" + SelectedStickProcessingOption.Mode +
+                      " apply=immediate");
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(LinkTuningSummary));
+        }
+    }
+
     public string LinkTuningSummary =>
         "push=" + SelectedPushRateOption.Hz.ToString("F1") +
         "Hz · gyro=" + SelectedGyroModeOption.Label +
+        " · stick=" + SelectedStickProcessingOption.Label +
         " · backend=" + SelectedBackendOption.Label;
 
     public bool IsDualSenseSelected => selectedMode == ViiperVirtualMode.DualSenseLike;
@@ -401,10 +437,27 @@ public sealed class MainViewModel : INotifyPropertyChanged
             {
                 throw new InvalidOperationException("端口 " + apiPort + " 已被非 VIIPER 服务占用。");
             }
-            Status = "检测到已有 VIIPER server，直接复用 " + Host.Trim() + ":" + apiPort + "。";
-            AppendLog("[VIIPER_SERVER] using existing server " + existingResponse);
-            AppendLog("[PING] " + existingResponse);
-            return;
+            AppendLog("[VIIPER_SERVER] existing local server detected; cleaning it instead of reusing stale bus/device state. " + existingResponse);
+            AppendLog(StartupProcessGuard.CleanupConflictingProcesses());
+            await Task.Delay(900, cancellationToken);
+            string? stillAliveResponse = null;
+            try
+            {
+                stillAliveResponse = await PingCoreAsync(cancellationToken);
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch
+            {
+            }
+            if (stillAliveResponse != null)
+            {
+                throw new InvalidOperationException(
+                    "端口 " + apiPort + " 上的旧 VIIPER server 仍在响应，无法建立干净 PS5/Pro2/Xbox 链路：" +
+                    stillAliveResponse);
+            }
         }
 
         string? exe = FindLocalViiperExe();
@@ -1195,7 +1248,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "PRO2WirelessReceiverControlBoard",
             "embedded",
-            "v6.2.0",
+            "v6.2.4",
             "viiper",
             "haptic-v0.8.0");
         Directory.CreateDirectory(root);
@@ -1331,6 +1384,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
         ViiperGyroModeOption.FromLabel(selectedGyroModeLabel);
     private VirtualBackendOption SelectedBackendOption =>
         VirtualBackendOption.FromLabel(selectedBackendLabel);
+    private StickProcessingOption SelectedStickProcessingOption =>
+        StickProcessingOption.FromLabel(selectedStickProcessingLabel);
 
     private static ViiperDeviceProfile ProfileFor(ViiperVirtualMode mode)
     {

@@ -1,5 +1,22 @@
 # Changelog
 
+## V6.2.4 新和联胜 VIIPER Raw Stick
+
+- Promoted the V6.2 Windows-only VIIPER route to `v6.2.4`.
+- Default stick processing is now `Raw Direct`: real Pro2 BLE stick axes go
+  straight to the virtual USB controller without axis hold, ramp, or candidate
+  confirmation on the gameplay path.
+- Kept `Stability Guard` as an explicit diagnostic option for suspected raw BLE
+  axis glitches instead of using it by default.
+- Added `stick_mode=raw_direct/stability_guard` telemetry and a UI selector so
+  field logs can separate raw input issues from virtual mapping issues.
+- Startup cleanup still removes stale Manager/VIIPER processes and each mode
+  creates a dedicated VIIPER bus/device.
+- Latest field run showed stable virtual USB behavior: no device recreate, no
+  stream reconnect, no Steam device hash change, VIIPER push near 125 Hz, and
+  USB write p95 around 0.10 ms.
+- Published `release/v6.2.4/新和联胜VIIPER版本-aio-v6.2.4.exe`.
+
 ## V6.1.0 新和联胜 VIIPER Stability
 
 - Promoted the Windows-only VIIPER route to V6.1.0 with the three modes intact:

@@ -484,6 +484,20 @@ Expect(
     acceptedAfterSpike.AcceptedState.Lx == GamepadState.AxisCenter,
     "stability filter rejects candidate that returns to last good");
 
+var recoveryFilter = new Pro2InputStabilityFilter();
+recoveryFilter.ProcessAt(centerState, TimeSpan.Zero);
+var linkRecoveryMove = GamepadState.Neutral();
+linkRecoveryMove.Lx = GamepadState.AxisMax;
+Pro2InputFilterResult linkRecovery = recoveryFilter.ProcessAt(
+    linkRecoveryMove,
+    TimeSpan.FromMilliseconds(120));
+Expect(
+    linkRecovery.AcceptedState.Lx == GamepadState.AxisMax &&
+    !linkRecovery.HasHoldOrReject &&
+    !linkRecovery.HasRamp &&
+    linkRecovery.Events.Any(e => e.Reason.Contains("link_recovery", StringComparison.Ordinal)),
+    "long BLE gap recovery frame follows raw stick input instead of being held as an idle spike");
+
 var burstFilter = new Pro2InputStabilityFilter();
 burstFilter.ProcessAt(centerState, TimeSpan.Zero);
 for (int i = 1; i <= 2; i++)
@@ -491,22 +505,47 @@ for (int i = 1; i <= 2; i++)
     Pro2InputFilterResult burst = burstFilter.ProcessAt(
         singleFrameSpike,
         TimeSpan.FromMilliseconds(i * 15));
-    Expect(
-        burst.HasHoldOrReject &&
-        burst.AcceptedState.Lx == GamepadState.AxisCenter,
-        "idle spike burst frame " + i + " is briefly held while proving continuity");
+    if (i == 1)
+    {
+        Expect(
+            burst.HasHoldOrReject &&
+            burst.AcceptedState.Lx == GamepadState.AxisCenter,
+            "idle spike burst first frame is held while proving continuity");
+    }
+    else
+    {
+        Expect(
+            burst.AcceptedState.Lx == GamepadState.AxisMax &&
+            !burst.HasInputSwallowed,
+            "sustained same-direction raw motion follows on the second BLE frame");
+    }
 }
 Pro2InputFilterResult burstFollow = burstFilter.ProcessAt(
     singleFrameSpike,
     TimeSpan.FromMilliseconds(45));
 Expect(
-    burstFollow.AcceptedState.Lx > GamepadState.AxisCenter &&
+    burstFollow.AcceptedState.Lx == GamepadState.AxisMax &&
     !burstFollow.HasInputSwallowed,
-    "sustained same-direction raw motion starts following within 30-60 ms");
+    "sustained same-direction raw motion stays fully followed within 30-60 ms");
 Pro2InputFilterResult burstReturn = burstFilter.ProcessAt(centerState, TimeSpan.FromMilliseconds(75));
 Expect(
     burstReturn.AcceptedState.Lx < burstFollow.AcceptedState.Lx,
     "return after a short burst moves the authoritative state back instead of staying swallowed");
+
+var boundaryConfirmFilter = new Pro2InputStabilityFilter();
+boundaryConfirmFilter.ProcessAt(centerState, TimeSpan.Zero);
+Pro2InputFilterResult boundaryFirst = boundaryConfirmFilter.ProcessAt(
+    singleFrameSpike,
+    TimeSpan.FromMilliseconds(15));
+Expect(boundaryFirst.HasHoldOrReject, "first healthy-cadence spike is still protected");
+Pro2InputFilterResult boundarySecond = boundaryConfirmFilter.ProcessAt(
+    singleFrameSpike,
+    TimeSpan.FromMilliseconds(29.5));
+Expect(
+    boundarySecond.AcceptedState.Lx == GamepadState.AxisMax &&
+    !boundarySecond.HasHoldOrReject &&
+    !boundarySecond.HasRamp,
+    "confirmed active motion is not delayed by a 14.5 ms/15 ms confirm boundary");
 
 var fastMoveFilter = new Pro2InputStabilityFilter();
 fastMoveFilter.ProcessAt(centerState, TimeSpan.Zero);
@@ -514,15 +553,21 @@ Pro2InputFilterResult fastMove = fastMoveFilter.ProcessAt(singleFrameSpike, Time
 Expect(fastMove.HasHoldOrReject, "fast real move starts as suspect");
 fastMove = fastMoveFilter.ProcessAt(singleFrameSpike, TimeSpan.FromMilliseconds(30));
 Expect(
-    fastMove.AcceptedState.Lx == GamepadState.AxisCenter &&
+    fastMove.AcceptedState.Lx == GamepadState.AxisMax &&
     !fastMove.HasInputSwallowed,
-    "fast real move may hold one extra BLE frame but is not counted as swallowed");
+    "fast real move follows on the second BLE frame without being swallowed");
 fastMove = fastMoveFilter.ProcessAt(singleFrameSpike, TimeSpan.FromMilliseconds(45));
 Expect(
-    fastMove.HasRamp &&
-    fastMove.AcceptedState.Lx > GamepadState.AxisCenter &&
-    fastMove.AcceptedState.Lx < GamepadState.AxisMax,
-    "sustained fast real move follows within 30-60 ms with ramp instead of teleport");
+    !fastMove.HasRamp &&
+    fastMove.AcceptedState.Lx == GamepadState.AxisMax,
+    "sustained fast real move bypasses ramp in low-latency mode");
+var mediumActiveMove = GamepadState.Neutral();
+mediumActiveMove.Lx = (ushort)(GamepadState.AxisMax - 650);
+fastMove = fastMoveFilter.ProcessAt(mediumActiveMove, TimeSpan.FromMilliseconds(60));
+Expect(
+    !fastMove.HasRamp &&
+    fastMove.AcceptedState.Lx == mediumActiveMove.Lx,
+    "active stick motion never ramps behind raw input in low-latency mode");
 
 var reversalFilter = new Pro2InputStabilityFilter();
 reversalFilter.ProcessAt(centerState, TimeSpan.Zero);
@@ -534,10 +579,11 @@ var hardLeft = GamepadState.Neutral();
 hardLeft.Lx = 0;
 reversal = reversalFilter.ProcessAt(hardLeft, TimeSpan.FromMilliseconds(60));
 Expect(
-    reversal.HasRamp &&
+    !reversal.HasRamp &&
+    reversal.HasAxisTelemetry &&
     reversal.Events.Any(e => e.FastReversal) &&
-    reversal.AcceptedState.Lx < beforeReversal,
-    "fast reversal is identified and moves output immediately instead of being swallowed");
+    reversal.AcceptedState.Lx == 0,
+    "fast reversal is identified and directly follows raw input in low-latency mode");
 reversal = reversalFilter.ProcessAt(hardLeft, TimeSpan.FromMilliseconds(75));
 Expect(
     reversal.AcceptedState.Lx < beforeReversal &&

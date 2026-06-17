@@ -210,9 +210,10 @@ if (synthetic)
     if (stats.TotalFrames < 20 ||
         stats.HeldSpikes == 0 ||
         stats.RejectedSpikes == 0 ||
-        stats.RampedCandidates == 0)
+        stats.AcceptedCandidates == 0 ||
+        stats.FastReversalCount == 0)
     {
-        throw new InvalidOperationException("Synthetic replay did not exercise hold/reject/ramp paths.");
+        throw new InvalidOperationException("Synthetic replay did not exercise hold/reject/low-latency accept paths.");
     }
     if (stats.InputSwallowedCount != 0)
     {

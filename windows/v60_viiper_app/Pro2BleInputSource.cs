@@ -30,6 +30,9 @@ public sealed class Pro2BleInputSource :
     private const double MinimumTargetNotifyRateHz = 62.0;
     private const double MinimumUsableNotifyRateHz = 40.0;
     private const double FastNotifyRateHz = 115.0;
+    private const double LinkHealthReassertGapMs = 55.0;
+    private const double LinkHealthReassertCooldownMs = 8000.0;
+    private const uint LinkHealthWarmupNotifications = 80;
 
     private static readonly byte[][] InitCommands =
     [
@@ -98,6 +101,7 @@ public sealed class Pro2BleInputSource :
     private uint inputGap250Count;
     private uint inputGap750Count;
     private double rumbleGain = 1.0;
+    private StickProcessingMode stickProcessingMode = StickProcessingOption.Default.Mode;
     private string status = "未连接真实 Pro2 BLE。";
     private string connectedLabel = "";
     private string lastNotifySummary = "";
@@ -115,6 +119,9 @@ public sealed class Pro2BleInputSource :
     private double lastViiperPushHz;
     private ulong axisSpikeLogCount;
     private long asyncProgressDroppedCount;
+    private long lastThroughputReassertTicks;
+    private uint throughputReassertCount;
+    private double lastThroughputReassertGapMs;
 
     public Pro2BleInputSource()
     {
@@ -176,6 +183,22 @@ public sealed class Pro2BleInputSource :
         }
     }
 
+    public void SetStickProcessingMode(StickProcessingMode mode)
+    {
+        lock (gate)
+        {
+            if (stickProcessingMode == mode)
+            {
+                return;
+            }
+
+            stickProcessingMode = mode;
+            inputStability.Reset();
+            rawState = GamepadState.Neutral();
+            filteredState = GamepadState.Neutral();
+        }
+    }
+
     public IReadOnlyList<string> DescribeCandidates()
     {
         lock (lastCandidates)
@@ -214,7 +237,10 @@ public sealed class Pro2BleInputSource :
             lastPerformanceWarning = "";
         }
         progress.Report("[PRO2_BLE] scanning without Windows HID pairing. Wake the Pro2 and keep it near the PC.");
-        progress.Report("[PRO2_AXIS_FILTER] " + inputStabilityOptions.Summary);
+        progress.Report("[PRO2_STICK] mode=" + StickProcessingModeLabel(stickProcessingMode) +
+                        (stickProcessingMode == StickProcessingMode.RawDirect
+                            ? " raw direct, no axis hold/ramp/filter on gameplay path."
+                            : " stability guard enabled. " + inputStabilityOptions.Summary));
         List<BleCandidate> candidates = await ScanCandidatesAsync(progress, TimeSpan.FromSeconds(8), cancellationToken);
         if (candidates.Count == 0)
         {
@@ -925,13 +951,15 @@ public sealed class Pro2BleInputSource :
         double parsedBleHz;
         lock (gate)
         {
-            filterResult = inputStability.Process(state, nowTicks);
+            filterResult = stickProcessingMode == StickProcessingMode.RawDirect
+                ? new Pro2InputFilterResult(state.Clone(), state.Clone(), Array.Empty<Pro2AxisFilterEvent>())
+                : inputStability.Process(state, nowTicks);
             stableState = filterResult.AcceptedState;
             rawStateSnapshot = filterResult.RawState.Clone();
             filteredStateSnapshot = stableState.Clone();
             if (filterResult.HasAxisIntervention)
             {
-                axisSpikeRejectCount += (uint)filterResult.Events.Count;
+                axisSpikeRejectCount += (uint)filterResult.InterventionCount;
                 lastNotifySummary += " filtered=" + filterResult.PrimaryReason;
             }
 
@@ -978,10 +1006,19 @@ public sealed class Pro2BleInputSource :
             spikeRecorder.AddFrame(frame);
         }
 
+        MaybeReassertThroughputForGap(rawGapMs, parsedBleHz);
+
         if (filterResult.HasAxisIntervention && inputStabilityOptions.AxisSpikeLogEnabled)
         {
             foreach (Pro2AxisFilterEvent axisEvent in filterResult.Events)
             {
+                if (axisEvent.Decision == Pro2AxisFilterDecisionKind.Accept &&
+                    axisEvent.RawToFilteredDelta == 0 &&
+                    !axisEvent.InputSwallowed)
+                {
+                    continue;
+                }
+
                 Pro2AxisSpikeTelemetry telemetry = BuildSpikeTelemetry(
                     axisEvent,
                     now,
@@ -996,6 +1033,53 @@ public sealed class Pro2BleInputSource :
                 ReportAxisSpikeTelemetry(telemetry, parseSeq);
             }
         }
+    }
+
+    private void MaybeReassertThroughputForGap(double rawGapMs, double parsedBleHz)
+    {
+        if (rawGapMs < LinkHealthReassertGapMs ||
+            !OperatingSystem.IsWindowsVersionAtLeast(10, 0, 22000))
+        {
+            return;
+        }
+
+        BluetoothLEDevice? currentDevice = device;
+        IProgress<string>? progress = connectionProgress;
+        if (currentDevice == null || progress == null)
+        {
+            return;
+        }
+
+        long nowTicks = Stopwatch.GetTimestamp();
+        bool shouldReassert;
+        uint reassertSeq;
+        lock (gate)
+        {
+            double sinceLastMs = lastThroughputReassertTicks == 0
+                ? double.MaxValue
+                : TicksToMilliseconds(nowTicks - lastThroughputReassertTicks);
+            shouldReassert =
+                rawNotifyCount >= LinkHealthWarmupNotifications &&
+                sinceLastMs >= LinkHealthReassertCooldownMs;
+            if (!shouldReassert)
+            {
+                return;
+            }
+
+            lastThroughputReassertTicks = nowTicks;
+            lastThroughputReassertGapMs = rawGapMs;
+            throughputReassertCount++;
+            reassertSeq = throughputReassertCount;
+            connectionPreferenceStatus = "health_reassert_pending";
+        }
+
+        progress.Report("[PRO2_BLE_LINK] health reassert #" + reassertSeq +
+                        " raw_gap_ms=" + rawGapMs.ToString("F1") +
+                        " parsed_hz=" + parsedBleHz.ToString("F1"));
+        TryRequestWindows11ThroughputPreference(
+            currentDevice,
+            "health_reassert",
+            progress);
     }
 
     private void ObserveWindowsConnectionParameters(
@@ -1515,6 +1599,9 @@ public sealed class Pro2BleInputSource :
             axisSpikeLogCount = 0;
             Interlocked.Exchange(ref asyncProgressDroppedCount, 0);
             lastViiperPushHz = 0;
+            lastThroughputReassertTicks = 0;
+            throughputReassertCount = 0;
+            lastThroughputReassertGapMs = 0;
             spikeRecorder.Clear();
             connectionPreferenceStatus = "not_requested";
             connectionIntervalUnits = 0;
@@ -1572,12 +1659,15 @@ public sealed class Pro2BleInputSource :
                " ble_timeout_ms=" + (connectionLinkTimeout * 10) +
                " ble_pref=" + connectionPreferenceStatus +
                " ble_rate_class=" + linkRateClass +
+               " ble_reassert=" + throughputReassertCount +
+               " ble_reassert_last_gap_ms=" + lastThroughputReassertGapMs.ToString("F1") +
                " gatt_mode=" + gattSelectionMode +
                " ble_gap45=" + inputGap45Count +
                " ble_gap250=" + inputGap250Count +
                " ble_gap750=" + inputGap750Count +
                " axis_spike=" + axisSpikeRejectCount +
                inputStability.MetricsSummary +
+               " stick_mode=" + StickProcessingModeLabel(stickProcessingMode) +
                " raw_integrity_mode=" + (inputStabilityOptions.RawIntegrityModeEnabled ? "shadow_on" : "shadow") +
                " raw_left_x=" + rawState.Lx +
                " raw_left_y=" + rawState.Ly +
@@ -1604,6 +1694,16 @@ public sealed class Pro2BleInputSource :
                " rumble_fail=" + rumbleFailureCount +
                " rumble_gain=" + RumbleGain.ToString("F1") +
                " parse_fail=" + parseFailCount;
+    }
+
+    private static string StickProcessingModeLabel(StickProcessingMode mode)
+    {
+        return mode switch
+        {
+            StickProcessingMode.RawDirect => "raw_direct",
+            StickProcessingMode.StabilityGuard => "stability_guard",
+            _ => mode.ToString().ToLowerInvariant()
+        };
     }
 
     private static int MaxAxisDelta(GamepadState a, GamepadState b)

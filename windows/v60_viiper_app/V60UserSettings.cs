@@ -12,6 +12,7 @@ public sealed class V60UserSettings
     public string PushRateLabel { get; set; } = ViiperPushRateOption.Default.Label;
     public string GyroModeLabel { get; set; } = ViiperGyroModeOption.Default.Label;
     public string BackendLabel { get; set; } = VirtualBackendOption.Default.Label;
+    public string StickProcessingLabel { get; set; } = StickProcessingOption.Default.Label;
 
     public static V60UserSettings Load()
     {
@@ -39,6 +40,8 @@ public sealed class V60UserSettings
                     ViiperGyroModeOption.FromLabel(loaded.GyroModeLabel).Label;
                 loaded.BackendLabel =
                     VirtualBackendOption.FromLabel(loaded.BackendLabel).Label;
+                loaded.StickProcessingLabel =
+                    StickProcessingOption.FromLabel(loaded.StickProcessingLabel).Label;
                 return loaded;
             }
             catch
@@ -58,6 +61,7 @@ public sealed class V60UserSettings
             PushRateLabel = ViiperPushRateOption.FromLabel(PushRateLabel).Label;
             GyroModeLabel = ViiperGyroModeOption.FromLabel(GyroModeLabel).Label;
             BackendLabel = VirtualBackendOption.FromLabel(BackendLabel).Label;
+            StickProcessingLabel = StickProcessingOption.FromLabel(StickProcessingLabel).Label;
             string temporary = SettingsPath + ".tmp";
             File.WriteAllText(
                 temporary,
