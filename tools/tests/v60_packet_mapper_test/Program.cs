@@ -408,26 +408,38 @@ var heldState = new GamepadState
     Lx = 3000,
     R2 = GamepadState.TriggerMax
 };
+GamepadState fresh = InputContinuityPolicy.Resolve(
+    heldState,
+    TimeSpan.FromMilliseconds(18),
+    out string freshSource);
+Expect(freshSource == "pro2_ble_age_0_20", "18 ms BLE age is normal for 60 Hz source");
+
+GamepadState missedCycle = InputContinuityPolicy.Resolve(
+    heldState,
+    TimeSpan.FromMilliseconds(42),
+    out string missedCycleSource);
+Expect(missedCycleSource == "pro2_ble_age_33_50", "42 ms BLE age marks a possible missed source cycle");
+
 GamepadState held = InputContinuityPolicy.Resolve(
     heldState,
-    TimeSpan.FromMilliseconds(540),
+    TimeSpan.FromMilliseconds(120),
     out string heldSource);
-Expect(heldSource == "pro2_ble_hold", "540 ms BLE gap uses last-state hold");
-Expect(held.IsPressed(GamepadButtons.South), "short BLE gap preserves buttons");
-Expect(held.Lx == 3000 && held.R2 == GamepadState.TriggerMax, "short BLE gap preserves analog state");
+Expect(heldSource == "pro2_ble_age_gt100", ">100 ms BLE age is marked dangerous but still repeats latest_state briefly");
+Expect(held.IsPressed(GamepadButtons.South), "brief dangerous BLE age preserves buttons");
+Expect(held.Lx == 3000 && held.R2 == GamepadState.TriggerMax, "brief dangerous BLE age preserves analog state");
 
 GamepadState decayed = InputContinuityPolicy.Resolve(
     heldState,
-    TimeSpan.FromMilliseconds(1125),
+    TimeSpan.FromMilliseconds(540),
     out string decayedSource);
-Expect(decayedSource == "pro2_ble_safe_hold", "longer BLE gap enters safe analog hold");
+Expect(decayedSource == "pro2_ble_danger_safe_hold", "540 ms BLE gap enters safe analog hold");
 Expect(decayed.Buttons == GamepadButtons.None, "safe hold releases buttons");
 Expect(decayed.Lx == heldState.Lx, "safe hold does not create visible stick drift");
 Expect(decayed.R2 == 0, "safe hold releases triggers");
 
 GamepadState stale = InputContinuityPolicy.Resolve(
     heldState,
-    TimeSpan.FromMilliseconds(2100),
+    TimeSpan.FromMilliseconds(900),
     out string staleSource);
 Expect(staleSource == "neutral", "disconnected BLE input becomes neutral");
 Expect(stale.Buttons == GamepadButtons.None && stale.Lx == GamepadState.AxisCenter, "neutral fallback is safe");
@@ -435,40 +447,119 @@ Expect(stale.Buttons == GamepadButtons.None && stale.Lx == GamepadState.AxisCent
 var stability = new Pro2InputStabilityFilter();
 GamepadState centerState = GamepadState.Neutral();
 Expect(
-    stability.TryAccept(centerState, out GamepadState acceptedCenter, out _) &&
-    acceptedCenter.Lx == GamepadState.AxisCenter,
+    stability.ProcessAt(centerState, TimeSpan.Zero).AcceptedState.Lx == GamepadState.AxisCenter,
     "stability filter accepts initial center");
+GamepadState smallMove = GamepadState.Neutral();
+smallMove.Lx = (ushort)(GamepadState.AxisCenter + 220);
+Pro2InputFilterResult smallMoveResult = stability.ProcessAt(smallMove, TimeSpan.FromMilliseconds(15));
+Expect(
+    smallMoveResult.AcceptedState.Lx == smallMove.Lx &&
+    !smallMoveResult.HasAxisIntervention,
+    "normal small axis movement passes directly");
 var singleFrameSpike = new GamepadState
 {
     Buttons = GamepadButtons.South,
     Lx = GamepadState.AxisMax,
     Ly = GamepadState.AxisCenter,
     Rx = GamepadState.AxisCenter,
-    Ry = GamepadState.AxisCenter
+    Ry = GamepadState.AxisCenter,
+    AccelValid = true,
+    GyroValid = true,
+    AccelX = 11,
+    GyroZ = -22
 };
+var idleSpikeFilter = new Pro2InputStabilityFilter();
+idleSpikeFilter.ProcessAt(centerState, TimeSpan.Zero);
+Pro2InputFilterResult rejectedSpike = idleSpikeFilter.ProcessAt(singleFrameSpike, TimeSpan.FromMilliseconds(15));
 Expect(
-    !stability.TryAccept(singleFrameSpike, out GamepadState rejectedSpike, out string spikeReason) &&
-    spikeReason == "axis_spike_hold" &&
-    rejectedSpike.Lx == GamepadState.AxisCenter &&
-    rejectedSpike.IsPressed(GamepadButtons.South),
-    "stability filter holds one-frame axis spike while preserving buttons");
+    rejectedSpike.HasHoldOrReject &&
+    rejectedSpike.AcceptedState.Lx == GamepadState.AxisCenter &&
+    rejectedSpike.AcceptedState.IsPressed(GamepadButtons.South) &&
+    rejectedSpike.AcceptedState.AccelValid &&
+    rejectedSpike.AcceptedState.GyroZ == -22,
+    "stability filter holds one-frame axis spike while preserving buttons and motion");
+Pro2InputFilterResult acceptedAfterSpike = idleSpikeFilter.ProcessAt(centerState, TimeSpan.FromMilliseconds(30));
 Expect(
-    stability.TryAccept(centerState, out GamepadState acceptedAfterSpike, out _) &&
-    acceptedAfterSpike.Lx == GamepadState.AxisCenter,
-    "stability filter returns to center after discarded spike");
+    acceptedAfterSpike.HasHoldOrReject &&
+    acceptedAfterSpike.AcceptedState.Lx == GamepadState.AxisCenter,
+    "stability filter rejects candidate that returns to last good");
+
+var burstFilter = new Pro2InputStabilityFilter();
+burstFilter.ProcessAt(centerState, TimeSpan.Zero);
+for (int i = 1; i <= 2; i++)
+{
+    Pro2InputFilterResult burst = burstFilter.ProcessAt(
+        singleFrameSpike,
+        TimeSpan.FromMilliseconds(i * 15));
+    Expect(
+        burst.HasHoldOrReject &&
+        burst.AcceptedState.Lx == GamepadState.AxisCenter,
+        "idle spike burst frame " + i + " is briefly held while proving continuity");
+}
+Pro2InputFilterResult burstFollow = burstFilter.ProcessAt(
+    singleFrameSpike,
+    TimeSpan.FromMilliseconds(45));
 Expect(
-    !stability.TryAccept(singleFrameSpike, out _, out _),
-    "stability filter delays first confirmed large movement frame");
+    burstFollow.AcceptedState.Lx > GamepadState.AxisCenter &&
+    !burstFollow.HasInputSwallowed,
+    "sustained same-direction raw motion starts following within 30-60 ms");
+Pro2InputFilterResult burstReturn = burstFilter.ProcessAt(centerState, TimeSpan.FromMilliseconds(75));
 Expect(
-    !stability.TryAccept(singleFrameSpike, out _, out _),
-    "stability filter delays second confirmed large movement frame");
+    burstReturn.AcceptedState.Lx < burstFollow.AcceptedState.Lx,
+    "return after a short burst moves the authoritative state back instead of staying swallowed");
+
+var fastMoveFilter = new Pro2InputStabilityFilter();
+fastMoveFilter.ProcessAt(centerState, TimeSpan.Zero);
+Pro2InputFilterResult fastMove = fastMoveFilter.ProcessAt(singleFrameSpike, TimeSpan.FromMilliseconds(15));
+Expect(fastMove.HasHoldOrReject, "fast real move starts as suspect");
+fastMove = fastMoveFilter.ProcessAt(singleFrameSpike, TimeSpan.FromMilliseconds(30));
 Expect(
-    !stability.TryAccept(singleFrameSpike, out _, out _),
-    "stability filter delays third confirmed large movement frame");
+    fastMove.AcceptedState.Lx == GamepadState.AxisCenter &&
+    !fastMove.HasInputSwallowed,
+    "fast real move may hold one extra BLE frame but is not counted as swallowed");
+fastMove = fastMoveFilter.ProcessAt(singleFrameSpike, TimeSpan.FromMilliseconds(45));
 Expect(
-    stability.TryAccept(singleFrameSpike, out GamepadState confirmedSpike, out _) &&
-    confirmedSpike.Lx == GamepadState.AxisMax,
-    "stability filter accepts sustained large movement as intentional");
+    fastMove.HasRamp &&
+    fastMove.AcceptedState.Lx > GamepadState.AxisCenter &&
+    fastMove.AcceptedState.Lx < GamepadState.AxisMax,
+    "sustained fast real move follows within 30-60 ms with ramp instead of teleport");
+
+var reversalFilter = new Pro2InputStabilityFilter();
+reversalFilter.ProcessAt(centerState, TimeSpan.Zero);
+Pro2InputFilterResult reversal = reversalFilter.ProcessAt(singleFrameSpike, TimeSpan.FromMilliseconds(15));
+reversal = reversalFilter.ProcessAt(singleFrameSpike, TimeSpan.FromMilliseconds(30));
+reversal = reversalFilter.ProcessAt(singleFrameSpike, TimeSpan.FromMilliseconds(45));
+ushort beforeReversal = reversal.AcceptedState.Lx;
+var hardLeft = GamepadState.Neutral();
+hardLeft.Lx = 0;
+reversal = reversalFilter.ProcessAt(hardLeft, TimeSpan.FromMilliseconds(60));
+Expect(
+    reversal.HasRamp &&
+    reversal.Events.Any(e => e.FastReversal) &&
+    reversal.AcceptedState.Lx < beforeReversal,
+    "fast reversal is identified and moves output immediately instead of being swallowed");
+reversal = reversalFilter.ProcessAt(hardLeft, TimeSpan.FromMilliseconds(75));
+Expect(
+    reversal.AcceptedState.Lx < beforeReversal &&
+    !reversal.HasInputSwallowed,
+    "continued fast reversal keeps following without input_swallowed_count");
+
+var independentAxisFilter = new Pro2InputStabilityFilter();
+independentAxisFilter.ProcessAt(centerState, TimeSpan.Zero);
+var mixedState = GamepadState.Neutral();
+mixedState.Lx = GamepadState.AxisMax;
+mixedState.Rx = (ushort)(GamepadState.AxisCenter + 200);
+mixedState.Ry = (ushort)(GamepadState.AxisCenter - 180);
+mixedState.Buttons = GamepadButtons.North;
+Pro2InputFilterResult mixedResult = independentAxisFilter.ProcessAt(
+    mixedState,
+    TimeSpan.FromMilliseconds(15));
+Expect(
+    mixedResult.AcceptedState.Lx == GamepadState.AxisCenter &&
+    mixedResult.AcceptedState.Rx == mixedState.Rx &&
+    mixedResult.AcceptedState.Ry == mixedState.Ry &&
+    mixedResult.AcceptedState.IsPressed(GamepadButtons.North),
+    "left stick spike does not block right stick or buttons");
 
 using (WindowsTimerResolutionScope timerResolution = WindowsTimerResolutionScope.Begin())
 {

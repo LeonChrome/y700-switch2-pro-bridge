@@ -13,7 +13,11 @@ using Windows.Storage.Streams;
 
 namespace Y700Switch2V60Viiper;
 
-public sealed class Pro2BleInputSource : IGamepadInputSource, IGamepadInputMetricsSource, IGamepadOutputSink
+public sealed class Pro2BleInputSource :
+    IGamepadInputSource,
+    IGamepadInputMetricsSource,
+    IGamepadRuntimeTelemetrySink,
+    IGamepadOutputSink
 {
     private static readonly Guid NotifyFd2Uuid = Guid.Parse("ab7de9be-89fe-49ad-828f-118f09df7fd2");
     private static readonly Guid NotifyLegacyUuid = Guid.Parse("7492866c-ec3e-4619-8258-32755ffcc0f8");
@@ -49,7 +53,10 @@ public sealed class Pro2BleInputSource : IGamepadInputSource, IGamepadInputMetri
     private readonly object gate = new();
     private readonly object writeGate = new();
     private readonly Pro2HidReportParser parser = new();
-    private readonly Pro2InputStabilityFilter inputStability = new();
+    private readonly Pro2InputStabilityOptions inputStabilityOptions =
+        Pro2InputStabilityOptions.Default;
+    private readonly Pro2InputStabilityFilter inputStability;
+    private readonly Pro2Fd2SpikeRecorder spikeRecorder;
     private readonly List<BleCandidate> lastCandidates = [];
     private BluetoothLEAdvertisementWatcher? watcher;
     private BluetoothLEDevice? device;
@@ -79,6 +86,10 @@ public sealed class Pro2BleInputSource : IGamepadInputSource, IGamepadInputMetri
     private SemaphoreSlim? rumbleSignal;
     private Task? rumbleWriterTask;
     private byte[]? pendingRumblePacket;
+    private GamepadState rawState = GamepadState.Neutral();
+    private GamepadState filteredState = GamepadState.Neutral();
+    private DateTimeOffset rawStateAt;
+    private DateTimeOffset filteredStateAt;
     private uint rumbleQueuedCount;
     private uint rumbleWrittenCount;
     private uint rumbleCoalescedCount;
@@ -95,10 +106,21 @@ public sealed class Pro2BleInputSource : IGamepadInputSource, IGamepadInputMetri
     private ushort connectionLatency;
     private ushort connectionLinkTimeout;
     private string lastConnectionParametersSummary = "";
+    private string gattSelectionMode = "not_scanned";
+    private string gattDiscoverySummary = "";
     private IProgress<string>? connectionProgress;
     private string linkRateClass = "unknown";
     private string lastPerformanceFailure = "";
     private string lastPerformanceWarning = "";
+    private double lastViiperPushHz;
+    private ulong axisSpikeLogCount;
+    private long asyncProgressDroppedCount;
+
+    public Pro2BleInputSource()
+    {
+        inputStability = new Pro2InputStabilityFilter(inputStabilityOptions);
+        spikeRecorder = new Pro2Fd2SpikeRecorder(inputStabilityOptions);
+    }
 
     public bool IsRunning { get; private set; }
     public bool IsOutputReady =>
@@ -192,6 +214,7 @@ public sealed class Pro2BleInputSource : IGamepadInputSource, IGamepadInputMetri
             lastPerformanceWarning = "";
         }
         progress.Report("[PRO2_BLE] scanning without Windows HID pairing. Wake the Pro2 and keep it near the PC.");
+        progress.Report("[PRO2_AXIS_FILTER] " + inputStabilityOptions.Summary);
         List<BleCandidate> candidates = await ScanCandidatesAsync(progress, TimeSpan.FromSeconds(8), cancellationToken);
         if (candidates.Count == 0)
         {
@@ -328,6 +351,20 @@ public sealed class Pro2BleInputSource : IGamepadInputSource, IGamepadInputMetri
     public async ValueTask DisposeAsync()
     {
         await StopAsync();
+        await spikeRecorder.DisposeAsync();
+    }
+
+    public void ReportViiperPushRate(double actualHz)
+    {
+        if (double.IsNaN(actualHz) || double.IsInfinity(actualHz) || actualHz < 0)
+        {
+            return;
+        }
+
+        lock (gate)
+        {
+            lastViiperPushHz = actualHz;
+        }
     }
 
     private async Task<bool> ConnectCandidateAsync(
@@ -350,6 +387,13 @@ public sealed class Pro2BleInputSource : IGamepadInputSource, IGamepadInputMetri
         progress.Report("[PRO2_BLE] opened address=" + FormatAddress(candidate.Address) +
                         " name=" + (opened.Name ?? candidate.Name ?? "<unnamed>"));
 
+        ObserveWindowsConnectionParameters(opened, progress);
+        await Task.Delay(500, cancellationToken);
+        if (OperatingSystem.IsWindowsVersionAtLeast(10, 0, 22000))
+        {
+            TryRequestWindows11ThroughputPreference(opened, "initial", progress);
+        }
+
         GattDeviceServicesResult services =
             await opened.GetGattServicesAsync(BluetoothCacheMode.Uncached);
         if (services.Status != GattCommunicationStatus.Success)
@@ -358,47 +402,14 @@ public sealed class Pro2BleInputSource : IGamepadInputSource, IGamepadInputMetri
             return false;
         }
 
-        ObserveWindowsConnectionParameters(opened, progress);
-
-        foreach (GattDeviceService service in services.Services)
-        {
-            GattCharacteristicsResult chars =
-                await service.GetCharacteristicsAsync(BluetoothCacheMode.Uncached);
-            if (chars.Status != GattCommunicationStatus.Success)
-            {
-                continue;
-            }
-
-            foreach (GattCharacteristic characteristic in chars.Characteristics)
-            {
-                if (characteristic.Uuid == CmdUuid)
-                {
-                    commandCharacteristic = characteristic;
-                }
-                else if (characteristic.Uuid == AckUuid)
-                {
-                    ackCharacteristic = characteristic;
-                }
-                else if (characteristic.Uuid == NotifyFd2Uuid)
-                {
-                    fd2Characteristic = characteristic;
-                }
-                else if (characteristic.Uuid == NotifyLegacyUuid)
-                {
-                    legacyCharacteristic = characteristic;
-                }
-                else if (characteristic.Uuid == RumbleUuid)
-                {
-                    rumbleCharacteristic = characteristic;
-                }
-            }
-        }
+        await DiscoverGattChannelsAsync(services.Services, progress);
 
         progress.Report("[PRO2_BLE] gatt chars cmd=" + DescribeCharacteristic(commandCharacteristic) +
                         " ack=" + DescribeCharacteristic(ackCharacteristic) +
                         " fd2=" + DescribeCharacteristic(fd2Characteristic) +
                         " legacy=" + DescribeCharacteristic(legacyCharacteristic) +
-                        " rumble=" + DescribeCharacteristic(rumbleCharacteristic));
+                        " rumble=" + DescribeCharacteristic(rumbleCharacteristic) +
+                        " mode=" + gattSelectionMode);
 
         if (commandCharacteristic == null || ackCharacteristic == null ||
             (fd2Characteristic == null && legacyCharacteristic == null))
@@ -421,7 +432,12 @@ public sealed class Pro2BleInputSource : IGamepadInputSource, IGamepadInputMetri
         for (int i = 0; i < InitCommands.Length; i++)
         {
             ackTcs = new TaskCompletionSource<byte[]>(TaskCreationOptions.RunContinuationsAsynchronously);
-            GattCommunicationStatus write = await WriteCharacteristicAsync(commandCharacteristic, InitCommands[i]);
+            GattCommunicationStatus write = await WriteCharacteristicWithRetryAsync(
+                commandCharacteristic,
+                InitCommands[i],
+                "init-" + i,
+                progress,
+                cancellationToken);
             if (write != GattCommunicationStatus.Success)
             {
                 progress.Report("[PRO2_BLE] init write failed index=" + i + " status=" + write);
@@ -510,6 +526,184 @@ public sealed class Pro2BleInputSource : IGamepadInputSource, IGamepadInputMetri
         }
 
         return false;
+    }
+
+    private async Task DiscoverGattChannelsAsync(
+        IReadOnlyList<GattDeviceService> services,
+        IProgress<string> progress)
+    {
+        var serviceSummaries = new List<string>();
+        var probes = new List<GattServiceProbe>();
+
+        foreach (GattDeviceService service in services)
+        {
+            GattCharacteristicsResult chars =
+                await service.GetCharacteristicsAsync(BluetoothCacheMode.Uncached);
+            if (chars.Status != GattCommunicationStatus.Success)
+            {
+                serviceSummaries.Add(service.Uuid + ":status=" + chars.Status);
+                continue;
+            }
+
+            List<GattCharacteristic> characteristics = chars.Characteristics
+                .OrderBy(c => c.AttributeHandle)
+                .ToList();
+            List<GattCharacteristic> writeCandidates = characteristics
+                .Where(HasWriteProperty)
+                .ToList();
+            List<GattCharacteristic> notifyCandidates = characteristics
+                .Where(HasNotifyProperty)
+                .ToList();
+
+            bool exactMatch = false;
+            foreach (GattCharacteristic characteristic in characteristics)
+            {
+                if (characteristic.Uuid == CmdUuid)
+                {
+                    commandCharacteristic = characteristic;
+                    exactMatch = true;
+                }
+                else if (characteristic.Uuid == AckUuid)
+                {
+                    ackCharacteristic = characteristic;
+                    exactMatch = true;
+                }
+                else if (characteristic.Uuid == NotifyFd2Uuid)
+                {
+                    fd2Characteristic = characteristic;
+                    exactMatch = true;
+                }
+                else if (characteristic.Uuid == NotifyLegacyUuid)
+                {
+                    legacyCharacteristic = characteristic;
+                    exactMatch = true;
+                }
+                else if (characteristic.Uuid == RumbleUuid)
+                {
+                    rumbleCharacteristic = characteristic;
+                    exactMatch = true;
+                }
+            }
+
+            bool hasInput = characteristics.Any(c =>
+                c.Uuid == NotifyFd2Uuid || c.Uuid == NotifyLegacyUuid);
+            if (exactMatch || hasInput)
+            {
+                probes.Add(new GattServiceProbe(
+                    service.Uuid,
+                    writeCandidates,
+                    notifyCandidates,
+                    hasInput,
+                    exactMatch));
+            }
+
+            serviceSummaries.Add(
+                ShortGuid(service.Uuid) +
+                ":chars=" + characteristics.Count +
+                ",write=" + writeCandidates.Count +
+                ",notify=" + notifyCandidates.Count +
+                (exactMatch ? ",exact" : ""));
+        }
+
+        string mode = "uuid_exact";
+        if ((commandCharacteristic == null || ackCharacteristic == null) &&
+            probes.Count > 0)
+        {
+            GattServiceProbe best = probes
+                .OrderByDescending(p => p.HasInputCharacteristic ? 2 : 0)
+                .ThenByDescending(p => p.HasExactKnownCharacteristic ? 1 : 0)
+                .ThenByDescending(p => p.NotifyCandidates.Count)
+                .ThenByDescending(p => p.WriteCandidates.Count)
+                .First();
+
+            if (commandCharacteristic == null)
+            {
+                commandCharacteristic = SelectDynamicCommandCharacteristic(best.WriteCandidates);
+            }
+            if (ackCharacteristic == null)
+            {
+                ackCharacteristic = SelectDynamicAckCharacteristic(
+                    best.NotifyCandidates,
+                    fd2Characteristic,
+                    legacyCharacteristic);
+            }
+            mode = "dynamic_service_handle";
+            progress.Report("[PRO2_BLE_GATT] dynamic fallback service=" + best.ServiceUuid +
+                            " cmd=" + DescribeCharacteristic(commandCharacteristic) +
+                            " ack=" + DescribeCharacteristic(ackCharacteristic));
+        }
+
+        if (commandCharacteristic == null && probes.Count == 0)
+        {
+            mode = "missing_no_switch_service";
+        }
+        else if (commandCharacteristic == null || ackCharacteristic == null ||
+                 (fd2Characteristic == null && legacyCharacteristic == null))
+        {
+            mode = "missing_required";
+        }
+
+        string summary = string.Join(" | ", serviceSummaries);
+        if (summary.Length > 950)
+        {
+            summary = summary[..950] + "...";
+        }
+
+        lock (gate)
+        {
+            gattSelectionMode = mode;
+            gattDiscoverySummary = summary;
+        }
+        progress.Report("[PRO2_BLE_GATT] services=" + services.Count +
+                        " selection=" + mode +
+                        " summary=" + summary);
+    }
+
+    private static GattCharacteristic? SelectDynamicCommandCharacteristic(
+        IReadOnlyList<GattCharacteristic> writeCandidates)
+    {
+        if (writeCandidates.Count >= 2)
+        {
+            return writeCandidates[1];
+        }
+
+        return writeCandidates.Count == 1 ? writeCandidates[0] : null;
+    }
+
+    private static GattCharacteristic? SelectDynamicAckCharacteristic(
+        IReadOnlyList<GattCharacteristic> notifyCandidates,
+        GattCharacteristic? fd2,
+        GattCharacteristic? legacy)
+    {
+        List<GattCharacteristic> nonInput = notifyCandidates
+            .Where(c => !ReferenceEquals(c, fd2) && !ReferenceEquals(c, legacy))
+            .ToList();
+        if (nonInput.Count >= 3)
+        {
+            return nonInput[2];
+        }
+        if (notifyCandidates.Count >= 3)
+        {
+            return notifyCandidates[2];
+        }
+        if (nonInput.Count > 0)
+        {
+            return nonInput[^1];
+        }
+
+        return notifyCandidates.Count > 0 ? notifyCandidates[^1] : null;
+    }
+
+    private static bool HasWriteProperty(GattCharacteristic characteristic)
+    {
+        GattCharacteristicProperties properties = characteristic.CharacteristicProperties;
+        return (properties & GattCharacteristicProperties.Write) != 0 ||
+               (properties & GattCharacteristicProperties.WriteWithoutResponse) != 0;
+    }
+
+    private static bool HasNotifyProperty(GattCharacteristic characteristic)
+    {
+        return (characteristic.CharacteristicProperties & GattCharacteristicProperties.Notify) != 0;
     }
 
     private async Task<List<BleCandidate>> ScanCandidatesAsync(
@@ -615,11 +809,24 @@ public sealed class Pro2BleInputSource : IGamepadInputSource, IGamepadInputMetri
         string label,
         IProgress<string> progress)
     {
-        GattCommunicationStatus status =
-            await characteristic.WriteClientCharacteristicConfigurationDescriptorAsync(
+        GattCommunicationStatus status = GattCommunicationStatus.Unreachable;
+        for (int attempt = 1; attempt <= 3; attempt++)
+        {
+            status = await characteristic.WriteClientCharacteristicConfigurationDescriptorAsync(
                 GattClientCharacteristicConfigurationDescriptorValue.Notify);
-        progress.Report("[PRO2_BLE] subscribe " + label + " status=" + status);
-        return status == GattCommunicationStatus.Success;
+            progress.Report("[PRO2_BLE] subscribe " + label +
+                            " attempt=" + attempt +
+                            " status=" + status +
+                            " " + DescribeCharacteristic(characteristic));
+            if (status == GattCommunicationStatus.Success)
+            {
+                return true;
+            }
+
+            await Task.Delay(350 * attempt);
+        }
+
+        return false;
     }
 
     private void OnAckValueChanged(GattCharacteristic sender, GattValueChangedEventArgs args)
@@ -632,22 +839,37 @@ public sealed class Pro2BleInputSource : IGamepadInputSource, IGamepadInputMetri
     {
         byte[] data = ReadBuffer(args.CharacteristicValue);
         long nowTicks = Stopwatch.GetTimestamp();
+        DateTimeOffset now = DateTimeOffset.UtcNow;
+        string reportType = sender.Uuid == NotifyFd2Uuid
+            ? "fd2"
+            : sender.Uuid == NotifyLegacyUuid
+                ? "legacy"
+                : "unknown";
+        ulong parseSeq;
+        double rawGapMs = 0;
+        double sourceAgeMs = 0;
+        double bleHz;
+        double viiperPushHz;
         lock (gate)
         {
+            sourceAgeMs = latestAt == default
+                ? 0
+                : Math.Max(0, (now - latestAt).TotalMilliseconds);
             rawNotifyCount++;
+            parseSeq = rawNotifyCount;
             if (lastRawNotifyTicks != 0)
             {
-                double gapMilliseconds =
+                rawGapMs =
                     (nowTicks - lastRawNotifyTicks) * 1000.0 / Stopwatch.Frequency;
-                if (gapMilliseconds >= 45)
+                if (rawGapMs >= 45)
                 {
                     inputGap45Count++;
                 }
-                if (gapMilliseconds >= 250)
+                if (rawGapMs >= 250)
                 {
                     inputGap250Count++;
                 }
-                if (gapMilliseconds >= 750)
+                if (rawGapMs >= 750)
                 {
                     inputGap750Count++;
                 }
@@ -659,6 +881,8 @@ public sealed class Pro2BleInputSource : IGamepadInputSource, IGamepadInputMetri
                 ref lastRawNotifyGapTicks,
                 ref maxRawNotifyGapTicks);
             lastNotifySummary = sender.Uuid + " len=" + data.Length + " head=" + ShortHex(data, 24);
+            bleHz = SampleRate(rawNotifyCount, firstRawNotifyTicks, lastRawNotifyTicks);
+            viiperPushHz = lastViiperPushHz;
         }
 
         bool parsed = sender.Uuid == NotifyFd2Uuid
@@ -672,18 +896,47 @@ public sealed class Pro2BleInputSource : IGamepadInputSource, IGamepadInputMetri
             {
                 parseFailCount++;
             }
+            if (sender.Uuid == NotifyFd2Uuid)
+            {
+                spikeRecorder.AddFrame(new Pro2Fd2FrameSnapshot(
+                    parseSeq,
+                    now,
+                    rawGapMs,
+                    reportType,
+                    data.Length,
+                    Convert.ToHexString(data),
+                    Pro2SpikeSnapshot.Axes(GamepadState.Neutral()),
+                    Pro2SpikeSnapshot.Axes(GamepadState.Neutral()),
+                    0,
+                    Pro2SpikeSnapshot.Motion(GamepadState.Neutral()),
+                    ParseOk: false,
+                    ParseSource: "",
+                    FilterResult: "parse_fail",
+                    FilterEvents: Array.Empty<Pro2FrameFilterEventSnapshot>()));
+            }
             return;
         }
 
+        Pro2InputFilterResult filterResult;
+        GamepadState stableState;
+        GamepadState rawStateSnapshot;
+        GamepadState filteredStateSnapshot;
+        ulong stateSeq;
+        double parsedBleHz;
         lock (gate)
         {
-            if (!inputStability.TryAccept(state, out GamepadState stableState, out string filterReason))
+            filterResult = inputStability.Process(state, nowTicks);
+            stableState = filterResult.AcceptedState;
+            rawStateSnapshot = filterResult.RawState.Clone();
+            filteredStateSnapshot = stableState.Clone();
+            if (filterResult.HasAxisIntervention)
             {
-                axisSpikeRejectCount++;
-                lastNotifySummary += " filtered=" + filterReason;
+                axisSpikeRejectCount += (uint)filterResult.Events.Count;
+                lastNotifySummary += " filtered=" + filterResult.PrimaryReason;
             }
 
             updates++;
+            stateSeq = updates;
             NoteSample(
                 nowTicks,
                 ref firstParsedNotifyTicks,
@@ -691,10 +944,57 @@ public sealed class Pro2BleInputSource : IGamepadInputSource, IGamepadInputMetri
                 ref lastParsedNotifyGapTicks,
                 ref maxParsedNotifyGapTicks);
             stableState.Updates = updates;
+            rawStateSnapshot.Updates = updates;
+            filteredStateSnapshot.Updates = updates;
+            rawState = rawStateSnapshot;
+            filteredState = filteredStateSnapshot;
+            rawStateAt = now;
+            filteredStateAt = now;
             latest = stableState;
             latestAt = DateTimeOffset.UtcNow;
+            parsedBleHz = SampleRate(updates, firstParsedNotifyTicks, lastParsedNotifyTicks);
+            bleHz = Math.Max(bleHz, parsedBleHz);
             status = "真实 Pro2 BLE live，updates=" + updates + " source=" + source +
                      " raw_notify=" + rawNotifyCount + " " + BuildMetricsSummaryNoLock();
+        }
+
+        if (sender.Uuid == NotifyFd2Uuid)
+        {
+            Pro2Fd2FrameSnapshot frame = new(
+                parseSeq,
+                now,
+                rawGapMs,
+                reportType,
+                    data.Length,
+                    Convert.ToHexString(data),
+                    Pro2SpikeSnapshot.Axes(rawStateSnapshot),
+                    Pro2SpikeSnapshot.Axes(filteredStateSnapshot),
+                    (ulong)state.Buttons,
+                    Pro2SpikeSnapshot.Motion(state),
+                ParseOk: true,
+                ParseSource: source,
+                FilterResult: filterResult.PrimaryReason,
+                FilterEvents: Pro2SpikeSnapshot.Events(filterResult.Events));
+            spikeRecorder.AddFrame(frame);
+        }
+
+        if (filterResult.HasAxisIntervention && inputStabilityOptions.AxisSpikeLogEnabled)
+        {
+            foreach (Pro2AxisFilterEvent axisEvent in filterResult.Events)
+            {
+                Pro2AxisSpikeTelemetry telemetry = BuildSpikeTelemetry(
+                    axisEvent,
+                    now,
+                    reportType,
+                    data,
+                    sourceAgeMs,
+                    rawGapMs,
+                    parseSeq,
+                    stateSeq,
+                    bleHz,
+                    viiperPushHz);
+                ReportAxisSpikeTelemetry(telemetry, parseSeq);
+            }
         }
     }
 
@@ -841,19 +1141,28 @@ public sealed class Pro2BleInputSource : IGamepadInputSource, IGamepadInputMetri
         BluetoothLEDevice source,
         IProgress<string> progress)
     {
+        return TryRequestWindows11ThroughputPreference(source, "fallback", progress);
+    }
+
+    [SupportedOSPlatform("windows10.0.22000.0")]
+    private bool TryRequestWindows11ThroughputPreference(
+        BluetoothLEDevice source,
+        string reason,
+        IProgress<string> progress)
+    {
         try
         {
             BluetoothLEPreferredConnectionParameters preferred =
                 BluetoothLEPreferredConnectionParameters.ThroughputOptimized;
-            progress.Report("[PRO2_BLE_LINK] requesting fallback " +
+            progress.Report("[PRO2_BLE_LINK] requesting " + reason + " " +
                             FormatPreferredConnectionParameters(preferred));
             connectionParametersRequest?.Dispose();
             connectionParametersRequest = source.RequestPreferredConnectionParameters(preferred);
             lock (gate)
             {
-                connectionPreferenceStatus = "fallback_" + connectionParametersRequest.Status;
+                connectionPreferenceStatus = reason + "_" + connectionParametersRequest.Status;
             }
-            progress.Report("[PRO2_BLE_LINK] fallback request status=" +
+            progress.Report("[PRO2_BLE_LINK] " + reason + " request status=" +
                             connectionParametersRequest.Status);
             return connectionParametersRequest.Status ==
                    BluetoothLEPreferredConnectionParametersRequestStatus.Success;
@@ -862,9 +1171,9 @@ public sealed class Pro2BleInputSource : IGamepadInputSource, IGamepadInputMetri
         {
             lock (gate)
             {
-                connectionPreferenceStatus = "fallback_error_0x" + ex.HResult.ToString("X8");
+                connectionPreferenceStatus = reason + "_error_0x" + ex.HResult.ToString("X8");
             }
-            progress.Report("[PRO2_BLE_LINK] fallback request failed: " + ex.Message);
+            progress.Report("[PRO2_BLE_LINK] " + reason + " request failed: " + ex.Message);
             return false;
         }
     }
@@ -1106,6 +1415,36 @@ public sealed class Pro2BleInputSource : IGamepadInputSource, IGamepadInputMetri
         return await characteristic.WriteValueAsync(ToBuffer(data), option);
     }
 
+    private static async Task<GattCommunicationStatus> WriteCharacteristicWithRetryAsync(
+        GattCharacteristic characteristic,
+        byte[] data,
+        string label,
+        IProgress<string> progress,
+        CancellationToken cancellationToken)
+    {
+        GattCommunicationStatus status = GattCommunicationStatus.Unreachable;
+        for (int attempt = 1; attempt <= 3; attempt++)
+        {
+            status = await WriteCharacteristicAsync(characteristic, data);
+            if (status == GattCommunicationStatus.Success)
+            {
+                if (attempt > 1)
+                {
+                    progress.Report("[PRO2_BLE] write " + label +
+                                    " recovered attempt=" + attempt);
+                }
+                return status;
+            }
+
+            progress.Report("[PRO2_BLE] write " + label +
+                            " attempt=" + attempt +
+                            " status=" + status);
+            await Task.Delay(120 * attempt, cancellationToken);
+        }
+
+        return status;
+    }
+
     private async Task CloseCurrentAsync(string nextStatus)
     {
         IsRunning = false;
@@ -1153,6 +1492,10 @@ public sealed class Pro2BleInputSource : IGamepadInputSource, IGamepadInputMetri
         {
             latest = GamepadState.Neutral();
             latestAt = default;
+            rawState = GamepadState.Neutral();
+            filteredState = GamepadState.Neutral();
+            rawStateAt = default;
+            filteredStateAt = default;
             updates = 0;
             rawNotifyCount = 0;
             parseFailCount = 0;
@@ -1169,11 +1512,17 @@ public sealed class Pro2BleInputSource : IGamepadInputSource, IGamepadInputMetri
             inputGap250Count = 0;
             inputGap750Count = 0;
             lastNotifySummary = "";
+            axisSpikeLogCount = 0;
+            Interlocked.Exchange(ref asyncProgressDroppedCount, 0);
+            lastViiperPushHz = 0;
+            spikeRecorder.Clear();
             connectionPreferenceStatus = "not_requested";
             connectionIntervalUnits = 0;
             connectionLatency = 0;
             connectionLinkTimeout = 0;
             lastConnectionParametersSummary = "";
+            gattSelectionMode = "not_scanned";
+            gattDiscoverySummary = "";
             linkRateClass = "unknown";
             lastPerformanceWarning = "";
             inputStability.Reset();
@@ -1199,6 +1548,9 @@ public sealed class Pro2BleInputSource : IGamepadInputSource, IGamepadInputMetri
             inputGap45Count = 0;
             inputGap250Count = 0;
             inputGap750Count = 0;
+            axisSpikeLogCount = 0;
+            Interlocked.Exchange(ref asyncProgressDroppedCount, 0);
+            spikeRecorder.Clear();
         }
     }
 
@@ -1208,6 +1560,8 @@ public sealed class Pro2BleInputSource : IGamepadInputSource, IGamepadInputMetri
         double connectionEventHz = connectionIntervalUnits == 0
             ? 0
             : 800.0 / connectionIntervalUnits;
+        int rawFilteredMaxDelta = MaxAxisDelta(rawState, filteredState);
+        int filteredLatestMaxDelta = MaxAxisDelta(filteredState, latest);
         return "ble_raw_hz=" + SampleRate(rawNotifyCount, firstRawNotifyTicks, lastRawNotifyTicks).ToString("F1") +
                " ble_parsed_hz=" + SampleRate(updates, firstParsedNotifyTicks, lastParsedNotifyTicks).ToString("F1") +
                " ble_last_gap_ms=" + TicksToMilliseconds(lastParsedNotifyGapTicks).ToString("F1") +
@@ -1218,16 +1572,45 @@ public sealed class Pro2BleInputSource : IGamepadInputSource, IGamepadInputMetri
                " ble_timeout_ms=" + (connectionLinkTimeout * 10) +
                " ble_pref=" + connectionPreferenceStatus +
                " ble_rate_class=" + linkRateClass +
+               " gatt_mode=" + gattSelectionMode +
                " ble_gap45=" + inputGap45Count +
                " ble_gap250=" + inputGap250Count +
                " ble_gap750=" + inputGap750Count +
                " axis_spike=" + axisSpikeRejectCount +
+               inputStability.MetricsSummary +
+               " raw_integrity_mode=" + (inputStabilityOptions.RawIntegrityModeEnabled ? "shadow_on" : "shadow") +
+               " raw_left_x=" + rawState.Lx +
+               " raw_left_y=" + rawState.Ly +
+               " raw_right_x=" + rawState.Rx +
+               " raw_right_y=" + rawState.Ry +
+               " filtered_left_x=" + filteredState.Lx +
+               " filtered_left_y=" + filteredState.Ly +
+               " filtered_right_x=" + filteredState.Rx +
+               " filtered_right_y=" + filteredState.Ry +
+               " latest_left_x=" + latest.Lx +
+               " latest_left_y=" + latest.Ly +
+               " latest_right_x=" + latest.Rx +
+               " latest_right_y=" + latest.Ry +
+               " raw_to_filtered_difference=" + rawFilteredMaxDelta +
+               " filtered_to_latest_difference=" + filteredLatestMaxDelta +
+               " axis_spike_logs=" + axisSpikeLogCount +
+               " axis_spike_dump_written=" + spikeRecorder.WrittenDumpCount +
+               " axis_spike_dump_dropped=" + spikeRecorder.DroppedDumpCount +
+               " async_progress_dropped=" + Interlocked.Read(ref asyncProgressDroppedCount) +
+               " viiper_push_hz_seen=" + lastViiperPushHz.ToString("F1") +
                " rumble_q=" + rumbleQueuedCount +
                " rumble_w=" + rumbleWrittenCount +
                " rumble_merge=" + rumbleCoalescedCount +
                " rumble_fail=" + rumbleFailureCount +
                " rumble_gain=" + RumbleGain.ToString("F1") +
                " parse_fail=" + parseFailCount;
+    }
+
+    private static int MaxAxisDelta(GamepadState a, GamepadState b)
+    {
+        return Math.Max(
+            Math.Max(Math.Abs(a.Lx - b.Lx), Math.Abs(a.Ly - b.Ly)),
+            Math.Max(Math.Abs(a.Rx - b.Rx), Math.Abs(a.Ry - b.Ry)));
     }
 
     private BlePerformanceSnapshot GetPerformanceSnapshot()
@@ -1408,7 +1791,15 @@ public sealed class Pro2BleInputSource : IGamepadInputSource, IGamepadInputMetri
     {
         return characteristic == null
             ? "missing"
-            : "ok/" + characteristic.CharacteristicProperties;
+            : "ok/0x" + characteristic.AttributeHandle.ToString("X4") +
+              "/" + ShortGuid(characteristic.Uuid) +
+              "/" + characteristic.CharacteristicProperties;
+    }
+
+    private static string ShortGuid(Guid guid)
+    {
+        string text = guid.ToString("N");
+        return text.Length <= 8 ? text : text[..8];
     }
 
     private static string ShortHex(byte[] data, int maxBytes)
@@ -1421,6 +1812,129 @@ public sealed class Pro2BleInputSource : IGamepadInputSource, IGamepadInputMetri
         int count = Math.Min(data.Length, maxBytes);
         string hex = Convert.ToHexString(data.AsSpan(0, count));
         return data.Length > count ? hex + "..." : hex;
+    }
+
+    private Pro2AxisSpikeTelemetry BuildSpikeTelemetry(
+        Pro2AxisFilterEvent axisEvent,
+        DateTimeOffset timestamp,
+        string reportType,
+        byte[] rawReport,
+        double sourceAgeMs,
+        double bleGapMs,
+        ulong parseSeq,
+        ulong stateSeq,
+        double bleHz,
+        double viiperPushHz)
+    {
+        return new Pro2AxisSpikeTelemetry(
+            timestamp,
+            reportType,
+            rawReport.Length,
+            axisEvent.AxisName,
+            axisEvent.OldValue,
+            axisEvent.NewValue,
+            axisEvent.OutputValue,
+            axisEvent.Delta,
+            axisEvent.OldLeftX,
+            axisEvent.OldLeftY,
+            axisEvent.OldRightX,
+            axisEvent.OldRightY,
+            axisEvent.NewLeftX,
+            axisEvent.NewLeftY,
+            axisEvent.NewRightX,
+            axisEvent.NewRightY,
+            axisEvent.StickVectorDelta,
+            sourceAgeMs,
+            bleGapMs,
+            axisEvent.ConsecutiveSuspectFrames,
+            axisEvent.Decision.ToString().ToLowerInvariant(),
+            axisEvent.Reason,
+            Convert.ToHexString(rawReport),
+            parseSeq,
+            stateSeq,
+            bleHz,
+            viiperPushHz,
+            axisEvent.CandidateAgeMs,
+            axisEvent.FrameDeltaMs,
+            axisEvent.DirectionStable,
+            axisEvent.Continuous,
+            axisEvent.MotionClass,
+            axisEvent.ActiveMotion,
+            axisEvent.FastReversal,
+            axisEvent.CenterCrossing,
+            axisEvent.InputSwallowed,
+            axisEvent.RawToFilteredDelta);
+    }
+
+    private void ReportAxisSpikeTelemetry(
+        Pro2AxisSpikeTelemetry telemetry,
+        ulong frameIndex)
+    {
+        axisSpikeLogCount++;
+        bool queuedDump = spikeRecorder.TryQueueDump(
+            telemetry,
+            frameIndex,
+            out string dumpPath);
+        QueueProgressReport(
+            "[PRO2_AXIS_SPIKE] timestamp=" + telemetry.Timestamp.ToString("O") +
+            " report_type=" + telemetry.ReportType +
+            " report_len=" + telemetry.ReportLen +
+            " axis_name=" + telemetry.AxisName +
+            " old_value=" + telemetry.OldValue +
+            " new_value=" + telemetry.NewValue +
+            " output_value=" + telemetry.OutputValue +
+            " delta=" + telemetry.Delta +
+            " old_left_x=" + telemetry.OldLeftX +
+            " old_left_y=" + telemetry.OldLeftY +
+            " old_right_x=" + telemetry.OldRightX +
+            " old_right_y=" + telemetry.OldRightY +
+            " new_left_x=" + telemetry.NewLeftX +
+            " new_left_y=" + telemetry.NewLeftY +
+            " new_right_x=" + telemetry.NewRightX +
+            " new_right_y=" + telemetry.NewRightY +
+            " stick_vector_delta=" + telemetry.StickVectorDelta.ToString("F1") +
+            " source_age_ms=" + telemetry.SourceAgeMs.ToString("F1") +
+            " ble_gap_ms=" + telemetry.BleGapMs.ToString("F1") +
+            " consecutive_suspect_frames=" + telemetry.ConsecutiveSuspectFrames +
+            " accepted_or_rejected=" + telemetry.AcceptedOrRejected +
+            " reason=" + telemetry.Reason +
+            " candidate_age_ms=" + telemetry.CandidateAgeMs.ToString("F1") +
+            " frame_delta_ms=" + telemetry.FrameDeltaMs.ToString("F1") +
+            " direction_stable=" + telemetry.DirectionStable +
+            " continuous=" + telemetry.Continuous +
+            " motion_class=" + telemetry.MotionClass +
+            " active_motion=" + telemetry.ActiveMotion +
+            " fast_reversal=" + telemetry.FastReversal +
+            " center_crossing=" + telemetry.CenterCrossing +
+            " input_swallowed=" + telemetry.InputSwallowed +
+            " raw_to_filtered_delta=" + telemetry.RawToFilteredDelta +
+            " parse_seq=" + telemetry.ParseSeq +
+            " state_seq=" + telemetry.StateSeq +
+            " ble_hz=" + telemetry.BleHz.ToString("F1") +
+            " viiper_push_hz=" + telemetry.ViiperPushHz.ToString("F1") +
+            " dump=" + (queuedDump ? dumpPath : "not_queued") +
+            " raw_fd2_hex=" + telemetry.RawFd2Hex);
+    }
+
+    private void QueueProgressReport(string message)
+    {
+        IProgress<string>? progress = connectionProgress;
+        if (progress == null)
+        {
+            return;
+        }
+
+        bool queued = ThreadPool.QueueUserWorkItem(
+            static state =>
+            {
+                var tuple = ((IProgress<string> Progress, string Message))state!;
+                tuple.Progress.Report(tuple.Message);
+            },
+            (progress, message));
+        if (!queued)
+        {
+            Interlocked.Increment(ref asyncProgressDroppedCount);
+        }
     }
 
     private static string DescribeCandidate(BleCandidate candidate)
@@ -1447,6 +1961,13 @@ public sealed class Pro2BleInputSource : IGamepadInputSource, IGamepadInputMetri
         short Rssi,
         bool NintendoManufacturer,
         int Score);
+
+    private sealed record GattServiceProbe(
+        Guid ServiceUuid,
+        IReadOnlyList<GattCharacteristic> WriteCandidates,
+        IReadOnlyList<GattCharacteristic> NotifyCandidates,
+        bool HasInputCharacteristic,
+        bool HasExactKnownCharacteristic);
 
     private sealed record BlePerformanceSnapshot(
         ushort ConnectionIntervalUnits,

@@ -10,87 +10,99 @@ public sealed class Pro2HidReportParser
     private const ushort CenterLearnMaxDelta = 256;
     private const ushort AxisDeadzone = 64;
     private const ushort FullScaleRange = 1600;
+    private readonly object gate = new();
     private readonly AxisCalibration standardAxis = new();
     private readonly AxisCalibration legacyAxis = new();
 
     public bool TryParse(ReadOnlySpan<byte> report, out GamepadState state, out string source)
     {
-        state = GamepadState.Neutral();
-        source = "";
-        if (report.IsEmpty)
+        lock (gate)
         {
+            state = GamepadState.Neutral();
+            source = "";
+            if (report.IsEmpty)
+            {
+                return false;
+            }
+
+            if (TryParseHidInputReport(report, out state, out source))
+            {
+                return true;
+            }
+
+            // Raw GATT captures used by the ESP32 route are useful in diagnostics and
+            // let this parser be tested without a Windows HID handle.
+            if (TryParseFd2Payload(report, out state, out source))
+            {
+                return true;
+            }
+
+            if (TryParseLegacyPayload(report, out state, out source))
+            {
+                return true;
+            }
+
             return false;
         }
-
-        byte reportId = report[0];
-        if (TryParseHidInputReport(report, out state, out source))
-        {
-            return true;
-        }
-
-        // Raw GATT captures used by the ESP32 route are useful in diagnostics and
-        // let this parser be tested without a Windows HID handle.
-        if (TryParseFd2Payload(report, out state, out source))
-        {
-            return true;
-        }
-
-        if (TryParseLegacyPayload(report, out state, out source))
-        {
-            return true;
-        }
-
-        return false;
     }
 
     public bool TryParseFd2Payload(ReadOnlySpan<byte> report, out GamepadState state, out string source)
     {
-        state = GamepadState.Neutral();
-        source = "";
-        if (report.Length < Fd2FullReportMinLength ||
-            !LooksLikeFd2Payload(report))
+        lock (gate)
         {
-            return false;
-        }
+            state = GamepadState.Neutral();
+            source = "";
+            if (report.Length < Fd2FullReportMinLength ||
+                !LooksLikeFd2Payload(report))
+            {
+                return false;
+            }
 
-        ParseFd2Payload(report, state);
-        source = "fd2_payload";
-        return true;
+            ParseFd2Payload(report, state);
+            source = "fd2_payload";
+            return true;
+        }
     }
 
     public bool TryParseLegacyPayload(ReadOnlySpan<byte> report, out GamepadState state, out string source)
     {
-        state = GamepadState.Neutral();
-        source = "";
-        if (report.Length < 11 || !LooksLikeLegacyPayload(report))
+        lock (gate)
         {
-            return false;
-        }
+            state = GamepadState.Neutral();
+            source = "";
+            if (report.Length < 11 || !LooksLikeLegacyPayload(report))
+            {
+                return false;
+            }
 
-        ParseLegacyPayload(report, state);
-        source = "legacy_payload";
-        return true;
+            ParseLegacyPayload(report, state);
+            source = "legacy_payload";
+            return true;
+        }
     }
 
     public bool TryParseHidInputReport(ReadOnlySpan<byte> report, out GamepadState state, out string source)
     {
-        state = GamepadState.Neutral();
-        source = "";
-        if (report.IsEmpty)
+        lock (gate)
         {
+            state = GamepadState.Neutral();
+            source = "";
+            if (report.IsEmpty)
+            {
+                return false;
+            }
+
+            byte reportId = report[0];
+            if ((reportId == 0x30 || reportId == 0x31 || reportId == 0x21 || reportId == 0x23) &&
+                report.Length >= 13)
+            {
+                ParseStandardReport(report, state);
+                source = "switch_pro_standard";
+                return true;
+            }
+
             return false;
         }
-
-        byte reportId = report[0];
-        if ((reportId == 0x30 || reportId == 0x31 || reportId == 0x21 || reportId == 0x23) &&
-            report.Length >= 13)
-        {
-            ParseStandardReport(report, state);
-            source = "switch_pro_standard";
-            return true;
-        }
-
-        return false;
     }
 
     private void ParseStandardReport(ReadOnlySpan<byte> report, GamepadState state)

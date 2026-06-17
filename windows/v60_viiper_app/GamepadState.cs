@@ -80,6 +80,11 @@ public interface IGamepadInputMetricsSource
     string MetricsSummary { get; }
 }
 
+public interface IGamepadRuntimeTelemetrySink
+{
+    void ReportViiperPushRate(double actualHz);
+}
+
 public interface IGamepadOutputSink
 {
     bool IsOutputReady { get; }

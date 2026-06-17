@@ -2,7 +2,7 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:automation="clr-namespace:System.Windows.Automation;assembly=PresentationCore"
-        Title="PRO2 手柄无线接收器控制板 V6.1.1 · 角色选择大厅"
+        Title="PRO2 手柄无线接收器控制板 V6.2.0 · 角色选择大厅"
         Width="1440"
         Height="940"
         MinWidth="1160"
@@ -281,7 +281,7 @@
                                         <DropShadowEffect Color="#5EF2A5" BlurRadius="12" ShadowDepth="0"/>
                                     </Ellipse.Effect>
                                 </Ellipse>
-                                <TextBlock FontWeight="Bold" Foreground="#C9FCE0" Text="V6.1.1 STICKFIX"/>
+                                <TextBlock FontWeight="Bold" Foreground="#C9FCE0" Text="V6.2.0 LINK LAB"/>
                             </StackPanel>
                         </Border>
                         <Button Margin="0,9,0,0" HorizontalAlignment="Right"
@@ -587,6 +587,55 @@
                                                Foreground="#D9ECFF" Text="{Binding RumbleMultiplierText}"/>
                                 </Border>
                             </StackPanel>
+                            <Grid Margin="0,10,0,0" MaxWidth="520">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="150"/>
+                                    <ColumnDefinition Width="18"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="190"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Grid.Column="0" VerticalAlignment="Center" Style="{StaticResource SectionLabel}"
+                                           Text="Push Hz"/>
+                                <ComboBox Grid.Column="1" Margin="10,0,0,0"
+                                          ItemsSource="{Binding PushRateChoices}"
+                                          SelectedItem="{Binding SelectedPushRate, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                          IsEnabled="{Binding CanOperate}"
+                                          Background="#0A0F20"
+                                          Foreground="#E6EEFF"
+                                          BorderBrush="#33415F"
+                                          ToolTip="66Hz / 125Hz / 250Hz。默认 125Hz，250Hz 用于高性能 A/B 测试。"/>
+                                <TextBlock Grid.Column="3" VerticalAlignment="Center" Style="{StaticResource SectionLabel}"
+                                           Text="Gyro"/>
+                                <ComboBox Grid.Column="4" Margin="10,0,0,0"
+                                          ItemsSource="{Binding GyroModeChoices}"
+                                          SelectedItem="{Binding SelectedGyroMode, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                          IsEnabled="{Binding CanOperate}"
+                                          Background="#0A0F20"
+                                          Foreground="#E6EEFF"
+                                          BorderBrush="#33415F"
+                                          ToolTip="source_60hz 推荐；hold/scaled/filtered 用于验证 IMU 重复推送策略。"/>
+                            </Grid>
+                            <Grid Margin="0,8,0,0" MaxWidth="520">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="310"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Grid.Column="0" VerticalAlignment="Center" Style="{StaticResource SectionLabel}"
+                                           Text="Backend"/>
+                                <ComboBox Grid.Column="1" Margin="10,0,0,0"
+                                          ItemsSource="{Binding BackendChoices}"
+                                          SelectedItem="{Binding SelectedBackend, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                          IsEnabled="{Binding CanOperate}"
+                                          Background="#0A0F20"
+                                          Foreground="#E6EEFF"
+                                          BorderBrush="#33415F"
+                                          ToolTip="V6.2 后端路线。默认 VIIPER server；libVIIPER/Embedded USBIP 是短链路实验档。"/>
+                            </Grid>
+                            <TextBlock Margin="0,6,0,0"
+                                       FontSize="10"
+                                       Foreground="#6F80A2"
+                                       Text="{Binding LinkTuningSummary}"/>
                         </StackPanel>
 
                         <Button Grid.Column="1" Margin="26,0"

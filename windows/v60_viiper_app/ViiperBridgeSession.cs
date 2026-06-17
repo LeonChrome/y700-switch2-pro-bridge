@@ -17,6 +17,7 @@ public sealed class ViiperBridgeSession : IAsyncDisposable
     private readonly IGamepadOutputSink? outputSink;
     private readonly CancellationTokenSource cts = new();
     private readonly SemaphoreSlim streamRecoveryGate = new(1, 1);
+    private readonly ViiperGyroMode gyroMode;
     private readonly object streamSync = new();
     private ViiperDeviceStream? stream;
     private ViiperDevice? device;
@@ -26,6 +27,14 @@ public sealed class ViiperBridgeSession : IAsyncDisposable
     private Task? feedbackTask;
     private int faultReported;
     private const int StreamRecoveryAttempts = 5;
+    private ulong usbipAttachCount;
+    private ulong UsbipDetachCount { get; set; }
+    private ulong DeviceRecreateCount { get; set; }
+    private ulong viiperStreamDisconnectCount;
+    private ulong viiperStreamRecoveryCount;
+    private ulong SteamDeviceHashChangeCount { get; set; }
+    private string lastViiperError = "";
+    private string lastUsbipLifecycleEvent = "none";
 
     public ViiperBridgeSession(
         ViiperProtocolClient client,
@@ -33,7 +42,8 @@ public sealed class ViiperBridgeSession : IAsyncDisposable
         IProgress<string> progress,
         IGamepadInputSource? inputSource = null,
         IGamepadOutputSink? outputSink = null,
-        IProgress<Exception>? faultProgress = null)
+        IProgress<Exception>? faultProgress = null,
+        ViiperGyroMode gyroMode = ViiperGyroMode.Source60Hz)
     {
         this.client = client;
         this.profile = profile;
@@ -41,6 +51,7 @@ public sealed class ViiperBridgeSession : IAsyncDisposable
         this.inputSource = inputSource;
         this.outputSink = outputSink ?? inputSource as IGamepadOutputSink;
         this.faultProgress = faultProgress;
+        this.gyroMode = gyroMode;
     }
 
     public ViiperDeviceProfile Profile => profile;
@@ -64,6 +75,8 @@ public sealed class ViiperBridgeSession : IAsyncDisposable
         }
 
         device = await client.AddDeviceAsync(busId, profile.DeviceType, cancellationToken);
+        usbipAttachCount = 1;
+        lastUsbipLifecycleEvent = "initial_auto_attach";
         progress.Report($"[VIIPER] added {profile.Label} device bus={device.BusId} dev={device.DevId} vid={device.Vid} pid={device.Pid}");
         SetStream(await client.OpenStreamAsync(device.BusId, device.DevId, cancellationToken));
         progress.Report(inputSource is { IsRunning: true }
@@ -95,6 +108,7 @@ public sealed class ViiperBridgeSession : IAsyncDisposable
             try
             {
                 await client.RemoveDeviceAsync(device.BusId, device.DevId, cleanup.Token);
+                lastUsbipLifecycleEvent = "session_stop_remove_device";
                 progress.Report("[VIIPER] removed device " + device.DevId);
             }
             catch (Exception ex)
@@ -123,15 +137,58 @@ public sealed class ViiperBridgeSession : IAsyncDisposable
         using WindowsTimerResolutionScope timerResolution = WindowsTimerResolutionScope.Begin();
         using var timer = new HighResolutionPeriodicTimer(profile.SendInterval);
         var rateWatch = Stopwatch.StartNew();
+        double pushTargetHz = 1.0 / profile.SendInterval.TotalSeconds;
         ulong frames = 0;
         ulong lastRateFrames = 0;
+        uint lastRateUpdates = 0;
+        uint lastSeenUpdates = 0;
         long lastRateTicks = 0;
+        long lastLoopTicks = 0;
+        uint? lastPushedUpdate = null;
+        uint lastMotionUpdate = 0;
+        GamepadState? filteredMotionState = null;
+        ulong statePushCount = 0;
+        ulong stateReuseCount = 0;
+        ulong currentSameStatePushes = 0;
+        ulong sameStatePushMax = 0;
+        ulong age0To20 = 0;
+        ulong age20To33 = 0;
+        ulong age33To50 = 0;
+        ulong age50To100 = 0;
+        ulong ageOver100 = 0;
+        double intervalWriteMsSum = 0;
+        double intervalWriteMaxMs = 0;
+        ulong intervalWriteSamples = 0;
+        ulong intervalWriteOver2Ms = 0;
+        ulong intervalWriteOver8Ms = 0;
+        double intervalLoopGapMaxMs = 0;
+        ulong intervalLoopGapOver8Ms = 0;
+        ulong intervalLoopGapOver16Ms = 0;
+        double intervalSourceAgeMaxMs = 0;
         string lastSource = "";
         progress.Report("[VIIPER_TIMER] requested_ms=1 active=" + timerResolution.IsActive +
                         " result=" + timerResolution.Result +
-                        " backend=" + timer.Backend);
+                        " backend=" + timer.Backend +
+                        " push_target_hz=" + pushTargetHz.ToString("F1") +
+                        " gyro_mode=" + GyroModeLabel(gyroMode));
         while (timer.WaitForNextTick(cancellationToken))
         {
+            long loopTicks = Stopwatch.GetTimestamp();
+            if (lastLoopTicks != 0)
+            {
+                double loopGapMs = TicksToMilliseconds(loopTicks - lastLoopTicks);
+                intervalLoopGapMaxMs = Math.Max(intervalLoopGapMaxMs, loopGapMs);
+                if (loopGapMs >= 8)
+                {
+                    intervalLoopGapOver8Ms++;
+                }
+                if (loopGapMs >= 16)
+                {
+                    intervalLoopGapOver16Ms++;
+                }
+            }
+            lastLoopTicks = loopTicks;
+
             ViiperDeviceStream? current = GetStream();
             if (current == null)
             {
@@ -143,19 +200,67 @@ public sealed class ViiperBridgeSession : IAsyncDisposable
             if (inputSource != null &&
                 inputSource.TryGetLatest(out GamepadState state, out TimeSpan age))
             {
+                lastSeenUpdates = state.Updates;
+                bool reusedState = lastPushedUpdate.HasValue &&
+                                   state.Updates == lastPushedUpdate.Value;
+                statePushCount++;
+                if (reusedState)
+                {
+                    stateReuseCount++;
+                    currentSameStatePushes++;
+                }
+                else
+                {
+                    currentSameStatePushes = 1;
+                    lastPushedUpdate = state.Updates;
+                }
+                sameStatePushMax = Math.Max(sameStatePushMax, currentSameStatePushes);
+
+                if (age < TimeSpan.FromMinutes(1))
+                {
+                    double ageMs = age.TotalMilliseconds;
+                    intervalSourceAgeMaxMs = Math.Max(intervalSourceAgeMaxMs, ageMs);
+                    CountAgeBucket(
+                        ageMs,
+                        ref age0To20,
+                        ref age20To33,
+                        ref age33To50,
+                        ref age50To100,
+                        ref ageOver100);
+                }
                 GamepadState continuous =
                     InputContinuityPolicy.Resolve(state, age, out source);
+                continuous = ApplyGyroMode(
+                    continuous,
+                    state.Updates,
+                    pushTargetHz,
+                    ref lastMotionUpdate,
+                    ref filteredMotionState);
                 packet = VirtualPadPackets.FromGamepad(profile, continuous);
             }
             else
             {
+                currentSameStatePushes = 0;
                 packet = VirtualPadPackets.NeutralInput(profile);
                 source = "neutral";
             }
 
             try
             {
+                long writeStartTicks = Stopwatch.GetTimestamp();
                 await current.WriteAsync(packet, cancellationToken).ConfigureAwait(false);
+                double writeMs = TicksToMilliseconds(Stopwatch.GetTimestamp() - writeStartTicks);
+                intervalWriteSamples++;
+                intervalWriteMsSum += writeMs;
+                intervalWriteMaxMs = Math.Max(intervalWriteMaxMs, writeMs);
+                if (writeMs >= 2)
+                {
+                    intervalWriteOver2Ms++;
+                }
+                if (writeMs >= 8)
+                {
+                    intervalWriteOver8Ms++;
+                }
             }
             catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
             {
@@ -168,12 +273,12 @@ public sealed class ViiperBridgeSession : IAsyncDisposable
             }
             frames++;
             bool rateDue = frames % PerformanceLogIntervalFrames == 0;
-            bool sourceChanged = source != lastSource;
+            string sourceFamily = SourceFamily(source);
+            bool sourceChanged = sourceFamily != lastSource;
             if (rateDue || sourceChanged)
             {
-                lastSource = source;
-                double targetHz = 1.0 / profile.SendInterval.TotalSeconds;
-                string rateSummary = "target_hz=" + targetHz.ToString("F1");
+                lastSource = sourceFamily;
+                string rateSummary = "target_hz=" + pushTargetHz.ToString("F1");
                 if (rateDue)
                 {
                     long nowTicks = rateWatch.ElapsedTicks;
@@ -181,9 +286,76 @@ public sealed class ViiperBridgeSession : IAsyncDisposable
                     double actualHz = elapsedSeconds > 0
                         ? (frames - lastRateFrames) / elapsedSeconds
                         : 0;
+                    if (inputSource is IGamepadRuntimeTelemetrySink telemetrySink)
+                    {
+                        telemetrySink.ReportViiperPushRate(actualHz);
+                    }
+                    uint updateDelta = lastSeenUpdates >= lastRateUpdates
+                        ? lastSeenUpdates - lastRateUpdates
+                        : lastSeenUpdates;
+                    double bleHz = elapsedSeconds > 0
+                        ? updateDelta / elapsedSeconds
+                        : 0;
+                    double stateReuseRatio = statePushCount == 0
+                        ? 0
+                        : stateReuseCount / (double)statePushCount;
                     lastRateTicks = nowTicks;
                     lastRateFrames = frames;
-                    rateSummary += " actual_hz=" + actualHz.ToString("F1");
+                    lastRateUpdates = lastSeenUpdates;
+                    rateSummary +=
+                        " actual_hz=" + actualHz.ToString("F1") +
+                        " ble_hz=" + bleHz.ToString("F1") +
+                        " viiper_push_hz=" + actualHz.ToString("F1") +
+                        " state_reuse_count=" + stateReuseCount +
+                        " state_reuse_ratio=" + stateReuseRatio.ToString("F3") +
+                        " same_state_push_max=" + sameStatePushMax +
+                        " source_age_bucket=0_20:" + age0To20 +
+                        ",20_33:" + age20To33 +
+                        ",33_50:" + age33To50 +
+                        ",50_100:" + age50To100 +
+                        ",gt100:" + ageOver100 +
+                        " source_age_bucket_0_20=" + age0To20 +
+                        " source_age_bucket_20_33=" + age20To33 +
+                        " source_age_bucket_33_50=" + age33To50 +
+                        " source_age_bucket_50_100=" + age50To100 +
+                        " source_age_bucket_over100=" + ageOver100;
+                    double avgWriteMs = intervalWriteSamples == 0
+                        ? 0
+                        : intervalWriteMsSum / intervalWriteSamples;
+                    rateSummary +=
+                        " loop_gap_max_ms=" + intervalLoopGapMaxMs.ToString("F2") +
+                        " loop_gap_over8=" + intervalLoopGapOver8Ms +
+                        " loop_gap_over16=" + intervalLoopGapOver16Ms +
+                        " viiper_write_avg_ms=" + avgWriteMs.ToString("F3") +
+                        " viiper_write_max_ms=" + intervalWriteMaxMs.ToString("F3") +
+                        " viiper_write_over2=" + intervalWriteOver2Ms +
+                        " viiper_write_over8=" + intervalWriteOver8Ms +
+                        " source_age_max_ms=" + intervalSourceAgeMaxMs.ToString("F1") +
+                        " usbip_attach_count=" + usbipAttachCount +
+                        " usbip_detach_count=" + UsbipDetachCount +
+                        " device_recreate_count=" + DeviceRecreateCount +
+                        " viiper_stream_disconnect_count=" + viiperStreamDisconnectCount +
+                        " viiper_stream_recovery_count=" + viiperStreamRecoveryCount +
+                        " steam_device_hash_change_count=" + SteamDeviceHashChangeCount +
+                        " last_viiper_error=\"" + SanitizeLogValue(lastViiperError) + "\"" +
+                        " last_usbip_lifecycle_event=" + lastUsbipLifecycleEvent;
+                    intervalWriteMsSum = 0;
+                    intervalWriteMaxMs = 0;
+                    intervalWriteSamples = 0;
+                    intervalWriteOver2Ms = 0;
+                    intervalWriteOver8Ms = 0;
+                    intervalLoopGapMaxMs = 0;
+                    intervalLoopGapOver8Ms = 0;
+                    intervalLoopGapOver16Ms = 0;
+                    intervalSourceAgeMaxMs = 0;
+                    statePushCount = 0;
+                    stateReuseCount = 0;
+                    sameStatePushMax = currentSameStatePushes;
+                    age0To20 = 0;
+                    age20To33 = 0;
+                    age33To50 = 0;
+                    age50To100 = 0;
+                    ageOver100 = 0;
                 }
 
                 string inputMetrics = inputSource is IGamepadInputMetricsSource metrics
@@ -193,6 +365,182 @@ public sealed class ViiperBridgeSession : IAsyncDisposable
                                 " frames " + rateSummary + inputMetrics);
             }
         }
+    }
+
+    private static double TicksToMilliseconds(long ticks)
+    {
+        return ticks * 1000.0 / Stopwatch.Frequency;
+    }
+
+    private static void CountAgeBucket(
+        double ageMs,
+        ref ulong age0To20,
+        ref ulong age20To33,
+        ref ulong age33To50,
+        ref ulong age50To100,
+        ref ulong ageOver100)
+    {
+        switch (ageMs)
+        {
+            case < 20:
+                age0To20++;
+                break;
+            case < 33:
+                age20To33++;
+                break;
+            case < 50:
+                age33To50++;
+                break;
+            case < 100:
+                age50To100++;
+                break;
+            default:
+                ageOver100++;
+                break;
+        }
+    }
+
+    private GamepadState ApplyGyroMode(
+        GamepadState state,
+        uint sourceUpdate,
+        double pushTargetHz,
+        ref uint lastMotionUpdate,
+        ref GamepadState? filteredMotionState)
+    {
+        switch (gyroMode)
+        {
+            case ViiperGyroMode.Hold250Hz:
+                lastMotionUpdate = sourceUpdate;
+                return state;
+            case ViiperGyroMode.Source60Hz:
+                if (sourceUpdate == lastMotionUpdate)
+                {
+                    return WithoutMotion(state);
+                }
+                lastMotionUpdate = sourceUpdate;
+                return state;
+            case ViiperGyroMode.Scaled250Hz:
+                lastMotionUpdate = sourceUpdate;
+                return ScaleGyro(
+                    state,
+                    Math.Clamp(66.7 / Math.Max(pushTargetHz, 1.0), 0.25, 1.0));
+            case ViiperGyroMode.Filtered250Hz:
+                lastMotionUpdate = sourceUpdate;
+                filteredMotionState = FilterMotion(filteredMotionState, state);
+                return CopyMotion(state, filteredMotionState);
+            default:
+                lastMotionUpdate = sourceUpdate;
+                return state;
+        }
+    }
+
+    private static GamepadState WithoutMotion(GamepadState state)
+    {
+        GamepadState result = state.Clone();
+        result.GyroValid = false;
+        result.AccelValid = false;
+        result.GyroX = 0;
+        result.GyroY = 0;
+        result.GyroZ = 0;
+        result.AccelX = 0;
+        result.AccelY = 0;
+        result.AccelZ = 0;
+        return result;
+    }
+
+    private static GamepadState ScaleGyro(GamepadState state, double scale)
+    {
+        if (!state.GyroValid || Math.Abs(scale - 1.0) < 0.001)
+        {
+            return state;
+        }
+
+        GamepadState result = state.Clone();
+        result.GyroX = ScaleInt16(result.GyroX, scale);
+        result.GyroY = ScaleInt16(result.GyroY, scale);
+        result.GyroZ = ScaleInt16(result.GyroZ, scale);
+        return result;
+    }
+
+    private static GamepadState FilterMotion(GamepadState? previous, GamepadState current)
+    {
+        if (previous == null)
+        {
+            return current.Clone();
+        }
+
+        const double alpha = 0.35;
+        GamepadState filtered = current.Clone();
+        if (current.GyroValid && previous.GyroValid)
+        {
+            filtered.GyroX = LerpInt16(previous.GyroX, current.GyroX, alpha);
+            filtered.GyroY = LerpInt16(previous.GyroY, current.GyroY, alpha);
+            filtered.GyroZ = LerpInt16(previous.GyroZ, current.GyroZ, alpha);
+        }
+        if (current.AccelValid && previous.AccelValid)
+        {
+            filtered.AccelX = LerpInt16(previous.AccelX, current.AccelX, alpha);
+            filtered.AccelY = LerpInt16(previous.AccelY, current.AccelY, alpha);
+            filtered.AccelZ = LerpInt16(previous.AccelZ, current.AccelZ, alpha);
+        }
+        return filtered;
+    }
+
+    private static GamepadState CopyMotion(GamepadState current, GamepadState? motion)
+    {
+        if (motion == null)
+        {
+            return current;
+        }
+
+        GamepadState result = current.Clone();
+        result.GyroValid = motion.GyroValid;
+        result.GyroX = motion.GyroX;
+        result.GyroY = motion.GyroY;
+        result.GyroZ = motion.GyroZ;
+        result.AccelValid = motion.AccelValid;
+        result.AccelX = motion.AccelX;
+        result.AccelY = motion.AccelY;
+        result.AccelZ = motion.AccelZ;
+        return result;
+    }
+
+    private static short ScaleInt16(short value, double scale)
+    {
+        return ClampInt16((int)Math.Round(value * scale));
+    }
+
+    private static short LerpInt16(short previous, short current, double alpha)
+    {
+        return ClampInt16((int)Math.Round(previous + (current - previous) * alpha));
+    }
+
+    private static short ClampInt16(int value)
+    {
+        if (value < short.MinValue) return short.MinValue;
+        if (value > short.MaxValue) return short.MaxValue;
+        return (short)value;
+    }
+
+    private static string GyroModeLabel(ViiperGyroMode mode)
+    {
+        return mode switch
+        {
+            ViiperGyroMode.Hold250Hz => "hold_250hz",
+            ViiperGyroMode.Source60Hz => "source_60hz",
+            ViiperGyroMode.Scaled250Hz => "scaled_250hz",
+            ViiperGyroMode.Filtered250Hz => "filtered_250hz",
+            _ => mode.ToString()
+        };
+    }
+
+    private static string SourceFamily(string source)
+    {
+        if (source.StartsWith("pro2_ble_age_", StringComparison.Ordinal))
+        {
+            return "pro2_ble_live";
+        }
+        return source;
     }
 
     private async Task FeedbackLoopAsync(CancellationToken cancellationToken)
@@ -393,7 +741,9 @@ public sealed class ViiperBridgeSession : IAsyncDisposable
 
             progress.Report("[VIIPER] " + loopName +
                             " stream interrupted: " + error.Message +
-                            " Reopening API stream without detaching USB device.");
+                            " Reopening API stream without detaching USB device. SEVERE_LINK_ANOMALY=true");
+            viiperStreamDisconnectCount++;
+            lastViiperError = error.Message;
             try
             {
                 await failedStream.DisposeAsync();
@@ -412,9 +762,12 @@ public sealed class ViiperBridgeSession : IAsyncDisposable
                         currentDevice.DevId,
                         cancellationToken).ConfigureAwait(false);
                     SetStream(replacement);
+                    viiperStreamRecoveryCount++;
+                    lastUsbipLifecycleEvent = "api_stream_reopened_without_detach";
                     progress.Report("[VIIPER] API stream recovered attempt=" + attempt +
                                     " bus=" + currentDevice.BusId +
-                                    " dev=" + currentDevice.DevId);
+                                    " dev=" + currentDevice.DevId +
+                                    " SEVERE_LINK_ANOMALY=true");
                     return true;
                 }
                 catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -424,6 +777,7 @@ public sealed class ViiperBridgeSession : IAsyncDisposable
                 catch (Exception ex)
                 {
                     lastError = ex;
+                    lastViiperError = ex.Message;
                     int delayMs = Math.Min(250 * attempt, 1000);
                     progress.Report("[VIIPER] API stream recover retry " + attempt +
                                     "/" + StreamRecoveryAttempts +
@@ -434,6 +788,7 @@ public sealed class ViiperBridgeSession : IAsyncDisposable
 
             progress.Report("[VIIPER] API stream recovery exhausted; session restart required. last=" +
                             (lastError?.Message ?? error.Message));
+            lastViiperError = lastError?.Message ?? error.Message;
             return false;
         }
         finally
@@ -489,6 +844,13 @@ public sealed class ViiperBridgeSession : IAsyncDisposable
         {
             // The user-facing log already records stream state; cleanup should not throw.
         }
+    }
+
+    private static string SanitizeLogValue(string value)
+    {
+        return value.Replace("\"", "'", StringComparison.Ordinal)
+            .Replace("\r", " ", StringComparison.Ordinal)
+            .Replace("\n", " ", StringComparison.Ordinal);
     }
 
     public async ValueTask DisposeAsync()

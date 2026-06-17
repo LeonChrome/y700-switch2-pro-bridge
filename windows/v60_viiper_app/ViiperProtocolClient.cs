@@ -92,7 +92,7 @@ public sealed class ViiperProtocolClient
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         linked.CancelAfter(timeout);
 
-        var tcp = new TcpClient { NoDelay = true };
+        var tcp = CreateTcpClient();
         try
         {
             await tcp.ConnectAsync(host, port, linked.Token);
@@ -119,7 +119,7 @@ public sealed class ViiperProtocolClient
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         linked.CancelAfter(requestTimeout ?? timeout);
 
-        using var tcp = new TcpClient { NoDelay = true };
+        using var tcp = CreateTcpClient();
         try
         {
             await tcp.ConnectAsync(host, port, linked.Token);
@@ -180,6 +180,18 @@ public sealed class ViiperProtocolClient
         catch (JsonException)
         {
         }
+    }
+
+    private static TcpClient CreateTcpClient()
+    {
+        var tcp = new TcpClient
+        {
+            NoDelay = true,
+            SendBufferSize = 64 * 1024,
+            ReceiveBufferSize = 64 * 1024
+        };
+        tcp.Client.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.KeepAlive, true);
+        return tcp;
     }
 }
 

@@ -9,6 +9,9 @@ public sealed class V60UserSettings
     private static readonly object FileGate = new();
 
     public double RumbleMultiplier { get; set; } = 1.0;
+    public string PushRateLabel { get; set; } = ViiperPushRateOption.Default.Label;
+    public string GyroModeLabel { get; set; } = ViiperGyroModeOption.Default.Label;
+    public string BackendLabel { get; set; } = VirtualBackendOption.Default.Label;
 
     public static V60UserSettings Load()
     {
@@ -30,6 +33,12 @@ public sealed class V60UserSettings
                 }
                 loaded.RumbleMultiplier =
                     NormalizeRumbleMultiplier(loaded.RumbleMultiplier);
+                loaded.PushRateLabel =
+                    ViiperPushRateOption.FromLabel(loaded.PushRateLabel).Label;
+                loaded.GyroModeLabel =
+                    ViiperGyroModeOption.FromLabel(loaded.GyroModeLabel).Label;
+                loaded.BackendLabel =
+                    VirtualBackendOption.FromLabel(loaded.BackendLabel).Label;
                 return loaded;
             }
             catch
@@ -46,6 +55,9 @@ public sealed class V60UserSettings
             string directory = Path.GetDirectoryName(SettingsPath)!;
             Directory.CreateDirectory(directory);
             RumbleMultiplier = NormalizeRumbleMultiplier(RumbleMultiplier);
+            PushRateLabel = ViiperPushRateOption.FromLabel(PushRateLabel).Label;
+            GyroModeLabel = ViiperGyroModeOption.FromLabel(GyroModeLabel).Label;
+            BackendLabel = VirtualBackendOption.FromLabel(BackendLabel).Label;
             string temporary = SettingsPath + ".tmp";
             File.WriteAllText(
                 temporary,

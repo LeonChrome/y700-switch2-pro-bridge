@@ -1,7 +1,9 @@
 using System;
+using System.Collections.Generic;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Net;
 using System.Reflection;
 using System.Security.Cryptography;
@@ -29,8 +31,11 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private ViiperBridgeSession? session;
     private string host = "127.0.0.1";
     private string port = "3242";
-    private string status = "V6.1.1 VIIPER Windows-only 新和联胜版本已就绪。如未安装 usbip-win2，请先点击安装/修复。";
+    private string status = "V6.2.0 VIIPER Windows-only 新和联胜版本已就绪。如未安装 usbip-win2，请先点击安装/修复。";
     private string inputStatus = "真实 Pro2 BLE 输入未连接。";
+    private string selectedPushRateLabel = ViiperPushRateOption.Default.Label;
+    private string selectedGyroModeLabel = ViiperGyroModeOption.Default.Label;
+    private string selectedBackendLabel = VirtualBackendOption.Default.Label;
     private bool running;
     private bool busy;
     private bool shuttingDown;
@@ -63,12 +68,21 @@ public sealed class MainViewModel : INotifyPropertyChanged
         rumbleMultiplier =
             V60UserSettings.NormalizeRumbleMultiplier(
                 userSettings.RumbleMultiplier);
+        selectedPushRateLabel =
+            ViiperPushRateOption.FromLabel(userSettings.PushRateLabel).Label;
+        selectedGyroModeLabel =
+            ViiperGyroModeOption.FromLabel(userSettings.GyroModeLabel).Label;
+        selectedBackendLabel =
+            VirtualBackendOption.FromLabel(userSettings.BackendLabel).Label;
         inputSource.SetRumbleGain(rumbleMultiplier);
         RefreshRuntimeReadiness();
         AppendLog("[SESSION_LOG] " + sessionLog.FilePath);
-        AppendLog("V6.1.1 说明：当前 EXE 已能创建 VIIPER 三模虚拟 USB 手柄，并强化 Pro2 BLE 摇杆稳定滤波，不再要求 Windows HID 蓝牙配对。");
+        AppendLog("V6.2.0 说明：吸收 TommyWabg 路线的 BLE throughput / dynamic GATT 思路，并加入短链路后端档位。");
         AppendLog("[RUNTIME] " + RuntimeReadinessText);
         AppendLog("[RUMBLE_GAIN] multiplier=" + rumbleMultiplier.ToString("F1"));
+        AppendLog("[LINK_TUNING] push_hz=" + SelectedPushRateOption.Hz.ToString("F1") +
+                  " gyro_mode=" + SelectedGyroModeOption.Label +
+                  " backend=" + SelectedBackendOption.Label);
     }
 
     public string Host
@@ -188,6 +202,85 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     public string RumbleMultiplierText =>
         rumbleMultiplier.ToString("F1") + "x";
+
+    public IReadOnlyList<string> PushRateChoices =>
+        ViiperPushRateOption.All.Select(o => o.Label).ToArray();
+
+    public IReadOnlyList<string> GyroModeChoices =>
+        ViiperGyroModeOption.All.Select(o => o.Label).ToArray();
+
+    public IReadOnlyList<string> BackendChoices =>
+        VirtualBackendOption.All.Select(o => o.Label).ToArray();
+
+    public string SelectedPushRate
+    {
+        get => selectedPushRateLabel;
+        set
+        {
+            string normalized = ViiperPushRateOption.FromLabel(value).Label;
+            if (selectedPushRateLabel == normalized)
+            {
+                return;
+            }
+
+            selectedPushRateLabel = normalized;
+            userSettings.PushRateLabel = normalized;
+            SaveUserSettings("[LINK_TUNING]");
+            AppendLog("[LINK_TUNING] push_hz=" + SelectedPushRateOption.Hz.ToString("F1") +
+                      " interval_ms=" + SelectedPushRateOption.Interval.TotalMilliseconds.ToString("F1") +
+                      (Running ? " apply=next_session" : " apply=next_start"));
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(LinkTuningSummary));
+        }
+    }
+
+    public string SelectedGyroMode
+    {
+        get => selectedGyroModeLabel;
+        set
+        {
+            string normalized = ViiperGyroModeOption.FromLabel(value).Label;
+            if (selectedGyroModeLabel == normalized)
+            {
+                return;
+            }
+
+            selectedGyroModeLabel = normalized;
+            userSettings.GyroModeLabel = normalized;
+            SaveUserSettings("[LINK_TUNING]");
+            AppendLog("[LINK_TUNING] gyro_mode=" + SelectedGyroModeOption.Label +
+                      (Running ? " apply=next_session" : " apply=next_start"));
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(LinkTuningSummary));
+        }
+    }
+
+    public string SelectedBackend
+    {
+        get => selectedBackendLabel;
+        set
+        {
+            string normalized = VirtualBackendOption.FromLabel(value).Label;
+            if (selectedBackendLabel == normalized)
+            {
+                return;
+            }
+
+            selectedBackendLabel = normalized;
+            userSettings.BackendLabel = normalized;
+            SaveUserSettings("[BACKEND]");
+            AppendLog("[BACKEND] selected=" + SelectedBackendOption.Label +
+                      " mode=" + SelectedBackendOption.Mode +
+                      (Running ? " apply=next_session" : " apply=next_start"));
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(LinkTuningSummary));
+        }
+    }
+
+    public string LinkTuningSummary =>
+        "push=" + SelectedPushRateOption.Hz.ToString("F1") +
+        "Hz · gyro=" + SelectedGyroModeOption.Label +
+        " · backend=" + SelectedBackendOption.Label;
 
     public bool IsDualSenseSelected => selectedMode == ViiperVirtualMode.DualSenseLike;
     public bool IsPro2Selected => selectedMode == ViiperVirtualMode.Pro2;
@@ -365,6 +458,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         string args = "server --api.addr=127.0.0.1:" + apiPort +
                       " --usb.addr=127.0.0.1:" + usbPort +
                       " --api.device-handler-connect-timeout=60s" +
+                      " --usb.write-batch-flush-interval=0ms" +
                       " --update-notify=none" +
                       " --log.file=\"" + logPath + "\"";
         ProcessStartInfo startInfo = new()
@@ -393,6 +487,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
                   " api=127.0.0.1:" + apiPort +
                   " usb=127.0.0.1:" + usbPort +
                   " exe=" + exe +
+                  " args=" + args +
                   " log=" + logPath);
         await Task.Delay(1000, cancellationToken);
 
@@ -821,7 +916,17 @@ public sealed class MainViewModel : INotifyPropertyChanged
                              inputAge <= TimeSpan.FromMilliseconds(500);
             Running = true;
             Status = "正在启动 " + profile.Label + " 虚拟手柄...";
-            AppendLog("[START] mode=" + profile.Label + " type=" + profile.DeviceType);
+            ViiperPushRateOption pushRate = SelectedPushRateOption;
+            ViiperGyroModeOption gyro = SelectedGyroModeOption;
+            ViiperDeviceProfile runtimeProfile = profile with { SendInterval = pushRate.Interval };
+            AppendLog("[START] mode=" + runtimeProfile.Label +
+                      " type=" + runtimeProfile.DeviceType +
+                      " push_hz=" + pushRate.Hz.ToString("F1") +
+                      " interval_ms=" + pushRate.Interval.TotalMilliseconds.ToString("F1") +
+                      " gyro_mode=" + gyro.Label +
+                      " backend=" + SelectedBackendOption.Label +
+                      " flush=immediate");
+            ResolveExperimentalBackendSelection(runtimeProfile);
             var progress = new Progress<string>(AppendLog);
             ViiperBridgeSession? createdSession = null;
             var faultProgress = new Progress<Exception>(
@@ -834,15 +939,16 @@ public sealed class MainViewModel : INotifyPropertyChanged
                 });
             createdSession = new ViiperBridgeSession(
                 new ViiperProtocolClient(Host, ParsePort()),
-                profile,
+                runtimeProfile,
                 progress,
                 inputSource,
                 inputSource,
-                faultProgress);
+                faultProgress,
+                gyro.Mode);
             session = createdSession;
             await createdSession.StartAsync(cancellationToken);
-            SetActiveMode(profile.Mode);
-            Status = profile.Label + " 虚拟设备已连接。当前输入源：" +
+            SetActiveMode(runtimeProfile.Mode);
+            Status = runtimeProfile.Label + " 虚拟设备已连接。当前输入源：" +
                 (inputLive
                     ? "Pro2 BLE live，rumble 写回已启用"
                     : "neutral；稍后点击“连接 Pro2 BLE”即可在不中断虚拟设备的情况下切换为 live 输入") + "。";
@@ -854,6 +960,46 @@ public sealed class MainViewModel : INotifyPropertyChanged
             await StopSessionAsync(updateStatus: false);
             Status = failure;
         }
+    }
+
+    private void ResolveExperimentalBackendSelection(ViiperDeviceProfile profile)
+    {
+        VirtualBackendOption backend = SelectedBackendOption;
+        if (backend.Mode == VirtualBackendMode.ViiperServer)
+        {
+            AppendLog("[BACKEND] active=viiper_server reason=stable_three_mode_haptic_path");
+            return;
+        }
+
+        string libPath = FindLibViiperCandidate() ?? "";
+        string reason = backend.Mode switch
+        {
+            VirtualBackendMode.LibViiperExperimental when string.IsNullOrWhiteSpace(libPath) =>
+                "libVIIPER.dll not found in app/runtime folders",
+            VirtualBackendMode.LibViiperExperimental =>
+                "libVIIPER.dll found at " + libPath + " but V6.2 has not bound DualSense/NS2Pro three-mode entrypoints yet",
+            VirtualBackendMode.EmbeddedUsbipExperimental =>
+                "C# embedded USBIP server is scaffolded as the V6.2 research target, but the release build keeps VIIPER for PS5 HD haptic safety",
+            _ => "unknown experimental backend"
+        };
+        AppendLog("[BACKEND] requested=" + backend.Label +
+                  " mode=" + backend.Mode +
+                  " profile=" + profile.DeviceType +
+                  " active=viiper_server fallback_reason=\"" + reason + "\"");
+    }
+
+    private static string? FindLibViiperCandidate()
+    {
+        string baseDir = AppContext.BaseDirectory;
+        string[] candidates =
+        [
+            Path.Combine(baseDir, "libVIIPER.dll"),
+            Path.Combine(baseDir, "runtime", "libVIIPER.dll"),
+            Path.Combine(baseDir, "tools", "viiper", "libVIIPER.dll"),
+            Path.Combine(Environment.CurrentDirectory, "tools", "viiper", "haptic-src", "dist", "libVIIPER", "libVIIPER.dll")
+        ];
+
+        return candidates.FirstOrDefault(File.Exists);
     }
 
     public async Task StopAsync()
@@ -1049,7 +1195,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "PRO2WirelessReceiverControlBoard",
             "embedded",
-            "v6.1.1",
+            "v6.2.0",
             "viiper",
             "haptic-v0.8.0");
         Directory.CreateDirectory(root);
@@ -1179,6 +1325,12 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     private ViiperDeviceProfile SelectedProfile => ProfileFor(selectedMode);
     private ViiperDeviceProfile ActiveProfile => ProfileFor(activeMode ?? selectedMode);
+    private ViiperPushRateOption SelectedPushRateOption =>
+        ViiperPushRateOption.FromLabel(selectedPushRateLabel);
+    private ViiperGyroModeOption SelectedGyroModeOption =>
+        ViiperGyroModeOption.FromLabel(selectedGyroModeLabel);
+    private VirtualBackendOption SelectedBackendOption =>
+        VirtualBackendOption.FromLabel(selectedBackendLabel);
 
     private static ViiperDeviceProfile ProfileFor(ViiperVirtualMode mode)
     {
@@ -1260,6 +1412,18 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private static string FirstLine(string text)
     {
         return (text ?? "").Replace("\r", "").Split('\n')[0];
+    }
+
+    private void SaveUserSettings(string logPrefix)
+    {
+        try
+        {
+            userSettings.Save();
+        }
+        catch (Exception ex)
+        {
+            AppendLog(logPrefix + " settings save warning: " + ex.Message);
+        }
     }
 
     private static string ExplainStartFailure(Exception ex)
