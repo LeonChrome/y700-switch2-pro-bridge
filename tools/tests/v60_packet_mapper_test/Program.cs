@@ -17,6 +17,24 @@ static void Pack12(byte[] data, int offset, ushort x, ushort y)
     data[offset + 2] = (byte)((y >> 4) & 0xff);
 }
 
+static void WriteMotion(
+    byte[] data,
+    int offset,
+    short accelX,
+    short accelY,
+    short accelZ,
+    short gyroX,
+    short gyroY,
+    short gyroZ)
+{
+    BinaryPrimitives.WriteInt16LittleEndian(data.AsSpan(offset, 2), accelX);
+    BinaryPrimitives.WriteInt16LittleEndian(data.AsSpan(offset + 2, 2), accelY);
+    BinaryPrimitives.WriteInt16LittleEndian(data.AsSpan(offset + 4, 2), accelZ);
+    BinaryPrimitives.WriteInt16LittleEndian(data.AsSpan(offset + 6, 2), gyroX);
+    BinaryPrimitives.WriteInt16LittleEndian(data.AsSpan(offset + 8, 2), gyroY);
+    BinaryPrimitives.WriteInt16LittleEndian(data.AsSpan(offset + 10, 2), gyroZ);
+}
+
 static (int Low, int High) DecodeBleAmplitudes(
     ReadOnlySpan<byte> packet,
     int frameOffset)
@@ -91,7 +109,7 @@ var state = new GamepadState
     L2 = GamepadState.TriggerMax,
     R2 = GamepadState.TriggerMax,
     AccelValid = true,
-    AccelZ = -8192,
+    AccelY = 8192,
     BatteryPercent = 50,
     BatteryCharging = true
 };
@@ -107,6 +125,7 @@ Expect((dsButtons & 0x000000F0) == 0x000000F0, "DualSense face buttons");
 Expect((dsButtons & 0x0003FC00) == 0x0003FC00, "DualSense system/shoulder buttons");
 Expect(ds[8] == 0x09, "DualSense dpad bitfield");
 Expect(ds[9] == 255 && ds[10] == 255, "DualSense triggers");
+Expect(BinaryPrimitives.ReadInt16LittleEndian(ds.AsSpan(31, 2)) == -8192, "DualSense static accel Z");
 
 byte[] ns = VirtualPadPackets.FromGamepad(ViiperDeviceProfile.Pro2, state);
 Expect(ns.Length == 24, "NS2Pro wire size");
@@ -114,6 +133,7 @@ uint nsButtons = BinaryPrimitives.ReadUInt32LittleEndian(ns.AsSpan(0, 4));
 Expect(nsButtons == 0x0003FAFF, "NS2Pro button bitfield");
 Expect(BinaryPrimitives.ReadUInt16LittleEndian(ns.AsSpan(4, 2)) == 0, "NS2Pro LX min");
 Expect(BinaryPrimitives.ReadUInt16LittleEndian(ns.AsSpan(6, 2)) == 4095, "NS2Pro LY max");
+Expect(BinaryPrimitives.ReadInt16LittleEndian(ns.AsSpan(14, 2)) == -8192, "NS2Pro static accel Y");
 byte[] nsNeutral = VirtualPadPackets.NeutralInput(ViiperDeviceProfile.Pro2);
 Expect(nsNeutral.Length == 24, "NS2Pro neutral wire size");
 
@@ -124,6 +144,30 @@ Expect((xbButtons & 0xFFFF) == 0xF7F9, "Xbox button bitfield");
 Expect(xb[4] == 255 && xb[5] == 255, "Xbox triggers");
 Expect(BinaryPrimitives.ReadInt16LittleEndian(xb.AsSpan(6, 2)) == short.MinValue, "Xbox LX min");
 Expect(BinaryPrimitives.ReadInt16LittleEndian(xb.AsSpan(8, 2)) == short.MaxValue, "Xbox LY max");
+
+var motionState = GamepadState.Neutral();
+motionState.GyroValid = true;
+motionState.AccelValid = true;
+motionState.GyroX = 100;
+motionState.GyroY = 200;
+motionState.GyroZ = -300;
+motionState.AccelX = 10;
+motionState.AccelY = 8192;
+motionState.AccelZ = 20;
+byte[] dsMotion = VirtualPadPackets.FromGamepad(ViiperDeviceProfile.DualSenseLike, motionState);
+Expect(BinaryPrimitives.ReadInt16LittleEndian(dsMotion.AsSpan(21, 2)) == 100, "DualSense gyro X maps directly");
+Expect(BinaryPrimitives.ReadInt16LittleEndian(dsMotion.AsSpan(23, 2)) == -200, "DualSense gyro Y flips source Y");
+Expect(BinaryPrimitives.ReadInt16LittleEndian(dsMotion.AsSpan(25, 2)) == -300, "DualSense gyro Z maps directly");
+Expect(BinaryPrimitives.ReadInt16LittleEndian(dsMotion.AsSpan(27, 2)) == 10, "DualSense accel X maps directly");
+Expect(BinaryPrimitives.ReadInt16LittleEndian(dsMotion.AsSpan(29, 2)) == 20, "DualSense accel Y takes source Z");
+Expect(BinaryPrimitives.ReadInt16LittleEndian(dsMotion.AsSpan(31, 2)) == -8192, "DualSense accel Z flips source Y");
+byte[] nsMotion = VirtualPadPackets.FromGamepad(ViiperDeviceProfile.Pro2, motionState);
+Expect(BinaryPrimitives.ReadInt16LittleEndian(nsMotion.AsSpan(12, 2)) == 10, "NS2Pro accel X maps directly");
+Expect(BinaryPrimitives.ReadInt16LittleEndian(nsMotion.AsSpan(14, 2)) == -8192, "NS2Pro accel Y flips source Y");
+Expect(BinaryPrimitives.ReadInt16LittleEndian(nsMotion.AsSpan(16, 2)) == 20, "NS2Pro accel Z maps directly");
+Expect(BinaryPrimitives.ReadInt16LittleEndian(nsMotion.AsSpan(18, 2)) == 100, "NS2Pro gyro X maps directly");
+Expect(BinaryPrimitives.ReadInt16LittleEndian(nsMotion.AsSpan(20, 2)) == -200, "NS2Pro gyro Y flips source Y");
+Expect(BinaryPrimitives.ReadInt16LittleEndian(nsMotion.AsSpan(22, 2)) == -300, "NS2Pro gyro Z maps directly");
 
 var parser = new Pro2HidReportParser();
 byte[] report = new byte[49];
@@ -175,6 +219,25 @@ Expect(fd2Parsed.IsPressed(GamepadButtons.DPadUp), "FD2 parsed dpad up");
 Expect(fd2Parsed.R2 == GamepadState.TriggerMax, "FD2 parsed analog R2");
 Expect(fd2Parsed.AccelValid && fd2Parsed.GyroValid, "FD2 parsed motion");
 Expect(fd2Parsed.AccelX == -7 && fd2Parsed.GyroZ == 77, "FD2 parsed motion values");
+
+var motionParser = new Pro2HidReportParser();
+byte[] flatFd2 = new byte[60];
+Pack12(flatFd2, 10, 2048, 2048);
+Pack12(flatFd2, 13, 2048, 2048);
+for (int i = 0; i < 24; i++)
+{
+    WriteMotion(flatFd2, 48, 120, 8500, -90, 90, -120, 70);
+    Expect(motionParser.TryParse(flatFd2, out _, out _), "motion calibration learns flat FD2 sample");
+}
+
+WriteMotion(flatFd2, 48, 620, 8700, -90, 290, -120, -330);
+Expect(motionParser.TryParse(flatFd2, out GamepadState calibratedMotion, out _), "motion calibration applies to FD2 sample");
+Expect(calibratedMotion.AccelX == 500, "motion calibration recenters accel X");
+Expect(calibratedMotion.AccelY == 8392, "motion calibration keeps source Y near 1g");
+Expect(calibratedMotion.AccelZ == 0, "motion calibration recenters accel Z");
+Expect(calibratedMotion.GyroX == 200, "motion calibration subtracts gyro X bias");
+Expect(calibratedMotion.GyroY == 0, "motion calibration subtracts gyro Y bias");
+Expect(calibratedMotion.GyroZ == -400, "motion calibration subtracts gyro Z bias");
 byte[] shortFd2 = new byte[16];
 BinaryPrimitives.WriteUInt32LittleEndian(shortFd2.AsSpan(4, 4), 0x00000004u);
 Pack12(shortFd2, 10, 2048, 2048);

@@ -48,8 +48,6 @@ public partial class MainWindow : Window
     private void CreateTrayIcon()
     {
         trayMenu = new Forms.ContextMenuStrip();
-        trayMenu.Items.Add("打开主界面", null, (_, _) => Dispatcher.BeginInvoke(new Action(ShowFromTray)));
-        trayMenu.Items.Add(new Forms.ToolStripSeparator());
         trayMenu.Items.Add("切换 新和联胜 / PS5", null, (_, _) => ExecuteTrayCommand(vm => vm.StartDualSenseCommand));
         trayMenu.Items.Add("切换 Pro2 / Nintendo", null, (_, _) => ExecuteTrayCommand(vm => vm.StartPro2Command));
         trayMenu.Items.Add("切换 Xbox / XInput", null, (_, _) => ExecuteTrayCommand(vm => vm.StartXboxCommand));
@@ -62,7 +60,7 @@ public partial class MainWindow : Window
         trayIcon = new Forms.NotifyIcon
         {
             Icon = SystemIcons.Application,
-            Text = "PRO2 控制板 V6.2.4 新和联胜",
+            Text = "PRO2 控制板 V6.2.5 新和联胜",
             ContextMenuStrip = trayMenu,
             Visible = true
         };
@@ -86,7 +84,7 @@ public partial class MainWindow : Window
         {
             trayTipShown = true;
             trayIcon.BalloonTipTitle = "PRO2 控制板仍在运行";
-            trayIcon.BalloonTipText = "右键托盘图标可切换三模、进入游戏或打开主界面。";
+            trayIcon.BalloonTipText = "右键托盘图标可后台切换三模或进入游戏；双击才会打开主界面。";
             trayIcon.ShowBalloonTip(2500);
         }
     }
@@ -105,7 +103,6 @@ public partial class MainWindow : Window
     {
         _ = Dispatcher.BeginInvoke(new Action(() =>
         {
-            ShowFromTray();
             if (DataContext is not MainViewModel viewModel)
             {
                 return;
@@ -121,7 +118,6 @@ public partial class MainWindow : Window
 
     private void RequestExitFromTray()
     {
-        ShowFromTray();
         Close();
     }
 

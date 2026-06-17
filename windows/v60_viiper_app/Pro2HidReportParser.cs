@@ -13,6 +13,7 @@ public sealed class Pro2HidReportParser
     private readonly object gate = new();
     private readonly AxisCalibration standardAxis = new();
     private readonly AxisCalibration legacyAxis = new();
+    private readonly MotionCalibration motion = new();
 
     public bool TryParse(ReadOnlySpan<byte> report, out GamepadState state, out string source)
     {
@@ -257,7 +258,7 @@ public sealed class Pro2HidReportParser
         state.Ry = calibration.Normalize(ry, calibration.CenterRy);
     }
 
-    private static void ApplyMotionSample(GamepadState state, ReadOnlySpan<byte> sample)
+    private void ApplyMotionSample(GamepadState state, ReadOnlySpan<byte> sample)
     {
         if (sample.Length < 12)
         {
@@ -272,6 +273,7 @@ public sealed class Pro2HidReportParser
         state.GyroX = BinaryPrimitives.ReadInt16LittleEndian(sample.Slice(6, 2));
         state.GyroY = BinaryPrimitives.ReadInt16LittleEndian(sample.Slice(8, 2));
         state.GyroZ = BinaryPrimitives.ReadInt16LittleEndian(sample.Slice(10, 2));
+        motion.Apply(state);
     }
 
     private sealed class AxisCalibration
@@ -355,6 +357,147 @@ public sealed class Pro2HidReportParser
             sumLy = 0;
             sumRx = 0;
             sumRy = 0;
+        }
+    }
+
+    private sealed class MotionCalibration
+    {
+        private const int SamplesRequired = 24;
+        private const int ExpectedAccelY = 8192;
+        private const int GyroStationaryMaxAbs = 1400;
+        private const int GyroFineDeadzone = 10;
+        private const int AccelRestTolerance = 3500;
+        private const int AccelMagnitudeMin = 5000;
+        private const int AccelMagnitudeMax = 12000;
+
+        private long gyroXSum;
+        private long gyroYSum;
+        private long gyroZSum;
+        private long accelXSum;
+        private long accelYSum;
+        private long accelZSum;
+        private int sampleCount;
+        private bool calibrated;
+        private int gyroXBias;
+        private int gyroYBias;
+        private int gyroZBias;
+        private int accelXOffset;
+        private int accelYOffset;
+        private int accelZOffset;
+
+        public void Apply(GamepadState state)
+        {
+            int accelX = state.AccelX;
+            int accelY = state.AccelY;
+            int accelZ = state.AccelZ;
+            int gyroX = state.GyroX;
+            int gyroY = state.GyroY;
+            int gyroZ = state.GyroZ;
+
+            bool canLearn = IsStationaryFlat(accelX, accelY, accelZ, gyroX, gyroY, gyroZ);
+            if (canLearn)
+            {
+                Learn(accelX, accelY, accelZ, gyroX, gyroY, gyroZ);
+            }
+            else
+            {
+                ResetLearningWindow();
+            }
+
+            if (!calibrated)
+            {
+                return;
+            }
+
+            int outGyroX = ApplyGyroDeadzone(gyroX - gyroXBias);
+            int outGyroY = ApplyGyroDeadzone(gyroY - gyroYBias);
+            int outGyroZ = ApplyGyroDeadzone(gyroZ - gyroZBias);
+
+            state.GyroX = ClampInt16(outGyroX);
+            state.GyroY = ClampInt16(outGyroY);
+            state.GyroZ = ClampInt16(outGyroZ);
+            state.AccelX = ClampInt16(accelX - accelXOffset);
+            state.AccelY = ClampInt16(accelY - accelYOffset);
+            state.AccelZ = ClampInt16(accelZ - accelZOffset);
+        }
+
+        private static bool IsStationaryFlat(
+            int accelX,
+            int accelY,
+            int accelZ,
+            int gyroX,
+            int gyroY,
+            int gyroZ)
+        {
+            long accelMagnitudeSquared =
+                (long)accelX * accelX +
+                (long)accelY * accelY +
+                (long)accelZ * accelZ;
+            bool plausibleGravity =
+                accelMagnitudeSquared >= (long)AccelMagnitudeMin * AccelMagnitudeMin &&
+                accelMagnitudeSquared <= (long)AccelMagnitudeMax * AccelMagnitudeMax;
+            bool nearExpectedRest =
+                Math.Abs(accelX) <= AccelRestTolerance &&
+                Math.Abs(accelY - ExpectedAccelY) <= AccelRestTolerance &&
+                Math.Abs(accelZ) <= AccelRestTolerance;
+            bool gyroQuiet =
+                Math.Abs(gyroX) <= GyroStationaryMaxAbs &&
+                Math.Abs(gyroY) <= GyroStationaryMaxAbs &&
+                Math.Abs(gyroZ) <= GyroStationaryMaxAbs;
+            return plausibleGravity && nearExpectedRest && gyroQuiet;
+        }
+
+        private void Learn(
+            int accelX,
+            int accelY,
+            int accelZ,
+            int gyroX,
+            int gyroY,
+            int gyroZ)
+        {
+            gyroXSum += gyroX;
+            gyroYSum += gyroY;
+            gyroZSum += gyroZ;
+            accelXSum += accelX;
+            accelYSum += accelY;
+            accelZSum += accelZ;
+            sampleCount++;
+            if (sampleCount < SamplesRequired)
+            {
+                return;
+            }
+
+            gyroXBias = (int)(gyroXSum / sampleCount);
+            gyroYBias = (int)(gyroYSum / sampleCount);
+            gyroZBias = (int)(gyroZSum / sampleCount);
+            accelXOffset = (int)(accelXSum / sampleCount);
+            accelYOffset = (int)(accelYSum / sampleCount) - ExpectedAccelY;
+            accelZOffset = (int)(accelZSum / sampleCount);
+            calibrated = true;
+            ResetLearningWindow();
+        }
+
+        private static int ApplyGyroDeadzone(int value)
+        {
+            return Math.Abs(value) <= GyroFineDeadzone ? 0 : value;
+        }
+
+        private static short ClampInt16(int value)
+        {
+            if (value < short.MinValue) return short.MinValue;
+            if (value > short.MaxValue) return short.MaxValue;
+            return (short)value;
+        }
+
+        private void ResetLearningWindow()
+        {
+            gyroXSum = 0;
+            gyroYSum = 0;
+            gyroZSum = 0;
+            accelXSum = 0;
+            accelYSum = 0;
+            accelZSum = 0;
+            sampleCount = 0;
         }
     }
 }

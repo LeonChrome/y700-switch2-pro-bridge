@@ -1,5 +1,22 @@
 # Changelog
 
+## V6.2.5 新和联胜 VIIPER Calibrated Motion
+
+- Promoted the V6.2 Windows-only VIIPER route to `v6.2.5`.
+- Added Pro2 BLE IMU rest calibration at the HID parser boundary: stationary
+  flat samples learn gyro zero bias and small accelerometer offsets without
+  changing the raw stick gameplay path.
+- Added explicit motion-axis mapping for the virtual DualSense and NS2Pro
+  devices. DualSense now receives a flat-rest `AccelZ=-8192` vector, and both
+  PS5/NS2Pro paths flip the source Y gyro axis according to the VIIPER/reference
+  report-space mapping.
+- Kept Xbox motion-free as before.
+- Changed tray right-click actions to run fully in the background; only
+  double-clicking the tray icon restores the main window.
+- Added packet-mapper coverage for static gravity, gyro sign mapping, and
+  parser-side motion calibration.
+- Published `release/v6.2.5/新和联胜VIIPER版本-aio-v6.2.5.exe`.
+
 ## V6.2.4 新和联胜 VIIPER Raw Stick
 
 - Promoted the V6.2 Windows-only VIIPER route to `v6.2.4`.

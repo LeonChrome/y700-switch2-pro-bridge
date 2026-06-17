@@ -116,12 +116,14 @@ public static class VirtualPadPackets
         b[9] = Trigger12ToU8(state.L2, state.IsPressed(GamepadButtons.L2));
         b[10] = Trigger12ToU8(state.R2, state.IsPressed(GamepadButtons.R2));
 
-        WriteI16(b, 21, state.GyroValid ? state.GyroX : (short)0);
-        WriteI16(b, 23, state.GyroValid ? state.GyroY : (short)0);
-        WriteI16(b, 25, state.GyroValid ? state.GyroZ : (short)0);
-        WriteI16(b, 27, state.AccelValid ? state.AccelX : (short)0);
-        WriteI16(b, 29, state.AccelValid ? state.AccelY : (short)0);
-        WriteI16(b, 31, state.AccelValid ? state.AccelZ : (short)-8192);
+        MotionVector dualSenseGyro = MapDualSenseGyro(state);
+        MotionVector dualSenseAccel = MapDualSenseAccel(state);
+        WriteI16(b, 21, state.GyroValid ? dualSenseGyro.X : (short)0);
+        WriteI16(b, 23, state.GyroValid ? dualSenseGyro.Y : (short)0);
+        WriteI16(b, 25, state.GyroValid ? dualSenseGyro.Z : (short)0);
+        WriteI16(b, 27, state.AccelValid ? dualSenseAccel.X : (short)0);
+        WriteI16(b, 29, state.AccelValid ? dualSenseAccel.Y : (short)0);
+        WriteI16(b, 31, state.AccelValid ? dualSenseAccel.Z : (short)-8192);
         return b;
     }
 
@@ -133,12 +135,14 @@ public static class VirtualPadPackets
         WriteU16(b, 6, SnapAxisCenter(state.Ly));
         WriteU16(b, 8, SnapAxisCenter(state.Rx));
         WriteU16(b, 10, SnapAxisCenter(state.Ry));
-        WriteI16(b, 12, state.AccelValid ? state.AccelX : (short)0);
-        WriteI16(b, 14, state.AccelValid ? state.AccelY : (short)0);
-        WriteI16(b, 16, state.AccelValid ? state.AccelZ : (short)0);
-        WriteI16(b, 18, state.GyroValid ? state.GyroX : (short)0);
-        WriteI16(b, 20, state.GyroValid ? state.GyroY : (short)0);
-        WriteI16(b, 22, state.GyroValid ? state.GyroZ : (short)0);
+        MotionVector ns2ProAccel = MapNs2ProAccel(state);
+        MotionVector ns2ProGyro = MapNs2ProGyro(state);
+        WriteI16(b, 12, state.AccelValid ? ns2ProAccel.X : (short)0);
+        WriteI16(b, 14, state.AccelValid ? ns2ProAccel.Y : (short)0);
+        WriteI16(b, 16, state.AccelValid ? ns2ProAccel.Z : (short)0);
+        WriteI16(b, 18, state.GyroValid ? ns2ProGyro.X : (short)0);
+        WriteI16(b, 20, state.GyroValid ? ns2ProGyro.Y : (short)0);
+        WriteI16(b, 22, state.GyroValid ? ns2ProGyro.Z : (short)0);
         return b;
     }
 
@@ -243,6 +247,43 @@ public static class VirtualPadPackets
         return delta <= 64 ? AxisCenter : value;
     }
 
+    private static MotionVector MapDualSenseGyro(GamepadState state)
+    {
+        return new MotionVector(
+            state.GyroX,
+            NegateI16(state.GyroY),
+            state.GyroZ);
+    }
+
+    private static MotionVector MapDualSenseAccel(GamepadState state)
+    {
+        return new MotionVector(
+            state.AccelX,
+            state.AccelZ,
+            NegateI16(state.AccelY));
+    }
+
+    private static MotionVector MapNs2ProGyro(GamepadState state)
+    {
+        return new MotionVector(
+            state.GyroX,
+            NegateI16(state.GyroY),
+            state.GyroZ);
+    }
+
+    private static MotionVector MapNs2ProAccel(GamepadState state)
+    {
+        return new MotionVector(
+            state.AccelX,
+            NegateI16(state.AccelY),
+            state.AccelZ);
+    }
+
+    private static short NegateI16(short value)
+    {
+        return value == short.MinValue ? short.MaxValue : (short)-value;
+    }
+
     private static sbyte Axis12ToI8(ushort value, bool invert)
     {
         short i16 = Axis12ToI16(value, invert);
@@ -299,4 +340,6 @@ public static class VirtualPadPackets
     {
         return Convert.ToHexString(bytes).ToLowerInvariant();
     }
+
+    private readonly record struct MotionVector(short X, short Y, short Z);
 }
