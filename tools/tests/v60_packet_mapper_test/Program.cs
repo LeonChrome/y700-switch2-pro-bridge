@@ -352,6 +352,11 @@ Expect(
     V60UserSettings.NormalizeRumbleMultiplier(3.8) == 3 &&
     V60UserSettings.NormalizeRumbleMultiplier(double.NaN) == 1,
     "rumble multiplier is normalized to 0..3");
+Expect(
+    ViiperGyroModeOption.Default.Mode == ViiperGyroMode.Hold250Hz &&
+    ViiperGyroModeOption.FromLabel("source_60hz（推荐）").Mode == ViiperGyroMode.Hold250Hz &&
+    ViiperGyroModeOption.FromLabel("source_60hz_zero（诊断）").Mode == ViiperGyroMode.Source60Hz,
+    "gyro default uses latest-held IMU and migrates the old source_60hz recommendation");
 
 var hapticScheduler = new DualSenseHapticRumbleScheduler();
 byte[] compatibilityReport = new byte[64];

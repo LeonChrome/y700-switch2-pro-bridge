@@ -1,5 +1,19 @@
 # Changelog
 
+## V6.2.6 新和联胜 VIIPER Latest-Held Gyro
+
+- Promoted the V6.2 Windows-only VIIPER route to `v6.2.6`.
+- Changed the default gyro timing model from `source_60hz` zeroing to
+  `hold_latest`. BLE still updates at the real Pro2 sample cadence, while every
+  virtual USB report carries the latest gyro/accel sample until a new source
+  sample arrives.
+- Migrates the old saved `source_60hz（推荐）` setting to the new default, so
+  existing users do not stay on the choppy motion path after upgrading.
+- Kept `source_60hz_zero` as an explicit diagnostic mode for reproducing the old
+  behavior where repeated USB frames clear motion.
+- Updated UI copy and telemetry labels to describe the actual latest-held IMU
+  strategy.
+
 ## V6.2.5 新和联胜 VIIPER Calibrated Motion
 
 - Promoted the V6.2 Windows-only VIIPER route to `v6.2.5`.

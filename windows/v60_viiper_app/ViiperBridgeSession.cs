@@ -44,7 +44,7 @@ public sealed class ViiperBridgeSession : IAsyncDisposable
         IGamepadInputSource? inputSource = null,
         IGamepadOutputSink? outputSink = null,
         IProgress<Exception>? faultProgress = null,
-        ViiperGyroMode gyroMode = ViiperGyroMode.Source60Hz)
+        ViiperGyroMode gyroMode = ViiperGyroMode.Hold250Hz)
     {
         this.client = client;
         this.profile = profile;
@@ -554,10 +554,10 @@ public sealed class ViiperBridgeSession : IAsyncDisposable
     {
         return mode switch
         {
-            ViiperGyroMode.Hold250Hz => "hold_250hz",
-            ViiperGyroMode.Source60Hz => "source_60hz",
+            ViiperGyroMode.Hold250Hz => "hold_latest",
+            ViiperGyroMode.Source60Hz => "source_60hz_zero",
             ViiperGyroMode.Scaled250Hz => "scaled_250hz",
-            ViiperGyroMode.Filtered250Hz => "filtered_250hz",
+            ViiperGyroMode.Filtered250Hz => "filtered_hold",
             _ => mode.ToString()
         };
     }

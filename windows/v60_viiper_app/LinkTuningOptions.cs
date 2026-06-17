@@ -60,16 +60,38 @@ public sealed record ViiperGyroModeOption(
 {
     public static IReadOnlyList<ViiperGyroModeOption> All { get; } =
     [
-        new(ViiperGyroMode.Source60Hz, "source_60hz（推荐）", "IMU 只在 BLE 新样本到达时输出，重复帧清空 gyro/accel。"),
-        new(ViiperGyroMode.Hold250Hz, "hold_250hz", "所有推送都重复 latest gyro/accel，最接近旧行为。"),
-        new(ViiperGyroMode.Scaled250Hz, "scaled_250hz", "重复高刷新时按 BLE/Push 比例缩放 gyro，accel 保持重力语义。"),
-        new(ViiperGyroMode.Filtered250Hz, "filtered_250hz", "对 gyro/accel 做低通，降低重复推送的尖峰。")
+        new(
+            ViiperGyroMode.Hold250Hz,
+            "hold_latest（推荐）",
+            "BLE 仍按真实采样率更新；USB 每帧零阶保持 latest gyro/accel，避免重复帧把 motion 清零。"),
+        new(
+            ViiperGyroMode.Source60Hz,
+            "source_60hz_zero（诊断）",
+            "仅在 BLE 新样本到达时输出 IMU，重复帧清空 gyro/accel；用于复现旧版不丝滑问题。"),
+        new(
+            ViiperGyroMode.Filtered250Hz,
+            "filtered_hold（实验）",
+            "在 latest-hold 基础上对 gyro/accel 做低通，降低噪声但会增加一点延迟。"),
+        new(
+            ViiperGyroMode.Scaled250Hz,
+            "scaled_250hz（实验）",
+            "重复高刷新时按 BLE/Push 比例缩放 gyro；只用于 A/B 验证，不作为默认手感路径。")
     ];
 
     public static ViiperGyroModeOption Default => All[0];
 
     public static ViiperGyroModeOption FromLabel(string? label)
     {
+        if (string.Equals(label, "source_60hz（推荐）", StringComparison.Ordinal))
+        {
+            return Default;
+        }
+
+        if (string.Equals(label, "hold_250hz", StringComparison.Ordinal))
+        {
+            return All.First(o => o.Mode == ViiperGyroMode.Hold250Hz);
+        }
+
         return All.FirstOrDefault(o => string.Equals(o.Label, label, StringComparison.Ordinal)) ?? Default;
     }
 }
