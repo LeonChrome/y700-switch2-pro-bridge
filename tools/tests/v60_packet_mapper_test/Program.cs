@@ -180,18 +180,11 @@ Expect(BinaryPrimitives.ReadInt16LittleEndian(dsMotionXzInverted.AsSpan(31, 2)) 
 Expect(
     Ps5ImuMappingOption.FromLabel("SDL/Nintendo 基线  G=-Y,+Z,-X  A=-Y,+Z,-X").Label ==
     Ps5ImuMappingOption.Default.Label,
-    "legacy V6.2.14 default label migrates to the V6.2.15 pitch/roll swapped default");
-Ps5ImuMapping v6212Mapping = Ps5ImuMappingOption.FromLabel("V6.2.12 配对  G=+Y,-Z,-X  A=-X,-Z,-Y").Mapping;
-byte[] dsMotionV6212 = VirtualPadPackets.FromGamepad(
-    ViiperDeviceProfile.DualSenseLike,
-    motionState,
-    ps5ImuMapping: v6212Mapping);
-Expect(BinaryPrimitives.ReadInt16LittleEndian(dsMotionV6212.AsSpan(21, 2)) == 200, "DualSense v6.2.12 gyro X takes source Y");
-Expect(BinaryPrimitives.ReadInt16LittleEndian(dsMotionV6212.AsSpan(23, 2)) == 300, "DualSense v6.2.12 gyro Y takes flipped source Z");
-Expect(BinaryPrimitives.ReadInt16LittleEndian(dsMotionV6212.AsSpan(25, 2)) == -100, "DualSense v6.2.12 gyro Z takes flipped source X");
-Expect(BinaryPrimitives.ReadInt16LittleEndian(dsMotionV6212.AsSpan(27, 2)) == -10, "DualSense v6.2.12 accel X flips source X");
-Expect(BinaryPrimitives.ReadInt16LittleEndian(dsMotionV6212.AsSpan(29, 2)) == -20, "DualSense v6.2.12 accel Y flips source Z");
-Expect(BinaryPrimitives.ReadInt16LittleEndian(dsMotionV6212.AsSpan(31, 2)) == -8192, "DualSense v6.2.12 accel Z flips source Y");
+    "legacy V6.2.14 default label migrates to the fixed PS5 mapping");
+Expect(
+    Ps5ImuMappingOption.FromLabel("V6.2.12 配对  G=+Y,-Z,-X  A=-X,-Z,-Y").Label ==
+    Ps5ImuMappingOption.Default.Label,
+    "legacy selectable PS5 mapping labels migrate to the fixed PS5 mapping");
 byte[] nsMotion = VirtualPadPackets.FromGamepad(ViiperDeviceProfile.Pro2, motionState);
 Expect(BinaryPrimitives.ReadInt16LittleEndian(nsMotion.AsSpan(12, 2)) == 10, "NS2Pro accel X maps directly");
 Expect(BinaryPrimitives.ReadInt16LittleEndian(nsMotion.AsSpan(14, 2)) == -8192, "NS2Pro accel Y flips source Y");

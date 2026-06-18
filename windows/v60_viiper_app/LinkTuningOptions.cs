@@ -83,47 +83,11 @@ public sealed record Ps5ImuMappingOption(
     public static IReadOnlyList<Ps5ImuMappingOption> All { get; } =
     [
         new(
-            "V6.2.15 默认 Pitch/Roll 对换  G=-X,+Z,-Y  A=-X,+Z,-Y",
+            "固定正确映射  G=-X,+Z,-Y  A=-X,+Z,-Y",
             new Ps5ImuMapping(
                 N(ImuAxisSource.X), P(ImuAxisSource.Z), N(ImuAxisSource.Y),
                 N(ImuAxisSource.X), P(ImuAxisSource.Z), N(ImuAxisSource.Y)),
-            "在 V6.2.14 SDL/Nintendo 基线上互换 PS5 report-space 的 pitch/roll 输出轴；gyro/accel 成对互换，PRO2 模式不受影响。"),
-        new(
-            "V6.2.14 回退 SDL/Nintendo 基线  G=-Y,+Z,-X  A=-Y,+Z,-X",
-            new Ps5ImuMapping(
-                N(ImuAxisSource.Y), P(ImuAxisSource.Z), N(ImuAxisSource.X),
-                N(ImuAxisSource.Y), P(ImuAxisSource.Z), N(ImuAxisSource.X)),
-            "V6.2.14 默认映射；保留给现场回退和对照测试。"),
-        new(
-            "V6.2.12 配对  G=+Y,-Z,-X  A=-X,-Z,-Y",
-            new Ps5ImuMapping(
-                P(ImuAxisSource.Y), N(ImuAxisSource.Z), N(ImuAxisSource.X),
-                N(ImuAxisSource.X), N(ImuAxisSource.Z), N(ImuAxisSource.Y)),
-            "上一版的 gyro/accel 配对修正；保留给现场复测和回退。"),
-        new(
-            "V6.2.11 gyro-only  G=+Y,-Z,-X  A=+X,+Z,-Y",
-            new Ps5ImuMapping(
-                P(ImuAxisSource.Y), N(ImuAxisSource.Z), N(ImuAxisSource.X),
-                P(ImuAxisSource.X), P(ImuAxisSource.Z), N(ImuAxisSource.Y)),
-            "只翻 gyro、不配对 accel 的版本；用于复现静置 XYZ 抖动。"),
-        new(
-            "V6.2.10 研究  G=-Y,+Z,-X  A=+X,+Z,-Y",
-            new Ps5ImuMapping(
-                N(ImuAxisSource.Y), P(ImuAxisSource.Z), N(ImuAxisSource.X),
-                P(ImuAxisSource.X), P(ImuAxisSource.Z), N(ImuAxisSource.Y)),
-            "最初拆分 PS5/Pro2 gyro 坐标时的组合。"),
-        new(
-            "旧版共用  G=+X,-Y,+Z  A=+X,+Z,-Y",
-            new Ps5ImuMapping(
-                P(ImuAxisSource.X), N(ImuAxisSource.Y), P(ImuAxisSource.Z),
-                P(ImuAxisSource.X), P(ImuAxisSource.Z), N(ImuAxisSource.Y)),
-            "V6.2.9 之前 PS5 gyro 与 Pro2 gyro 接近共用的组合。"),
-        new(
-            "Pro2 同向诊断  G=+X,-Y,+Z  A=+X,-Y,+Z",
-            new Ps5ImuMapping(
-                P(ImuAxisSource.X), N(ImuAxisSource.Y), P(ImuAxisSource.Z),
-                P(ImuAxisSource.X), N(ImuAxisSource.Y), P(ImuAxisSource.Z)),
-            "用于确认 PS5 问题是否来自目标坐标转换，而不是 Pro2 原始 IMU。")
+            "V6.2.15 实测确认的 PS5 正确映射；gyro/accel 成对固定，PRO2 模式不受影响。")
     ];
 
     public static Ps5ImuMappingOption Default => All[0];

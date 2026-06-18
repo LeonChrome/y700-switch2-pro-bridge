@@ -10,12 +10,6 @@ public sealed class V60UserSettings
 
     public double RumbleMultiplier { get; set; } = 1.0;
     public string PushRateLabel { get; set; } = ViiperPushRateOption.Default.Label;
-    public string GyroModeLabel { get; set; } = ViiperGyroModeOption.Default.Label;
-    public string Ps5ImuMappingLabel { get; set; } = Ps5ImuMappingOption.Default.Label;
-    public string GyroDirectionLabel { get; set; } = GyroDirectionOption.Default.Label;
-    public bool InvertGyroX { get; set; }
-    public bool InvertGyroY { get; set; }
-    public bool InvertGyroZ { get; set; }
     public string BackendLabel { get; set; } = VirtualBackendOption.Default.Label;
     public string StickProcessingLabel { get; set; } = StickProcessingOption.Default.Label;
     public bool AudioEndpointGuardEnabled { get; set; } = true;
@@ -42,17 +36,6 @@ public sealed class V60UserSettings
                     NormalizeRumbleMultiplier(loaded.RumbleMultiplier);
                 loaded.PushRateLabel =
                     ViiperPushRateOption.FromLabel(loaded.PushRateLabel).Label;
-                loaded.GyroModeLabel =
-                    ViiperGyroModeOption.FromLabel(loaded.GyroModeLabel).Label;
-                loaded.Ps5ImuMappingLabel =
-                    Ps5ImuMappingOption.FromLabel(loaded.Ps5ImuMappingLabel).Label;
-                GyroDirectionOption legacyDirection =
-                    GyroDirectionOption.FromLabel(loaded.GyroDirectionLabel);
-                loaded.GyroDirectionLabel = legacyDirection.Label;
-                if (legacyDirection.Mode == GyroDirectionMode.InvertHorizontal)
-                {
-                    loaded.InvertGyroY = true;
-                }
                 loaded.BackendLabel =
                     VirtualBackendOption.FromLabel(loaded.BackendLabel).Label;
                 loaded.StickProcessingLabel =
@@ -74,9 +57,6 @@ public sealed class V60UserSettings
             Directory.CreateDirectory(directory);
             RumbleMultiplier = NormalizeRumbleMultiplier(RumbleMultiplier);
             PushRateLabel = ViiperPushRateOption.FromLabel(PushRateLabel).Label;
-            GyroModeLabel = ViiperGyroModeOption.FromLabel(GyroModeLabel).Label;
-            Ps5ImuMappingLabel = Ps5ImuMappingOption.FromLabel(Ps5ImuMappingLabel).Label;
-            GyroDirectionLabel = GyroDirectionOption.Default.Label;
             BackendLabel = VirtualBackendOption.FromLabel(BackendLabel).Label;
             StickProcessingLabel = StickProcessingOption.FromLabel(StickProcessingLabel).Label;
             string temporary = SettingsPath + ".tmp";

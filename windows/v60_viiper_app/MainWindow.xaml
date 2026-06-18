@@ -2,7 +2,7 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:automation="clr-namespace:System.Windows.Automation;assembly=PresentationCore"
-        Title="PRO2 手柄无线接收器控制板 V6.2.15 · 角色选择大厅"
+        Title="PRO2 手柄无线接收器控制板 V6.2.16 · 角色选择大厅"
         Width="1440"
         Height="940"
         MinWidth="1160"
@@ -434,7 +434,7 @@
                                         <DropShadowEffect Color="#5EF2A5" BlurRadius="12" ShadowDepth="0"/>
                                     </Ellipse.Effect>
                                 </Ellipse>
-                                <TextBlock FontWeight="Bold" Foreground="#C9FCE0" Text="V6.2.15 LINK LAB"/>
+                                <TextBlock FontWeight="Bold" Foreground="#C9FCE0" Text="V6.2.16 LINK LAB"/>
                             </StackPanel>
                         </Border>
                         <Button Margin="0,9,0,0" HorizontalAlignment="Right"
@@ -770,7 +770,7 @@
                                     <ColumnDefinition Width="150"/>
                                     <ColumnDefinition Width="18"/>
                                     <ColumnDefinition Width="Auto"/>
-                                    <ColumnDefinition Width="190"/>
+                                    <ColumnDefinition Width="220"/>
                                 </Grid.ColumnDefinitions>
                                 <TextBlock Grid.Column="0" VerticalAlignment="Center" Style="{StaticResource SectionLabel}"
                                            Text="Push Hz"/>
@@ -781,64 +781,6 @@
                                           IsEnabled="{Binding CanOperate}"
                                           ToolTip="66Hz / 125Hz / 250Hz。默认 125Hz，250Hz 用于高性能 A/B 测试。"/>
                                 <TextBlock Grid.Column="3" VerticalAlignment="Center" Style="{StaticResource SectionLabel}"
-                                           Text="Gyro"/>
-                                <ComboBox Grid.Column="4" Margin="10,0,0,0"
-                                          Style="{StaticResource DarkComboBox}"
-                                          ItemsSource="{Binding GyroModeChoices}"
-                                          SelectedItem="{Binding SelectedGyroMode, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                                          IsEnabled="{Binding CanOperate}"
-                                          ToolTip="hold_latest 推荐；BLE 真实采样，USB 重复帧保持 latest IMU，不再清空 motion。source_60hz_zero 仅用于诊断旧问题。"/>
-                             </Grid>
-                            <Grid Margin="0,8,0,0" MaxWidth="760">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="Auto"/>
-                                    <ColumnDefinition Width="620"/>
-                                </Grid.ColumnDefinitions>
-                                <TextBlock Grid.Column="0" VerticalAlignment="Center" Style="{StaticResource SectionLabel}"
-                                           Text="PS5 IMU Map"/>
-                                <ComboBox Grid.Column="1" Margin="10,0,0,0"
-                                          Style="{StaticResource DarkComboBox}"
-                                          ItemsSource="{Binding Ps5ImuMappingChoices}"
-                                          SelectedItem="{Binding SelectedPs5ImuMapping, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                                          IsEnabled="{Binding CanOperate}"
-                                          ToolTip="只影响新和联胜 / PS5 模式。每项显示 gyro(G) 与 accel(A) 的 X/Y/Z 来源和正反号。"/>
-                            </Grid>
-                            <TextBlock Margin="0,5,0,0"
-                                       MaxWidth="760"
-                                       Foreground="#89A7CF"
-                                       FontSize="11"
-                                       Text="{Binding Ps5ImuMappingSummary}"/>
-                            <Grid Margin="0,8,0,0" MaxWidth="650">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="Auto"/>
-                                    <ColumnDefinition Width="250"/>
-                                    <ColumnDefinition Width="18"/>
-                                    <ColumnDefinition Width="Auto"/>
-                                    <ColumnDefinition Width="220"/>
-                                </Grid.ColumnDefinitions>
-                                <TextBlock Grid.Column="0" VerticalAlignment="Center" Style="{StaticResource SectionLabel}"
-                                           Text="Gyro Axis"/>
-                                <StackPanel Grid.Column="1"
-                                            Margin="10,0,0,0"
-                                            Orientation="Horizontal"
-                                            VerticalAlignment="Center">
-                                    <CheckBox Style="{StaticResource AxisCheckBox}"
-                                              Content="X 反向"
-                                              IsChecked="{Binding InvertGyroX, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                                              IsEnabled="{Binding CanOperate}"
-                                              ToolTip="翻转虚拟 gyro X 轴。默认关闭。"/>
-                                    <CheckBox Style="{StaticResource AxisCheckBox}"
-                                              Content="Y 反向"
-                                              IsChecked="{Binding InvertGyroY, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                                              IsEnabled="{Binding CanOperate}"
-                                              ToolTip="左右 / Yaw 方向反了，通常先试这个。"/>
-                                    <CheckBox Style="{StaticResource AxisCheckBox}"
-                                              Content="Z 反向"
-                                              IsChecked="{Binding InvertGyroZ, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                                              IsEnabled="{Binding CanOperate}"
-                                              ToolTip="翻转虚拟 gyro Z 轴。默认关闭。"/>
-                                </StackPanel>
-                                <TextBlock Grid.Column="3" VerticalAlignment="Center" Style="{StaticResource SectionLabel}"
                                            Text="Stick"/>
                                 <ComboBox Grid.Column="4" Margin="10,0,0,0"
                                           Style="{StaticResource DarkComboBox}"
@@ -846,7 +788,12 @@
                                           SelectedItem="{Binding SelectedStickProcessing, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                           IsEnabled="{Binding CanOperate}"
                                           ToolTip="Raw Direct 推荐：摇杆原始值直通。Stability Guard 只用于怀疑坏轴时诊断。"/>
-                            </Grid>
+                             </Grid>
+                            <TextBlock Margin="0,5,0,0"
+                                       MaxWidth="760"
+                                       Foreground="#89A7CF"
+                                       FontSize="11"
+                                       Text="PS5 陀螺仪已固化为实测正确映射：G=-X,+Z,-Y / A=-X,+Z,-Y。"/>
                             <Grid Margin="0,8,0,0" MaxWidth="560">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="Auto"/>
