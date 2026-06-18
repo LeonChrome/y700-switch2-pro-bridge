@@ -8,13 +8,13 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>Y700Switch2V60Viiper</AssemblyName>
-    <AssemblyTitle>PRO2 手柄无线接收器控制板 V6.2.11 VIIPER Windows 版</AssemblyTitle>
+    <AssemblyTitle>PRO2 手柄无线接收器控制板 V6.2.12 VIIPER Windows 版</AssemblyTitle>
     <Product>PRO2 手柄无线接收器控制板</Product>
-    <Description>V6.2.11 Windows-only VIIPER route with PS5 DualSense gyro sign correction.</Description>
-    <Version>6.2.11</Version>
-    <AssemblyVersion>6.2.11.0</AssemblyVersion>
-    <FileVersion>6.2.11.0</FileVersion>
-    <InformationalVersion>6.2.11-ps5-gyro-sign-fix</InformationalVersion>
+    <Description>V6.2.12 Windows-only VIIPER route with PS5 IMU gyro/accel pairing correction.</Description>
+    <Version>6.2.12</Version>
+    <AssemblyVersion>6.2.12.0</AssemblyVersion>
+    <FileVersion>6.2.12.0</FileVersion>
+    <InformationalVersion>6.2.12-ps5-imu-pairing-fix</InformationalVersion>
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <PublishSingleFile>true</PublishSingleFile>

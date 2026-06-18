@@ -268,9 +268,11 @@ public static class VirtualPadPackets
 
     private static MotionVector MapDualSenseAccel(GamepadState state)
     {
+        // Keep the PS5 accel signs paired with the PS5 gyro sign profile.
+        // Otherwise host-side IMU fusion can fight itself while the controller is still.
         return new MotionVector(
-            state.AccelX,
-            state.AccelZ,
+            NegateI16(state.AccelX),
+            NegateI16(state.AccelZ),
             NegateI16(state.AccelY));
     }
 
