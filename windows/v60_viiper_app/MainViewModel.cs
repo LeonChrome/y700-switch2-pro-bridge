@@ -5,6 +5,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Net;
+using System.Net.Sockets;
 using System.Reflection;
 using System.Security.Cryptography;
 using System.Runtime.CompilerServices;
@@ -31,7 +32,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private ViiperBridgeSession? session;
     private string host = "127.0.0.1";
     private string port = "3242";
-    private string status = "V6.2.8 VIIPER Windows-only 新和联胜 Gyro 三轴调校版已就绪。如未安装 usbip-win2，请先点击安装/修复。";
+    private string status = "V6.2.9 VIIPER Windows-only 新和联胜启动诊断版已就绪。如未安装 usbip-win2，请先点击安装/修复。";
     private string inputStatus = "真实 Pro2 BLE 输入未连接。";
     private string selectedPushRateLabel = ViiperPushRateOption.Default.Label;
     private string selectedGyroModeLabel = ViiperGyroModeOption.Default.Label;
@@ -91,7 +92,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         {
             AppendLog(StartupProcessGuard.LastSummary);
         }
-        AppendLog("V6.2.8 说明：默认 Raw Direct 摇杆直通；IMU 使用静置零偏校准、PS5/NS2Pro 坐标映射、hold_latest 零阶保持，并新增 gyro X/Y/Z 三轴反向开关。");
+        AppendLog("V6.2.9 说明：默认 Raw Direct 摇杆直通；新增 VIIPER server 端口预检、自动端口回退、stdout/stderr 与 viiper_server 日志尾部回灌。");
         AppendLog("[RUNTIME] " + RuntimeReadinessText);
         AppendLog("[RUMBLE_GAIN] multiplier=" + rumbleMultiplier.ToString("F1"));
         AppendLog("[LINK_TUNING] push_hz=" + SelectedPushRateOption.Hz.ToString("F1") +
@@ -435,13 +436,18 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     private async Task<string> PingCoreAsync(CancellationToken cancellationToken)
     {
-        var client = new ViiperProtocolClient(Host, ParsePort());
+        return await PingCoreAsync(ParsePort(), cancellationToken);
+    }
+
+    private async Task<string> PingCoreAsync(int apiPort, CancellationToken cancellationToken)
+    {
+        var client = new ViiperProtocolClient(Host, apiPort);
         return await client.PingAsync(cancellationToken);
     }
 
     private async Task StartLocalViiperServerAsync(CancellationToken cancellationToken)
     {
-        int apiPort = ParsePort();
+        int requestedApiPort = ParsePort();
         if (!IsLoopbackHost(Host))
         {
             throw new InvalidOperationException("启动本地 VIIPER 时 Host 必须是 localhost、127.0.0.1 或 ::1。");
@@ -450,59 +456,17 @@ public sealed class MainViewModel : INotifyPropertyChanged
         DisposeExitedViiperProcess();
         if (viiperProcess is { HasExited: false })
         {
-            if (localViiperApiPort.HasValue && localViiperApiPort.Value != apiPort)
+            if (localViiperApiPort.HasValue && localViiperApiPort.Value != requestedApiPort)
             {
                 Port = localViiperApiPort.Value.ToString();
-                apiPort = localViiperApiPort.Value;
-                AppendLog("[VIIPER_SERVER] restored active local API port " + apiPort + ".");
+                requestedApiPort = localViiperApiPort.Value;
+                AppendLog("[VIIPER_SERVER] restored active local API port " + requestedApiPort + ".");
             }
             Status = "本地 VIIPER server 已在运行，pid=" + viiperProcess.Id;
             AppendLog("[VIIPER_SERVER] already_running pid=" + viiperProcess.Id);
             string response = await PingCoreAsync(cancellationToken);
             AppendLog("[PING] " + response);
             return;
-        }
-
-        string? existingResponse = null;
-        try
-        {
-            existingResponse = await PingCoreAsync(cancellationToken);
-        }
-        catch (OperationCanceledException)
-        {
-            throw;
-        }
-        catch
-        {
-        }
-
-        if (existingResponse != null)
-        {
-            if (!LooksLikeViiperPing(existingResponse))
-            {
-                throw new InvalidOperationException("端口 " + apiPort + " 已被非 VIIPER 服务占用。");
-            }
-            AppendLog("[VIIPER_SERVER] existing local server detected; cleaning it instead of reusing stale bus/device state. " + existingResponse);
-            AppendLog(StartupProcessGuard.CleanupConflictingProcesses());
-            await Task.Delay(900, cancellationToken);
-            string? stillAliveResponse = null;
-            try
-            {
-                stillAliveResponse = await PingCoreAsync(cancellationToken);
-            }
-            catch (OperationCanceledException)
-            {
-                throw;
-            }
-            catch
-            {
-            }
-            if (stillAliveResponse != null)
-            {
-                throw new InvalidOperationException(
-                    "端口 " + apiPort + " 上的旧 VIIPER server 仍在响应，无法建立干净 PS5/Pro2/Xbox 链路：" +
-                    stillAliveResponse);
-            }
         }
 
         string? exe = FindLocalViiperExe();
@@ -547,17 +511,116 @@ public sealed class MainViewModel : INotifyPropertyChanged
             "PRO2WirelessReceiverControlBoard",
             "v6_logs");
         Directory.CreateDirectory(logRoot);
-        string logPath = Path.Combine(logRoot, "viiper_server_" + DateTime.Now.ToString("yyyyMMdd_HHmmss") + ".log");
-        int usbPort = apiPort == 3242
-            ? 3241
-            : apiPort == 1
-                ? 2
-                : apiPort - 1;
-        string args = "server --api.addr=127.0.0.1:" + apiPort +
-                      " --usb.addr=127.0.0.1:" + usbPort +
+
+        IReadOnlyList<ViiperPortPair> candidates = BuildViiperPortCandidates(requestedApiPort);
+        var failures = new List<string>();
+        AppendLog("[VIIPER_PREFLIGHT] requested_api=127.0.0.1:" + requestedApiPort +
+                  " candidates=" + string.Join(",", candidates.Select(c => c.ApiPort + "/" + c.UsbPort)));
+        foreach (ViiperPortPair candidate in candidates)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            bool portsReady = await PrepareViiperPortCandidateAsync(
+                candidate,
+                failures,
+                cancellationToken);
+            if (!portsReady)
+            {
+                continue;
+            }
+
+            ViiperStartupFailure? failure = await TryStartLocalViiperServerAsync(
+                exe,
+                usbip,
+                candidate,
+                logRoot,
+                cancellationToken);
+            if (failure == null)
+            {
+                return;
+            }
+
+            failures.Add(failure.Summary);
+            if (failure.PortConflict)
+            {
+                AppendLog("[VIIPER_PREFLIGHT] retrying alternate port pair after port conflict. failed_api=" +
+                          candidate.ApiPort + " failed_usb=" + candidate.UsbPort);
+                continue;
+            }
+
+            throw new InvalidOperationException(failure.UserMessage);
+        }
+
+        throw new InvalidOperationException(
+            "VIIPER server 启动失败：所有候选端口都不可用或启动失败。诊断：" +
+            string.Join(" | ", failures.Take(8)));
+    }
+
+    private async Task<bool> PrepareViiperPortCandidateAsync(
+        ViiperPortPair candidate,
+        List<string> failures,
+        CancellationToken cancellationToken)
+    {
+        bool apiFree = IsLoopbackTcpPortAvailable(candidate.ApiPort, out string apiDetail);
+        bool usbFree = IsLoopbackTcpPortAvailable(candidate.UsbPort, out string usbDetail);
+        AppendLog("[VIIPER_PREFLIGHT] candidate source=" + candidate.Source +
+                  " api=127.0.0.1:" + candidate.ApiPort + " " + apiDetail +
+                  " usb=127.0.0.1:" + candidate.UsbPort + " " + usbDetail);
+
+        if (!apiFree)
+        {
+            string? ping = await TryPingViiperOnPortAsync(
+                candidate.ApiPort,
+                TimeSpan.FromMilliseconds(850),
+                cancellationToken);
+            if (ping != null && LooksLikeViiperPing(ping))
+            {
+                AppendLog("[VIIPER_PREFLIGHT] api port " + candidate.ApiPort +
+                          " is occupied by a VIIPER server; cleaning stale process before retry. " + ping);
+                AppendLog(StartupProcessGuard.CleanupConflictingProcesses());
+                await Task.Delay(900, cancellationToken);
+                apiFree = IsLoopbackTcpPortAvailable(candidate.ApiPort, out apiDetail);
+                usbFree = IsLoopbackTcpPortAvailable(candidate.UsbPort, out usbDetail);
+                AppendLog("[VIIPER_PREFLIGHT] after cleanup api=127.0.0.1:" + candidate.ApiPort + " " + apiDetail +
+                          " usb=127.0.0.1:" + candidate.UsbPort + " " + usbDetail);
+            }
+        }
+
+        if (!apiFree)
+        {
+            string summary = "api " + candidate.ApiPort + " unavailable: " + apiDetail;
+            failures.Add(summary);
+            AppendLog("[VIIPER_PREFLIGHT] " + summary + " auto_fallback=1");
+            return false;
+        }
+
+        if (!usbFree)
+        {
+            string summary = "usb " + candidate.UsbPort + " unavailable: " + usbDetail;
+            failures.Add(summary);
+            AppendLog("[VIIPER_PREFLIGHT] " + summary + " auto_fallback=1");
+            return false;
+        }
+
+        return true;
+    }
+
+    private async Task<ViiperStartupFailure?> TryStartLocalViiperServerAsync(
+        string exe,
+        UsbipRuntime usbip,
+        ViiperPortPair ports,
+        string logRoot,
+        CancellationToken cancellationToken)
+    {
+        string stamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
+        string logPath = Path.Combine(
+            logRoot,
+            "viiper_server_" + stamp + "_api" + ports.ApiPort + "_usb" + ports.UsbPort + ".log");
+        string args = "server --api.addr=127.0.0.1:" + ports.ApiPort +
+                      " --usb.addr=127.0.0.1:" + ports.UsbPort +
                       " --api.device-handler-connect-timeout=60s" +
                       " --usb.write-batch-flush-interval=0ms" +
                       " --update-notify=none" +
+                      " --log.level=debug" +
                       " --log.file=\"" + logPath + "\"";
         ProcessStartInfo startInfo = new()
         {
@@ -565,43 +628,198 @@ public sealed class MainViewModel : INotifyPropertyChanged
             Arguments = args,
             UseShellExecute = false,
             CreateNoWindow = true,
-            WindowStyle = ProcessWindowStyle.Hidden
+            WindowStyle = ProcessWindowStyle.Hidden,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true
         };
         startInfo.Environment["PATH"] = UsbipRuntimeLocator.BuildPathWithUsbipDirectory(
-            startInfo.Environment.TryGetValue("PATH", out string? path) ? path ?? "" : Environment.GetEnvironmentVariable("PATH") ?? "",
+            startInfo.Environment.TryGetValue("PATH", out string? path)
+                ? path ?? ""
+                : Environment.GetEnvironmentVariable("PATH") ?? "",
             usbip);
         startInfo.WorkingDirectory = Path.GetDirectoryName(exe) ?? AppContext.BaseDirectory;
 
-        viiperProcess = Process.Start(startInfo);
-        if (viiperProcess == null)
+        ProcessOutputTail processOutput = new(80);
+        Process? started = Process.Start(startInfo);
+        if (started == null)
         {
-            throw new InvalidOperationException("无法启动 VIIPER server。");
+            return new ViiperStartupFailure(
+                false,
+                "process_start returned null",
+                "无法启动 VIIPER server：Process.Start 返回空进程。");
         }
-        localViiperApiPort = apiPort;
 
-        Status = "正在启动本地 VIIPER server，pid=" + viiperProcess.Id;
+        processOutput.Attach(started);
+        viiperProcess = started;
+        localViiperApiPort = ports.ApiPort;
+        Port = ports.ApiPort.ToString();
+
+        Status = "正在启动本地 VIIPER server，pid=" + started.Id;
         AppendLog("[USBIP] using " + usbip.ExePath);
-        AppendLog("[VIIPER_SERVER] started pid=" + viiperProcess.Id +
-                  " api=127.0.0.1:" + apiPort +
-                  " usb=127.0.0.1:" + usbPort +
+        AppendLog("[VIIPER_SERVER] launch pid=" + started.Id +
+                  " api=127.0.0.1:" + ports.ApiPort +
+                  " usb=127.0.0.1:" + ports.UsbPort +
                   " exe=" + exe +
                   " args=" + args +
                   " log=" + logPath);
-        await Task.Delay(1000, cancellationToken);
 
-        if (viiperProcess.HasExited)
+        ViiperStartupFailure? failure = await WaitForViiperStartupAsync(
+            started,
+            ports,
+            logPath,
+            processOutput,
+            cancellationToken);
+        if (failure != null)
         {
-            int exitCode = viiperProcess.ExitCode;
-            viiperProcess.Dispose();
-            viiperProcess = null;
-            localViiperApiPort = null;
-            throw new InvalidOperationException(
-                "VIIPER server 启动后立即退出，exit=" + exitCode + "。日志：" + logPath);
+            await CleanupFailedViiperProcessAsync(started);
+            if (ReferenceEquals(viiperProcess, started))
+            {
+                viiperProcess = null;
+                localViiperApiPort = null;
+            }
+            return failure;
         }
 
-        string ping = await PingCoreAsync(cancellationToken);
-        Status = "本地 VIIPER server 已就绪，pid=" + viiperProcess.Id + "。";
-        AppendLog("[PING] " + ping);
+        return null;
+    }
+
+    private async Task<ViiperStartupFailure?> WaitForViiperStartupAsync(
+        Process process,
+        ViiperPortPair ports,
+        string logPath,
+        ProcessOutputTail processOutput,
+        CancellationToken cancellationToken)
+    {
+        string lastPingError = "";
+        for (int attempt = 1; attempt <= 20; attempt++)
+        {
+            await Task.Delay(250, cancellationToken);
+            if (process.HasExited)
+            {
+                return BuildViiperStartupFailure(
+                    process,
+                    ports,
+                    logPath,
+                    processOutput,
+                    "early_exit",
+                    lastPingError);
+            }
+
+            using var pingTimeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            pingTimeout.CancelAfter(TimeSpan.FromMilliseconds(650));
+            try
+            {
+                string ping = await PingCoreAsync(ports.ApiPort, pingTimeout.Token);
+                Status = "本地 VIIPER server 已就绪，pid=" + process.Id + "。";
+                AppendLog("[PING] " + ping);
+                if (ports.ApiPort != 3242)
+                {
+                    AppendLog("[VIIPER_SERVER] using alternate ports api=127.0.0.1:" +
+                              ports.ApiPort + " usb=127.0.0.1:" + ports.UsbPort +
+                              " reason=preferred_port_unavailable_or_failed");
+                }
+                return null;
+            }
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+            {
+                lastPingError = "ping timeout attempt=" + attempt;
+            }
+            catch (Exception ex)
+            {
+                lastPingError = FirstLine(ex.Message);
+            }
+        }
+
+        return BuildViiperStartupFailure(
+            process,
+            ports,
+            logPath,
+            processOutput,
+            "api_ping_timeout",
+            lastPingError);
+    }
+
+    private ViiperStartupFailure BuildViiperStartupFailure(
+        Process process,
+        ViiperPortPair ports,
+        string logPath,
+        ProcessOutputTail processOutput,
+        string stage,
+        string lastPingError)
+    {
+        int? exitCode = null;
+        if (process.HasExited)
+        {
+            exitCode = process.ExitCode;
+        }
+
+        string logTail = ReadTailText(logPath, 40);
+        string processTail = processOutput.Snapshot();
+        string combined = logTail + "\n" + processTail + "\n" + lastPingError;
+        bool portConflict = LooksLikePortConflict(combined);
+        string category = portConflict
+            ? "port_conflict"
+            : LooksLikeUsbipDriverIssue(combined)
+                ? "usbip_driver_or_permission"
+                : stage == "api_ping_timeout"
+                    ? "api_unreachable"
+                    : "early_exit_unknown";
+        string exitText = exitCode.HasValue ? exitCode.Value.ToString() : "running";
+        AppendLog("[VIIPER_DIAG] category=" + category +
+                  " stage=" + stage +
+                  " exit=" + exitText +
+                  " api=127.0.0.1:" + ports.ApiPort +
+                  " usb=127.0.0.1:" + ports.UsbPort +
+                  " last_ping=\"" + SanitizeForLog(lastPingError) + "\"" +
+                  " log=" + logPath);
+        if (!string.IsNullOrWhiteSpace(logTail))
+        {
+            AppendLog("[VIIPER_LOG_TAIL]\n" + logTail);
+        }
+        if (!string.IsNullOrWhiteSpace(processTail))
+        {
+            AppendLog("[VIIPER_PROCESS_TAIL]\n" + processTail);
+        }
+
+        string hint = category switch
+        {
+            "port_conflict" =>
+                "端口被占用、保留或权限拒绝。程序会自动尝试下一组 API/USBIP 端口；若全部失败，请关闭旧 VIIPER/USBIP/占用端口程序或重启 Windows。",
+            "usbip_driver_or_permission" =>
+                "更像 USBIP 驱动、权限或安全软件问题。请安装/修复 usbip-win2；若刚安装完成，请重启 Windows 后再试。",
+            "api_unreachable" =>
+                "VIIPER 进程未退出，但 API 端口一直无法响应。程序已清理该进程，避免留下半启动状态。",
+            _ =>
+                "VIIPER 在写出明确错误前退出。EXE 已回灌 viiper_server 日志尾部和 stdout/stderr 尾部，请按上方 category 与 tail 定位。"
+        };
+        string summary = "category=" + category +
+                         " exit=" + exitText +
+                         " api=" + ports.ApiPort +
+                         " usb=" + ports.UsbPort +
+                         (string.IsNullOrWhiteSpace(lastPingError) ? "" : " last_ping=" + lastPingError);
+        string userMessage =
+            "VIIPER server 启动失败：" + summary + "。日志：" + logPath + "。" + hint;
+        return new ViiperStartupFailure(portConflict, summary, userMessage);
+    }
+
+    private async Task CleanupFailedViiperProcessAsync(Process process)
+    {
+        try
+        {
+            if (!process.HasExited)
+            {
+                process.Kill(entireProcessTree: true);
+                await process.WaitForExitAsync();
+            }
+        }
+        catch (Exception ex)
+        {
+            AppendLog("[VIIPER_DIAG] failed startup cleanup warning: " + ex.Message);
+        }
+        finally
+        {
+            process.Dispose();
+        }
     }
 
     private async Task InstallUsbipAsync(CancellationToken cancellationToken)
@@ -1296,7 +1514,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "PRO2WirelessReceiverControlBoard",
             "embedded",
-            "v6.2.8",
+            "v6.2.9",
             "viiper",
             "haptic-v0.8.0");
         Directory.CreateDirectory(root);
@@ -1406,6 +1624,165 @@ public sealed class MainViewModel : INotifyPropertyChanged
         localViiperApiPort = null;
     }
 
+    private static IReadOnlyList<ViiperPortPair> BuildViiperPortCandidates(int requestedApiPort)
+    {
+        var candidates = new List<ViiperPortPair>();
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+
+        void Add(int apiPort, string source)
+        {
+            int usbPort = DeriveUsbPort(apiPort);
+            if (!IsValidTcpPort(apiPort) ||
+                !IsValidTcpPort(usbPort) ||
+                apiPort == usbPort)
+            {
+                return;
+            }
+
+            string key = apiPort + "/" + usbPort;
+            if (seen.Add(key))
+            {
+                candidates.Add(new ViiperPortPair(apiPort, usbPort, source));
+            }
+        }
+
+        Add(requestedApiPort, "requested");
+        if (requestedApiPort != 3242)
+        {
+            Add(requestedApiPort + 100, "requested_plus_100");
+            Add(requestedApiPort + 200, "requested_plus_200");
+            Add(requestedApiPort + 1000, "requested_plus_1000");
+        }
+
+        Add(33242, "fallback_1");
+        Add(34242, "fallback_2");
+        Add(35242, "fallback_3");
+        Add(36242, "fallback_4");
+        Add(37242, "fallback_5");
+        return candidates;
+    }
+
+    private static int DeriveUsbPort(int apiPort)
+    {
+        if (apiPort == 3242)
+        {
+            return 3241;
+        }
+
+        return apiPort == 1 ? 2 : apiPort - 1;
+    }
+
+    private static bool IsValidTcpPort(int port)
+    {
+        return port is >= 1 and <= 65535;
+    }
+
+    private static bool IsLoopbackTcpPortAvailable(int port, out string detail)
+    {
+        if (!IsValidTcpPort(port))
+        {
+            detail = "invalid_port";
+            return false;
+        }
+
+        TcpListener? listener = null;
+        try
+        {
+            listener = new TcpListener(IPAddress.Loopback, port);
+            listener.Server.ExclusiveAddressUse = true;
+            listener.Start();
+            detail = "free";
+            return true;
+        }
+        catch (SocketException ex)
+        {
+            detail = "busy socket_error=" + ex.SocketErrorCode + " message=\"" + SanitizeForLog(ex.Message) + "\"";
+            return false;
+        }
+        catch (Exception ex)
+        {
+            detail = "probe_error=" + ex.GetType().Name + " message=\"" + SanitizeForLog(ex.Message) + "\"";
+            return false;
+        }
+        finally
+        {
+            listener?.Stop();
+        }
+    }
+
+    private async Task<string?> TryPingViiperOnPortAsync(
+        int apiPort,
+        TimeSpan timeout,
+        CancellationToken cancellationToken)
+    {
+        using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeoutCts.CancelAfter(timeout);
+        try
+        {
+            return await PingCoreAsync(apiPort, timeoutCts.Token);
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            return null;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static string ReadTailText(string path, int maxLines)
+    {
+        try
+        {
+            if (!File.Exists(path))
+            {
+                return "";
+            }
+
+            return string.Join(
+                Environment.NewLine,
+                File.ReadLines(path)
+                    .Where(line => !string.IsNullOrWhiteSpace(line))
+                    .TakeLast(maxLines));
+        }
+        catch (Exception ex)
+        {
+            return "read_tail_failed " + ex.GetType().Name + ": " + ex.Message;
+        }
+    }
+
+    private static bool LooksLikePortConflict(string text)
+    {
+        string value = text ?? "";
+        return value.Contains("address already in use", StringComparison.OrdinalIgnoreCase) ||
+               value.Contains("only one usage of each socket address", StringComparison.OrdinalIgnoreCase) ||
+               value.Contains("forbidden by its access permissions", StringComparison.OrdinalIgnoreCase) ||
+               value.Contains("通常每个套接字地址", StringComparison.OrdinalIgnoreCase) ||
+               value.Contains("bind:", StringComparison.OrdinalIgnoreCase) ||
+               value.Contains("listen tcp", StringComparison.OrdinalIgnoreCase) &&
+               value.Contains("permission denied", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool LooksLikeUsbipDriverIssue(string text)
+    {
+        string value = text ?? "";
+        return value.Contains("usbip", StringComparison.OrdinalIgnoreCase) &&
+               (value.Contains("driver", StringComparison.OrdinalIgnoreCase) ||
+                value.Contains("attach", StringComparison.OrdinalIgnoreCase) ||
+                value.Contains("not found", StringComparison.OrdinalIgnoreCase) ||
+                value.Contains("access", StringComparison.OrdinalIgnoreCase) ||
+                value.Contains("denied", StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static string SanitizeForLog(string value)
+    {
+        return (value ?? "")
+            .Replace("\r", " ")
+            .Replace("\n", " ")
+            .Replace("\"", "'");
+    }
+
     private static bool IsLoopbackHost(string value)
     {
         string candidate = (value ?? "").Trim();
@@ -1422,6 +1799,76 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private static bool LooksLikeViiperPing(string response)
     {
         return response.Contains("\"server\":\"VIIPER\"", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private sealed record ViiperPortPair(
+        int ApiPort,
+        int UsbPort,
+        string Source);
+
+    private sealed record ViiperStartupFailure(
+        bool PortConflict,
+        string Summary,
+        string UserMessage);
+
+    private sealed class ProcessOutputTail
+    {
+        private readonly int maxLines;
+        private readonly Queue<string> lines = new();
+        private readonly object gate = new();
+
+        public ProcessOutputTail(int maxLines)
+        {
+            this.maxLines = Math.Max(4, maxLines);
+        }
+
+        public void Attach(Process process)
+        {
+            process.OutputDataReceived += (_, e) => Add("stdout", e.Data);
+            process.ErrorDataReceived += (_, e) => Add("stderr", e.Data);
+            try
+            {
+                process.BeginOutputReadLine();
+            }
+            catch (Exception ex)
+            {
+                Add("stdout_capture", ex.GetType().Name + ": " + ex.Message);
+            }
+
+            try
+            {
+                process.BeginErrorReadLine();
+            }
+            catch (Exception ex)
+            {
+                Add("stderr_capture", ex.GetType().Name + ": " + ex.Message);
+            }
+        }
+
+        public string Snapshot()
+        {
+            lock (gate)
+            {
+                return string.Join(Environment.NewLine, lines);
+            }
+        }
+
+        private void Add(string stream, string? line)
+        {
+            if (string.IsNullOrWhiteSpace(line))
+            {
+                return;
+            }
+
+            lock (gate)
+            {
+                lines.Enqueue(stream + ": " + line);
+                while (lines.Count > maxLines)
+                {
+                    lines.Dequeue();
+                }
+            }
+        }
     }
 
     private ViiperDeviceProfile SelectedProfile => ProfileFor(selectedMode);

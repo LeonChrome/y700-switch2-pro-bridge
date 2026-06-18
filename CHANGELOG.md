@@ -1,5 +1,22 @@
 # Changelog
 
+## V6.2.9 新和联胜 VIIPER Startup Diagnostics
+
+- Promoted the V6.2 Windows-only VIIPER route to `v6.2.9`.
+- Added paired API/USBIP port preflight before starting the local VIIPER server.
+  The EXE now logs both `127.0.0.1:<api>` and `127.0.0.1:<usb>` availability
+  before process launch.
+- Added automatic alternate port fallback for clear port conflicts. If the
+  preferred `3242/3241` pair is busy, the EXE tries high-numbered fallback pairs
+  such as `33242/33241` and updates the API Port field to the selected port.
+- Captured VIIPER stdout/stderr tail and `viiper_server_*.log` tail when the
+  process exits early or fails to answer ping, so `exit=1` no longer appears as
+  an opaque one-line failure.
+- Added `VIIPER_PREFLIGHT`, `VIIPER_DIAG`, `VIIPER_LOG_TAIL`, and
+  `VIIPER_PROCESS_TAIL` telemetry for field reports.
+- This release does not change BLE input, stick processing, gyro mapping, or
+  rumble scheduling.
+
 ## V6.2.8 新和联胜 VIIPER Stable UI + 3-Axis Gyro Controls
 
 - Promoted the V6.2 Windows-only VIIPER route to `v6.2.8`.

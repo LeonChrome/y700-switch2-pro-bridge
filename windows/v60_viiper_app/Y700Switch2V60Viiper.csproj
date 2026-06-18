@@ -8,13 +8,13 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>Y700Switch2V60Viiper</AssemblyName>
-    <AssemblyTitle>PRO2 手柄无线接收器控制板 V6.2.8 VIIPER Windows 版</AssemblyTitle>
+    <AssemblyTitle>PRO2 手柄无线接收器控制板 V6.2.9 VIIPER Windows 版</AssemblyTitle>
     <Product>PRO2 手柄无线接收器控制板</Product>
-    <Description>V6.2.8 Windows-only VIIPER route with stable UI and per-axis gyro inversion controls.</Description>
-    <Version>6.2.8</Version>
-    <AssemblyVersion>6.2.8.0</AssemblyVersion>
-    <FileVersion>6.2.8.0</FileVersion>
-    <InformationalVersion>6.2.8-stable-ui-gyro-axis</InformationalVersion>
+    <Description>V6.2.9 Windows-only VIIPER route with startup diagnostics and automatic port fallback.</Description>
+    <Version>6.2.9</Version>
+    <AssemblyVersion>6.2.9.0</AssemblyVersion>
+    <FileVersion>6.2.9.0</FileVersion>
+    <InformationalVersion>6.2.9-viiper-startup-diagnostics</InformationalVersion>
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <PublishSingleFile>true</PublishSingleFile>
