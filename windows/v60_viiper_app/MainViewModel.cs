@@ -32,7 +32,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private ViiperBridgeSession? session;
     private string host = "127.0.0.1";
     private string port = "3242";
-    private string status = "V6.2.14 VIIPER Windows-only 新和联胜稳定诊断版已就绪。如未安装 usbip-win2，请先点击安装/修复。";
+    private string status = "V6.2.15 VIIPER Windows-only 新和联胜版已就绪。此版只调整 PS5 默认陀螺仪 pitch/roll 映射。";
     private string inputStatus = "真实 Pro2 BLE 输入未连接。";
     private string selectedPushRateLabel = ViiperPushRateOption.Default.Label;
     private string selectedGyroModeLabel = ViiperGyroModeOption.Default.Label;
@@ -98,7 +98,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         {
             AppendLog(StartupProcessGuard.LastSummary);
         }
-        AppendLog("V6.2.14 说明：主界面布局锁定；PS5 模式保留 IMU Map 可选，并新增 DualSense 音频默认设备保护、BLE 适配器诊断、自动重连冷却退避。");
+        AppendLog("V6.2.15 说明：仅调整 PS5 模式默认 IMU Map，把 pitch/roll 输出对应关系对换；PRO2/Xbox、BLE、VIIPER、音频保护和重连逻辑保持 V6.2.14。");
         AppendLog("[RUNTIME] " + RuntimeReadinessText);
         AppendLog("[RUMBLE_GAIN] multiplier=" + rumbleMultiplier.ToString("F1"));
         AppendLog("[LINK_TUNING] push_hz=" + SelectedPushRateOption.Hz.ToString("F1") +
@@ -1676,7 +1676,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "PRO2WirelessReceiverControlBoard",
             "embedded",
-            "v6.2.14",
+            "v6.2.15",
             "viiper",
             "haptic-v0.8.0");
         Directory.CreateDirectory(root);

@@ -155,28 +155,32 @@ motionState.AccelX = 10;
 motionState.AccelY = 8192;
 motionState.AccelZ = 20;
 byte[] dsMotion = VirtualPadPackets.FromGamepad(ViiperDeviceProfile.DualSenseLike, motionState);
-Expect(BinaryPrimitives.ReadInt16LittleEndian(dsMotion.AsSpan(21, 2)) == -200, "DualSense default gyro X uses SDL flipped source Y");
+Expect(BinaryPrimitives.ReadInt16LittleEndian(dsMotion.AsSpan(21, 2)) == -100, "DualSense default gyro X uses flipped source X after pitch/roll swap");
 Expect(BinaryPrimitives.ReadInt16LittleEndian(dsMotion.AsSpan(23, 2)) == -300, "DualSense default gyro Y uses SDL source Z");
-Expect(BinaryPrimitives.ReadInt16LittleEndian(dsMotion.AsSpan(25, 2)) == -100, "DualSense gyro Z takes flipped source X");
-Expect(BinaryPrimitives.ReadInt16LittleEndian(dsMotion.AsSpan(27, 2)) == -8192, "DualSense default accel X uses SDL flipped source Y");
+Expect(BinaryPrimitives.ReadInt16LittleEndian(dsMotion.AsSpan(25, 2)) == -200, "DualSense default gyro Z takes flipped source Y after pitch/roll swap");
+Expect(BinaryPrimitives.ReadInt16LittleEndian(dsMotion.AsSpan(27, 2)) == -10, "DualSense default accel X uses flipped source X after pitch/roll swap");
 Expect(BinaryPrimitives.ReadInt16LittleEndian(dsMotion.AsSpan(29, 2)) == 20, "DualSense default accel Y uses SDL source Z");
-Expect(BinaryPrimitives.ReadInt16LittleEndian(dsMotion.AsSpan(31, 2)) == -10, "DualSense default accel Z uses SDL flipped source X");
+Expect(BinaryPrimitives.ReadInt16LittleEndian(dsMotion.AsSpan(31, 2)) == -8192, "DualSense default accel Z uses flipped source Y after pitch/roll swap");
 byte[] dsMotionInverted = VirtualPadPackets.FromGamepad(
     ViiperDeviceProfile.DualSenseLike,
     motionState,
     new GyroAxisInversion(false, true, false));
-Expect(BinaryPrimitives.ReadInt16LittleEndian(dsMotionInverted.AsSpan(21, 2)) == -200, "DualSense inverted keeps mapped gyro X");
+Expect(BinaryPrimitives.ReadInt16LittleEndian(dsMotionInverted.AsSpan(21, 2)) == -100, "DualSense inverted keeps mapped gyro X");
 Expect(BinaryPrimitives.ReadInt16LittleEndian(dsMotionInverted.AsSpan(23, 2)) == 300, "DualSense inverted flips mapped gyro Y");
-Expect(BinaryPrimitives.ReadInt16LittleEndian(dsMotionInverted.AsSpan(25, 2)) == -100, "DualSense inverted keeps mapped gyro Z");
-Expect(BinaryPrimitives.ReadInt16LittleEndian(dsMotionInverted.AsSpan(31, 2)) == -10, "DualSense inverted leaves accel mapping unchanged");
+Expect(BinaryPrimitives.ReadInt16LittleEndian(dsMotionInverted.AsSpan(25, 2)) == -200, "DualSense inverted keeps mapped gyro Z");
+Expect(BinaryPrimitives.ReadInt16LittleEndian(dsMotionInverted.AsSpan(31, 2)) == -8192, "DualSense inverted leaves accel mapping unchanged");
 byte[] dsMotionXzInverted = VirtualPadPackets.FromGamepad(
     ViiperDeviceProfile.DualSenseLike,
     motionState,
     new GyroAxisInversion(true, false, true));
-Expect(BinaryPrimitives.ReadInt16LittleEndian(dsMotionXzInverted.AsSpan(21, 2)) == 200, "DualSense X switch flips mapped gyro X");
+Expect(BinaryPrimitives.ReadInt16LittleEndian(dsMotionXzInverted.AsSpan(21, 2)) == 100, "DualSense X switch flips mapped gyro X");
 Expect(BinaryPrimitives.ReadInt16LittleEndian(dsMotionXzInverted.AsSpan(23, 2)) == -300, "DualSense X/Z switch keeps mapped gyro Y standard");
-Expect(BinaryPrimitives.ReadInt16LittleEndian(dsMotionXzInverted.AsSpan(25, 2)) == 100, "DualSense Z switch flips mapped gyro Z");
-Expect(BinaryPrimitives.ReadInt16LittleEndian(dsMotionXzInverted.AsSpan(31, 2)) == -10, "DualSense X/Z switches leave accel mapping unchanged");
+Expect(BinaryPrimitives.ReadInt16LittleEndian(dsMotionXzInverted.AsSpan(25, 2)) == 200, "DualSense Z switch flips mapped gyro Z");
+Expect(BinaryPrimitives.ReadInt16LittleEndian(dsMotionXzInverted.AsSpan(31, 2)) == -8192, "DualSense X/Z switches leave accel mapping unchanged");
+Expect(
+    Ps5ImuMappingOption.FromLabel("SDL/Nintendo 基线  G=-Y,+Z,-X  A=-Y,+Z,-X").Label ==
+    Ps5ImuMappingOption.Default.Label,
+    "legacy V6.2.14 default label migrates to the V6.2.15 pitch/roll swapped default");
 Ps5ImuMapping v6212Mapping = Ps5ImuMappingOption.FromLabel("V6.2.12 配对  G=+Y,-Z,-X  A=-X,-Z,-Y").Mapping;
 byte[] dsMotionV6212 = VirtualPadPackets.FromGamepad(
     ViiperDeviceProfile.DualSenseLike,

@@ -83,11 +83,17 @@ public sealed record Ps5ImuMappingOption(
     public static IReadOnlyList<Ps5ImuMappingOption> All { get; } =
     [
         new(
-            "SDL/Nintendo 基线  G=-Y,+Z,-X  A=-Y,+Z,-X",
+            "V6.2.15 默认 Pitch/Roll 对换  G=-X,+Z,-Y  A=-X,+Z,-Y",
+            new Ps5ImuMapping(
+                N(ImuAxisSource.X), P(ImuAxisSource.Z), N(ImuAxisSource.Y),
+                N(ImuAxisSource.X), P(ImuAxisSource.Z), N(ImuAxisSource.Y)),
+            "在 V6.2.14 SDL/Nintendo 基线上互换 PS5 report-space 的 pitch/roll 输出轴；gyro/accel 成对互换，PRO2 模式不受影响。"),
+        new(
+            "V6.2.14 回退 SDL/Nintendo 基线  G=-Y,+Z,-X  A=-Y,+Z,-X",
             new Ps5ImuMapping(
                 N(ImuAxisSource.Y), P(ImuAxisSource.Z), N(ImuAxisSource.X),
                 N(ImuAxisSource.Y), P(ImuAxisSource.Z), N(ImuAxisSource.X)),
-            "按 SDL Switch HIDAPI 的 Nintendo raw IMU 标准化关系做 PS5 输出；作为成熟项目基线。"),
+            "V6.2.14 默认映射；保留给现场回退和对照测试。"),
         new(
             "V6.2.12 配对  G=+Y,-Z,-X  A=-X,-Z,-Y",
             new Ps5ImuMapping(

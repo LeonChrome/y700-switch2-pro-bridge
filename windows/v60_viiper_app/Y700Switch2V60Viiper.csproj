@@ -8,13 +8,13 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>Y700Switch2V60Viiper</AssemblyName>
-    <AssemblyTitle>PRO2 手柄无线接收器控制板 V6.2.14 VIIPER Windows 版</AssemblyTitle>
+    <AssemblyTitle>PRO2 手柄无线接收器控制板 V6.2.15 VIIPER Windows 版</AssemblyTitle>
     <Product>PRO2 手柄无线接收器控制板</Product>
-    <Description>V6.2.14 Windows-only VIIPER route with stable UI layout, PS5 audio endpoint guard, BLE diagnostics, and reconnect cooldown backoff.</Description>
-    <Version>6.2.14</Version>
-    <AssemblyVersion>6.2.14.0</AssemblyVersion>
-    <FileVersion>6.2.14.0</FileVersion>
-    <InformationalVersion>6.2.14-ui-audio-ble-diagnostics</InformationalVersion>
+    <Description>V6.2.15 Windows-only VIIPER route with PS5 default pitch/roll IMU mapping swap.</Description>
+    <Version>6.2.15</Version>
+    <AssemblyVersion>6.2.15.0</AssemblyVersion>
+    <FileVersion>6.2.15.0</FileVersion>
+    <InformationalVersion>6.2.15-ps5-pitch-roll-swap</InformationalVersion>
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <PublishSingleFile>true</PublishSingleFile>
