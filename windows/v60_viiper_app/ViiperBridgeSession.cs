@@ -20,6 +20,7 @@ public sealed class ViiperBridgeSession : IAsyncDisposable
     private readonly SemaphoreSlim streamRecoveryGate = new(1, 1);
     private readonly ViiperGyroMode gyroMode;
     private readonly GyroAxisInversion gyroAxisInversion;
+    private readonly Ps5ImuMapping ps5ImuMapping;
     private readonly object streamSync = new();
     private ViiperDeviceStream? stream;
     private ViiperDevice? device;
@@ -46,7 +47,8 @@ public sealed class ViiperBridgeSession : IAsyncDisposable
         IGamepadOutputSink? outputSink = null,
         IProgress<Exception>? faultProgress = null,
         ViiperGyroMode gyroMode = ViiperGyroMode.Hold250Hz,
-        GyroAxisInversion gyroAxisInversion = default)
+        GyroAxisInversion gyroAxisInversion = default,
+        Ps5ImuMapping? ps5ImuMapping = null)
     {
         this.client = client;
         this.profile = profile;
@@ -56,6 +58,7 @@ public sealed class ViiperBridgeSession : IAsyncDisposable
         this.faultProgress = faultProgress;
         this.gyroMode = gyroMode;
         this.gyroAxisInversion = gyroAxisInversion;
+        this.ps5ImuMapping = ps5ImuMapping ?? Ps5ImuMappingOption.Default.Mapping;
     }
 
     public ViiperDeviceProfile Profile => profile;
@@ -164,12 +167,18 @@ public sealed class ViiperBridgeSession : IAsyncDisposable
         ulong intervalLoopGapOver16Ms = 0;
         double intervalSourceAgeMaxMs = 0;
         string lastSource = "";
-        progress.Report("[VIIPER_TIMER] requested_ms=1 active=" + timerResolution.IsActive +
-                        " result=" + timerResolution.Result +
-                        " backend=" + timer.Backend +
-                        " push_target_hz=" + pushTargetHz.ToString("F1") +
-                        " gyro_mode=" + GyroModeLabel(gyroMode) +
-                        " gyro_axis_inv=" + gyroAxisInversion.TelemetryValue);
+        string timerLine =
+            "[VIIPER_TIMER] requested_ms=1 active=" + timerResolution.IsActive +
+            " result=" + timerResolution.Result +
+            " backend=" + timer.Backend +
+            " push_target_hz=" + pushTargetHz.ToString("F1") +
+            " gyro_mode=" + GyroModeLabel(gyroMode) +
+            " gyro_axis_inv=" + gyroAxisInversion.TelemetryValue;
+        if (profile.Mode == ViiperVirtualMode.DualSenseLike)
+        {
+            timerLine += " ps5_imu_map=" + ps5ImuMapping.TelemetryValue;
+        }
+        progress.Report(timerLine);
         while (timer.WaitForNextTick(cancellationToken))
         {
             long loopTicks = Stopwatch.GetTimestamp();
@@ -240,7 +249,8 @@ public sealed class ViiperBridgeSession : IAsyncDisposable
                 packet = VirtualPadPackets.FromGamepad(
                     profile,
                     continuous,
-                    gyroAxisInversion);
+                    gyroAxisInversion,
+                    ps5ImuMapping);
             }
             else
             {
@@ -351,6 +361,10 @@ public sealed class ViiperBridgeSession : IAsyncDisposable
                         " last_viiper_error=\"" + SanitizeLogValue(lastViiperError) + "\"" +
                         " last_usbip_lifecycle_event=" + lastUsbipLifecycleEvent +
                         " gyro_axis_inv=" + gyroAxisInversion.TelemetryValue;
+                    if (profile.Mode == ViiperVirtualMode.DualSenseLike)
+                    {
+                        rateSummary += " ps5_imu_map=" + ps5ImuMapping.TelemetryValue;
+                    }
                     intervalWriteMsSum = 0;
                     intervalWriteMaxMs = 0;
                     intervalWriteSamples = 0;

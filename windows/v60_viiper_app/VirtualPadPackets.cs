@@ -63,12 +63,16 @@ public static class VirtualPadPackets
     public static byte[] FromGamepad(
         ViiperDeviceProfile profile,
         GamepadState? state,
-        GyroAxisInversion gyroAxisInversion = default)
+        GyroAxisInversion gyroAxisInversion = default,
+        Ps5ImuMapping? ps5ImuMapping = null)
     {
         state ??= GamepadState.Neutral();
         return profile.Mode switch
         {
-            ViiperVirtualMode.DualSenseLike => DualSenseFromGamepad(state, gyroAxisInversion),
+            ViiperVirtualMode.DualSenseLike => DualSenseFromGamepad(
+                state,
+                gyroAxisInversion,
+                ps5ImuMapping ?? Ps5ImuMappingOption.Default.Mapping),
             ViiperVirtualMode.Pro2 => Ns2ProFromGamepad(state, gyroAxisInversion),
             ViiperVirtualMode.Xbox => XboxFromGamepad(state),
             _ => throw new ArgumentOutOfRangeException(nameof(profile))
@@ -109,7 +113,8 @@ public static class VirtualPadPackets
 
     private static byte[] DualSenseFromGamepad(
         GamepadState state,
-        GyroAxisInversion gyroAxisInversion)
+        GyroAxisInversion gyroAxisInversion,
+        Ps5ImuMapping ps5ImuMapping)
     {
         byte[] b = new byte[33];
         b[0] = unchecked((byte)Axis12ToI8(state.Lx, invert: false));
@@ -121,8 +126,11 @@ public static class VirtualPadPackets
         b[9] = Trigger12ToU8(state.L2, state.IsPressed(GamepadButtons.L2));
         b[10] = Trigger12ToU8(state.R2, state.IsPressed(GamepadButtons.R2));
 
-        MotionVector dualSenseGyro = MapDualSenseGyro(state, gyroAxisInversion);
-        MotionVector dualSenseAccel = MapDualSenseAccel(state);
+        MotionVector dualSenseGyro = MapDualSenseGyro(
+            state,
+            gyroAxisInversion,
+            ps5ImuMapping);
+        MotionVector dualSenseAccel = MapDualSenseAccel(state, ps5ImuMapping);
         WriteI16(b, 21, state.GyroValid ? dualSenseGyro.X : (short)0);
         WriteI16(b, 23, state.GyroValid ? dualSenseGyro.Y : (short)0);
         WriteI16(b, 25, state.GyroValid ? dualSenseGyro.Z : (short)0);
@@ -256,24 +264,17 @@ public static class VirtualPadPackets
 
     private static MotionVector MapDualSenseGyro(
         GamepadState state,
-        GyroAxisInversion gyroAxisInversion)
+        GyroAxisInversion gyroAxisInversion,
+        Ps5ImuMapping ps5ImuMapping)
     {
-        // DualSense and Nintendo/Pro2 reports use different IMU coordinate conventions.
-        // Convert Pro2 raw gyro into the DualSense raw axis order expected by PS5-aware hosts.
-        return ApplyGyroAxisInversion(new MotionVector(
-            state.GyroY,
-            NegateI16(state.GyroZ),
-            NegateI16(state.GyroX)), gyroAxisInversion);
+        return ApplyGyroAxisInversion(
+            MapMotionVector(state, ps5ImuMapping.GyroX, ps5ImuMapping.GyroY, ps5ImuMapping.GyroZ, gyro: true),
+            gyroAxisInversion);
     }
 
-    private static MotionVector MapDualSenseAccel(GamepadState state)
+    private static MotionVector MapDualSenseAccel(GamepadState state, Ps5ImuMapping ps5ImuMapping)
     {
-        // Keep the PS5 accel signs paired with the PS5 gyro sign profile.
-        // Otherwise host-side IMU fusion can fight itself while the controller is still.
-        return new MotionVector(
-            NegateI16(state.AccelX),
-            NegateI16(state.AccelZ),
-            NegateI16(state.AccelY));
+        return MapMotionVector(state, ps5ImuMapping.AccelX, ps5ImuMapping.AccelY, ps5ImuMapping.AccelZ, gyro: false);
     }
 
     private static MotionVector MapNs2ProGyro(
@@ -302,6 +303,31 @@ public static class VirtualPadPackets
             gyroAxisInversion.InvertX ? NegateI16(vector.X) : vector.X,
             gyroAxisInversion.InvertY ? NegateI16(vector.Y) : vector.Y,
             gyroAxisInversion.InvertZ ? NegateI16(vector.Z) : vector.Z);
+    }
+
+    private static MotionVector MapMotionVector(
+        GamepadState state,
+        ImuAxisMap x,
+        ImuAxisMap y,
+        ImuAxisMap z,
+        bool gyro)
+    {
+        return new MotionVector(
+            MapMotionAxis(state, x, gyro),
+            MapMotionAxis(state, y, gyro),
+            MapMotionAxis(state, z, gyro));
+    }
+
+    private static short MapMotionAxis(GamepadState state, ImuAxisMap axis, bool gyro)
+    {
+        short value = axis.Source switch
+        {
+            ImuAxisSource.X => gyro ? state.GyroX : state.AccelX,
+            ImuAxisSource.Y => gyro ? state.GyroY : state.AccelY,
+            ImuAxisSource.Z => gyro ? state.GyroZ : state.AccelZ,
+            _ => 0
+        };
+        return axis.Invert ? NegateI16(value) : value;
     }
 
     private static short NegateI16(short value)

@@ -32,10 +32,11 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private ViiperBridgeSession? session;
     private string host = "127.0.0.1";
     private string port = "3242";
-    private string status = "V6.2.12 VIIPER Windows-only 新和联胜 PS5 IMU 配对修正版已就绪。如未安装 usbip-win2，请先点击安装/修复。";
+    private string status = "V6.2.13 VIIPER Windows-only 新和联胜 PS5 IMU 映射可选版已就绪。如未安装 usbip-win2，请先点击安装/修复。";
     private string inputStatus = "真实 Pro2 BLE 输入未连接。";
     private string selectedPushRateLabel = ViiperPushRateOption.Default.Label;
     private string selectedGyroModeLabel = ViiperGyroModeOption.Default.Label;
+    private string selectedPs5ImuMappingLabel = Ps5ImuMappingOption.Default.Label;
     private bool invertGyroX;
     private bool invertGyroY;
     private bool invertGyroZ;
@@ -77,6 +78,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
             ViiperPushRateOption.FromLabel(userSettings.PushRateLabel).Label;
         selectedGyroModeLabel =
             ViiperGyroModeOption.FromLabel(userSettings.GyroModeLabel).Label;
+        selectedPs5ImuMappingLabel =
+            Ps5ImuMappingOption.FromLabel(userSettings.Ps5ImuMappingLabel).Label;
         invertGyroX = userSettings.InvertGyroX;
         invertGyroY = userSettings.InvertGyroY;
         invertGyroZ = userSettings.InvertGyroZ;
@@ -92,11 +95,12 @@ public sealed class MainViewModel : INotifyPropertyChanged
         {
             AppendLog(StartupProcessGuard.LastSummary);
         }
-        AppendLog("V6.2.12 说明：默认 Raw Direct 摇杆直通；PRO2 IMU 保持不变，PS5 gyro/accel 符号成对修正，避免静置姿态融合抖动。");
+        AppendLog("V6.2.13 说明：默认 Raw Direct 摇杆直通；PRO2 IMU 保持不变，PS5 IMU Map 可在前端选择，默认 SDL/Nintendo 基线。");
         AppendLog("[RUNTIME] " + RuntimeReadinessText);
         AppendLog("[RUMBLE_GAIN] multiplier=" + rumbleMultiplier.ToString("F1"));
         AppendLog("[LINK_TUNING] push_hz=" + SelectedPushRateOption.Hz.ToString("F1") +
                   " gyro_mode=" + SelectedGyroModeOption.Label +
+                  " ps5_imu_map=" + SelectedPs5ImuMappingOption.Mapping.TelemetryValue +
                   " gyro_axis_inv=" + SelectedGyroAxisInversion.TelemetryValue +
                   " stick=" + SelectedStickProcessingOption.Label +
                   " backend=" + SelectedBackendOption.Label);
@@ -226,6 +230,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public IReadOnlyList<string> GyroModeChoices =>
         ViiperGyroModeOption.All.Select(o => o.Label).ToArray();
 
+    public IReadOnlyList<string> Ps5ImuMappingChoices =>
+        Ps5ImuMappingOption.All.Select(o => o.Label).ToArray();
+
     public IReadOnlyList<string> BackendChoices =>
         VirtualBackendOption.All.Select(o => o.Label).ToArray();
 
@@ -271,6 +278,30 @@ public sealed class MainViewModel : INotifyPropertyChanged
             AppendLog("[LINK_TUNING] gyro_mode=" + SelectedGyroModeOption.Label +
                       (Running ? " apply=next_session" : " apply=next_start"));
             OnPropertyChanged();
+            OnPropertyChanged(nameof(LinkTuningSummary));
+        }
+    }
+
+    public string SelectedPs5ImuMapping
+    {
+        get => selectedPs5ImuMappingLabel;
+        set
+        {
+            string normalized = Ps5ImuMappingOption.FromLabel(value).Label;
+            if (selectedPs5ImuMappingLabel == normalized)
+            {
+                return;
+            }
+
+            selectedPs5ImuMappingLabel = normalized;
+            userSettings.Ps5ImuMappingLabel = normalized;
+            SaveUserSettings("[LINK_TUNING]");
+            AppendLog("[LINK_TUNING] ps5_imu_map=" +
+                      SelectedPs5ImuMappingOption.Mapping.TelemetryValue +
+                      " label=\"" + SelectedPs5ImuMappingOption.Label + "\"" +
+                      (Running ? " apply=next_session" : " apply=next_start"));
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(Ps5ImuMappingSummary));
             OnPropertyChanged(nameof(LinkTuningSummary));
         }
     }
@@ -360,9 +391,13 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public string LinkTuningSummary =>
         "push=" + SelectedPushRateOption.Hz.ToString("F1") +
         "Hz · gyro=" + SelectedGyroModeOption.Label +
+        " · PS5=" + SelectedPs5ImuMappingOption.Mapping.DisplayValue +
         " · axis=" + SelectedGyroAxisInversion.DisplayValue +
         " · stick=" + SelectedStickProcessingOption.Label +
         " · backend=" + SelectedBackendOption.Label;
+
+    public string Ps5ImuMappingSummary =>
+        SelectedPs5ImuMappingOption.Mapping.DisplayValue;
 
     public bool IsDualSenseSelected => selectedMode == ViiperVirtualMode.DualSenseLike;
     public bool IsPro2Selected => selectedMode == ViiperVirtualMode.Pro2;
@@ -1235,12 +1270,14 @@ public sealed class MainViewModel : INotifyPropertyChanged
             ViiperPushRateOption pushRate = SelectedPushRateOption;
             ViiperGyroModeOption gyro = SelectedGyroModeOption;
             GyroAxisInversion gyroAxisInversion = SelectedGyroAxisInversion;
+            Ps5ImuMappingOption ps5ImuMapping = SelectedPs5ImuMappingOption;
             ViiperDeviceProfile runtimeProfile = profile with { SendInterval = pushRate.Interval };
             AppendLog("[START] mode=" + runtimeProfile.Label +
                       " type=" + runtimeProfile.DeviceType +
                       " push_hz=" + pushRate.Hz.ToString("F1") +
                       " interval_ms=" + pushRate.Interval.TotalMilliseconds.ToString("F1") +
                       " gyro_mode=" + gyro.Label +
+                      " ps5_imu_map=" + ps5ImuMapping.Mapping.TelemetryValue +
                       " gyro_axis_inv=" + gyroAxisInversion.TelemetryValue +
                       " backend=" + SelectedBackendOption.Label +
                       " flush=immediate");
@@ -1263,7 +1300,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
                 inputSource,
                 faultProgress,
                 gyro.Mode,
-                gyroAxisInversion);
+                gyroAxisInversion,
+                ps5ImuMapping.Mapping);
             session = createdSession;
             await createdSession.StartAsync(cancellationToken);
             SetActiveMode(runtimeProfile.Mode);
@@ -1514,7 +1552,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "PRO2WirelessReceiverControlBoard",
             "embedded",
-            "v6.2.12",
+            "v6.2.13",
             "viiper",
             "haptic-v0.8.0");
         Directory.CreateDirectory(root);
@@ -1877,6 +1915,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
         ViiperPushRateOption.FromLabel(selectedPushRateLabel);
     private ViiperGyroModeOption SelectedGyroModeOption =>
         ViiperGyroModeOption.FromLabel(selectedGyroModeLabel);
+    private Ps5ImuMappingOption SelectedPs5ImuMappingOption =>
+        Ps5ImuMappingOption.FromLabel(selectedPs5ImuMappingLabel);
     private GyroAxisInversion SelectedGyroAxisInversion =>
         new(invertGyroX, invertGyroY, invertGyroZ);
     private VirtualBackendOption SelectedBackendOption =>

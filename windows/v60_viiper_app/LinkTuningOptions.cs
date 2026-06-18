@@ -41,6 +41,93 @@ public readonly record struct GyroAxisInversion(
         " Z" + (InvertZ ? "-" : "+");
 }
 
+public enum ImuAxisSource
+{
+    X,
+    Y,
+    Z
+}
+
+public readonly record struct ImuAxisMap(
+    ImuAxisSource Source,
+    bool Invert)
+{
+    public string DisplayValue => (Invert ? "-" : "+") + Source;
+}
+
+public readonly record struct Ps5ImuMapping(
+    ImuAxisMap GyroX,
+    ImuAxisMap GyroY,
+    ImuAxisMap GyroZ,
+    ImuAxisMap AccelX,
+    ImuAxisMap AccelY,
+    ImuAxisMap AccelZ)
+{
+    public string TelemetryValue =>
+        "g=" + GyroX.DisplayValue + "," + GyroY.DisplayValue + "," + GyroZ.DisplayValue +
+        ";a=" + AccelX.DisplayValue + "," + AccelY.DisplayValue + "," + AccelZ.DisplayValue;
+
+    public string DisplayValue =>
+        "G " + GyroX.DisplayValue + "," + GyroY.DisplayValue + "," + GyroZ.DisplayValue +
+        " / A " + AccelX.DisplayValue + "," + AccelY.DisplayValue + "," + AccelZ.DisplayValue;
+}
+
+public sealed record Ps5ImuMappingOption(
+    string Label,
+    Ps5ImuMapping Mapping,
+    string Description)
+{
+    private static ImuAxisMap P(ImuAxisSource source) => new(source, false);
+    private static ImuAxisMap N(ImuAxisSource source) => new(source, true);
+
+    public static IReadOnlyList<Ps5ImuMappingOption> All { get; } =
+    [
+        new(
+            "SDL/Nintendo 基线  G=-Y,+Z,-X  A=-Y,+Z,-X",
+            new Ps5ImuMapping(
+                N(ImuAxisSource.Y), P(ImuAxisSource.Z), N(ImuAxisSource.X),
+                N(ImuAxisSource.Y), P(ImuAxisSource.Z), N(ImuAxisSource.X)),
+            "按 SDL Switch HIDAPI 的 Nintendo raw IMU 标准化关系做 PS5 输出；作为成熟项目基线。"),
+        new(
+            "V6.2.12 配对  G=+Y,-Z,-X  A=-X,-Z,-Y",
+            new Ps5ImuMapping(
+                P(ImuAxisSource.Y), N(ImuAxisSource.Z), N(ImuAxisSource.X),
+                N(ImuAxisSource.X), N(ImuAxisSource.Z), N(ImuAxisSource.Y)),
+            "上一版的 gyro/accel 配对修正；保留给现场复测和回退。"),
+        new(
+            "V6.2.11 gyro-only  G=+Y,-Z,-X  A=+X,+Z,-Y",
+            new Ps5ImuMapping(
+                P(ImuAxisSource.Y), N(ImuAxisSource.Z), N(ImuAxisSource.X),
+                P(ImuAxisSource.X), P(ImuAxisSource.Z), N(ImuAxisSource.Y)),
+            "只翻 gyro、不配对 accel 的版本；用于复现静置 XYZ 抖动。"),
+        new(
+            "V6.2.10 研究  G=-Y,+Z,-X  A=+X,+Z,-Y",
+            new Ps5ImuMapping(
+                N(ImuAxisSource.Y), P(ImuAxisSource.Z), N(ImuAxisSource.X),
+                P(ImuAxisSource.X), P(ImuAxisSource.Z), N(ImuAxisSource.Y)),
+            "最初拆分 PS5/Pro2 gyro 坐标时的组合。"),
+        new(
+            "旧版共用  G=+X,-Y,+Z  A=+X,+Z,-Y",
+            new Ps5ImuMapping(
+                P(ImuAxisSource.X), N(ImuAxisSource.Y), P(ImuAxisSource.Z),
+                P(ImuAxisSource.X), P(ImuAxisSource.Z), N(ImuAxisSource.Y)),
+            "V6.2.9 之前 PS5 gyro 与 Pro2 gyro 接近共用的组合。"),
+        new(
+            "Pro2 同向诊断  G=+X,-Y,+Z  A=+X,-Y,+Z",
+            new Ps5ImuMapping(
+                P(ImuAxisSource.X), N(ImuAxisSource.Y), P(ImuAxisSource.Z),
+                P(ImuAxisSource.X), N(ImuAxisSource.Y), P(ImuAxisSource.Z)),
+            "用于确认 PS5 问题是否来自目标坐标转换，而不是 Pro2 原始 IMU。")
+    ];
+
+    public static Ps5ImuMappingOption Default => All[0];
+
+    public static Ps5ImuMappingOption FromLabel(string? label)
+    {
+        return All.FirstOrDefault(o => string.Equals(o.Label, label, StringComparison.Ordinal)) ?? Default;
+    }
+}
+
 public enum VirtualBackendMode
 {
     ViiperServer,
