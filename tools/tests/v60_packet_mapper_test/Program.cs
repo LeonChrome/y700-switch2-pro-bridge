@@ -155,9 +155,9 @@ motionState.AccelX = 10;
 motionState.AccelY = 8192;
 motionState.AccelZ = 20;
 byte[] dsMotion = VirtualPadPackets.FromGamepad(ViiperDeviceProfile.DualSenseLike, motionState);
-Expect(BinaryPrimitives.ReadInt16LittleEndian(dsMotion.AsSpan(21, 2)) == 100, "DualSense gyro X maps directly");
-Expect(BinaryPrimitives.ReadInt16LittleEndian(dsMotion.AsSpan(23, 2)) == -200, "DualSense gyro Y flips source Y");
-Expect(BinaryPrimitives.ReadInt16LittleEndian(dsMotion.AsSpan(25, 2)) == -300, "DualSense gyro Z maps directly");
+Expect(BinaryPrimitives.ReadInt16LittleEndian(dsMotion.AsSpan(21, 2)) == -200, "DualSense gyro X takes flipped source Y");
+Expect(BinaryPrimitives.ReadInt16LittleEndian(dsMotion.AsSpan(23, 2)) == -300, "DualSense gyro Y takes source Z");
+Expect(BinaryPrimitives.ReadInt16LittleEndian(dsMotion.AsSpan(25, 2)) == -100, "DualSense gyro Z takes flipped source X");
 Expect(BinaryPrimitives.ReadInt16LittleEndian(dsMotion.AsSpan(27, 2)) == 10, "DualSense accel X maps directly");
 Expect(BinaryPrimitives.ReadInt16LittleEndian(dsMotion.AsSpan(29, 2)) == 20, "DualSense accel Y takes source Z");
 Expect(BinaryPrimitives.ReadInt16LittleEndian(dsMotion.AsSpan(31, 2)) == -8192, "DualSense accel Z flips source Y");
@@ -165,17 +165,17 @@ byte[] dsMotionInverted = VirtualPadPackets.FromGamepad(
     ViiperDeviceProfile.DualSenseLike,
     motionState,
     new GyroAxisInversion(false, true, false));
-Expect(BinaryPrimitives.ReadInt16LittleEndian(dsMotionInverted.AsSpan(21, 2)) == 100, "DualSense inverted keeps gyro X");
-Expect(BinaryPrimitives.ReadInt16LittleEndian(dsMotionInverted.AsSpan(23, 2)) == 200, "DualSense inverted flips only gyro Y");
-Expect(BinaryPrimitives.ReadInt16LittleEndian(dsMotionInverted.AsSpan(25, 2)) == -300, "DualSense inverted keeps gyro Z");
+Expect(BinaryPrimitives.ReadInt16LittleEndian(dsMotionInverted.AsSpan(21, 2)) == -200, "DualSense inverted keeps mapped gyro X");
+Expect(BinaryPrimitives.ReadInt16LittleEndian(dsMotionInverted.AsSpan(23, 2)) == 300, "DualSense inverted flips mapped gyro Y");
+Expect(BinaryPrimitives.ReadInt16LittleEndian(dsMotionInverted.AsSpan(25, 2)) == -100, "DualSense inverted keeps mapped gyro Z");
 Expect(BinaryPrimitives.ReadInt16LittleEndian(dsMotionInverted.AsSpan(31, 2)) == -8192, "DualSense inverted leaves accel mapping unchanged");
 byte[] dsMotionXzInverted = VirtualPadPackets.FromGamepad(
     ViiperDeviceProfile.DualSenseLike,
     motionState,
     new GyroAxisInversion(true, false, true));
-Expect(BinaryPrimitives.ReadInt16LittleEndian(dsMotionXzInverted.AsSpan(21, 2)) == -100, "DualSense X switch flips gyro X");
-Expect(BinaryPrimitives.ReadInt16LittleEndian(dsMotionXzInverted.AsSpan(23, 2)) == -200, "DualSense X/Z switch keeps gyro Y standard");
-Expect(BinaryPrimitives.ReadInt16LittleEndian(dsMotionXzInverted.AsSpan(25, 2)) == 300, "DualSense Z switch flips gyro Z");
+Expect(BinaryPrimitives.ReadInt16LittleEndian(dsMotionXzInverted.AsSpan(21, 2)) == 200, "DualSense X switch flips mapped gyro X");
+Expect(BinaryPrimitives.ReadInt16LittleEndian(dsMotionXzInverted.AsSpan(23, 2)) == -300, "DualSense X/Z switch keeps mapped gyro Y standard");
+Expect(BinaryPrimitives.ReadInt16LittleEndian(dsMotionXzInverted.AsSpan(25, 2)) == 100, "DualSense Z switch flips mapped gyro Z");
 Expect(BinaryPrimitives.ReadInt16LittleEndian(dsMotionXzInverted.AsSpan(31, 2)) == -8192, "DualSense X/Z switches leave accel mapping unchanged");
 byte[] nsMotion = VirtualPadPackets.FromGamepad(ViiperDeviceProfile.Pro2, motionState);
 Expect(BinaryPrimitives.ReadInt16LittleEndian(nsMotion.AsSpan(12, 2)) == 10, "NS2Pro accel X maps directly");
