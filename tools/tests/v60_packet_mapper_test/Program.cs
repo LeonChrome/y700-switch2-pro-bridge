@@ -164,11 +164,19 @@ Expect(BinaryPrimitives.ReadInt16LittleEndian(dsMotion.AsSpan(31, 2)) == -8192, 
 byte[] dsMotionInverted = VirtualPadPackets.FromGamepad(
     ViiperDeviceProfile.DualSenseLike,
     motionState,
-    GyroDirectionMode.InvertHorizontal);
+    new GyroAxisInversion(false, true, false));
 Expect(BinaryPrimitives.ReadInt16LittleEndian(dsMotionInverted.AsSpan(21, 2)) == 100, "DualSense inverted keeps gyro X");
-Expect(BinaryPrimitives.ReadInt16LittleEndian(dsMotionInverted.AsSpan(23, 2)) == 200, "DualSense inverted flips only horizontal gyro Y");
+Expect(BinaryPrimitives.ReadInt16LittleEndian(dsMotionInverted.AsSpan(23, 2)) == 200, "DualSense inverted flips only gyro Y");
 Expect(BinaryPrimitives.ReadInt16LittleEndian(dsMotionInverted.AsSpan(25, 2)) == -300, "DualSense inverted keeps gyro Z");
 Expect(BinaryPrimitives.ReadInt16LittleEndian(dsMotionInverted.AsSpan(31, 2)) == -8192, "DualSense inverted leaves accel mapping unchanged");
+byte[] dsMotionXzInverted = VirtualPadPackets.FromGamepad(
+    ViiperDeviceProfile.DualSenseLike,
+    motionState,
+    new GyroAxisInversion(true, false, true));
+Expect(BinaryPrimitives.ReadInt16LittleEndian(dsMotionXzInverted.AsSpan(21, 2)) == -100, "DualSense X switch flips gyro X");
+Expect(BinaryPrimitives.ReadInt16LittleEndian(dsMotionXzInverted.AsSpan(23, 2)) == -200, "DualSense X/Z switch keeps gyro Y standard");
+Expect(BinaryPrimitives.ReadInt16LittleEndian(dsMotionXzInverted.AsSpan(25, 2)) == 300, "DualSense Z switch flips gyro Z");
+Expect(BinaryPrimitives.ReadInt16LittleEndian(dsMotionXzInverted.AsSpan(31, 2)) == -8192, "DualSense X/Z switches leave accel mapping unchanged");
 byte[] nsMotion = VirtualPadPackets.FromGamepad(ViiperDeviceProfile.Pro2, motionState);
 Expect(BinaryPrimitives.ReadInt16LittleEndian(nsMotion.AsSpan(12, 2)) == 10, "NS2Pro accel X maps directly");
 Expect(BinaryPrimitives.ReadInt16LittleEndian(nsMotion.AsSpan(14, 2)) == -8192, "NS2Pro accel Y flips source Y");
@@ -179,12 +187,13 @@ Expect(BinaryPrimitives.ReadInt16LittleEndian(nsMotion.AsSpan(22, 2)) == -300, "
 byte[] nsMotionInverted = VirtualPadPackets.FromGamepad(
     ViiperDeviceProfile.Pro2,
     motionState,
-    GyroDirectionMode.InvertHorizontal);
+    new GyroAxisInversion(false, true, false));
 Expect(BinaryPrimitives.ReadInt16LittleEndian(nsMotionInverted.AsSpan(18, 2)) == 100, "NS2Pro inverted keeps gyro X");
-Expect(BinaryPrimitives.ReadInt16LittleEndian(nsMotionInverted.AsSpan(20, 2)) == 200, "NS2Pro inverted flips only horizontal gyro Y");
+Expect(BinaryPrimitives.ReadInt16LittleEndian(nsMotionInverted.AsSpan(20, 2)) == 200, "NS2Pro inverted flips only gyro Y");
 Expect(BinaryPrimitives.ReadInt16LittleEndian(nsMotionInverted.AsSpan(22, 2)) == -300, "NS2Pro inverted keeps gyro Z");
 Expect(BinaryPrimitives.ReadInt16LittleEndian(nsMotionInverted.AsSpan(14, 2)) == -8192, "NS2Pro inverted leaves accel mapping unchanged");
-Expect(GyroDirectionOption.Default.Mode == GyroDirectionMode.Reference, "gyro direction defaults to reference mapping");
+Expect(new GyroAxisInversion().TelemetryValue == "x0,y0,z0", "gyro axis inversion defaults to standard mapping");
+Expect(new GyroAxisInversion(false, true, false).DisplayValue == "X+ Y- Z+", "gyro axis inversion display shows Y flip");
 
 var parser = new Pro2HidReportParser();
 byte[] report = new byte[49];

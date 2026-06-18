@@ -25,6 +25,22 @@ public enum GyroDirectionMode
     InvertHorizontal
 }
 
+public readonly record struct GyroAxisInversion(
+    bool InvertX,
+    bool InvertY,
+    bool InvertZ)
+{
+    public string TelemetryValue =>
+        "x" + (InvertX ? "1" : "0") +
+        ",y" + (InvertY ? "1" : "0") +
+        ",z" + (InvertZ ? "1" : "0");
+
+    public string DisplayValue =>
+        "X" + (InvertX ? "-" : "+") +
+        " Y" + (InvertY ? "-" : "+") +
+        " Z" + (InvertZ ? "-" : "+");
+}
+
 public enum VirtualBackendMode
 {
     ViiperServer,

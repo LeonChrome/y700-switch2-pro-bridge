@@ -63,13 +63,13 @@ public static class VirtualPadPackets
     public static byte[] FromGamepad(
         ViiperDeviceProfile profile,
         GamepadState? state,
-        GyroDirectionMode gyroDirectionMode = GyroDirectionMode.Reference)
+        GyroAxisInversion gyroAxisInversion = default)
     {
         state ??= GamepadState.Neutral();
         return profile.Mode switch
         {
-            ViiperVirtualMode.DualSenseLike => DualSenseFromGamepad(state, gyroDirectionMode),
-            ViiperVirtualMode.Pro2 => Ns2ProFromGamepad(state, gyroDirectionMode),
+            ViiperVirtualMode.DualSenseLike => DualSenseFromGamepad(state, gyroAxisInversion),
+            ViiperVirtualMode.Pro2 => Ns2ProFromGamepad(state, gyroAxisInversion),
             ViiperVirtualMode.Xbox => XboxFromGamepad(state),
             _ => throw new ArgumentOutOfRangeException(nameof(profile))
         };
@@ -109,7 +109,7 @@ public static class VirtualPadPackets
 
     private static byte[] DualSenseFromGamepad(
         GamepadState state,
-        GyroDirectionMode gyroDirectionMode)
+        GyroAxisInversion gyroAxisInversion)
     {
         byte[] b = new byte[33];
         b[0] = unchecked((byte)Axis12ToI8(state.Lx, invert: false));
@@ -121,7 +121,7 @@ public static class VirtualPadPackets
         b[9] = Trigger12ToU8(state.L2, state.IsPressed(GamepadButtons.L2));
         b[10] = Trigger12ToU8(state.R2, state.IsPressed(GamepadButtons.R2));
 
-        MotionVector dualSenseGyro = MapDualSenseGyro(state, gyroDirectionMode);
+        MotionVector dualSenseGyro = MapDualSenseGyro(state, gyroAxisInversion);
         MotionVector dualSenseAccel = MapDualSenseAccel(state);
         WriteI16(b, 21, state.GyroValid ? dualSenseGyro.X : (short)0);
         WriteI16(b, 23, state.GyroValid ? dualSenseGyro.Y : (short)0);
@@ -134,7 +134,7 @@ public static class VirtualPadPackets
 
     private static byte[] Ns2ProFromGamepad(
         GamepadState state,
-        GyroDirectionMode gyroDirectionMode)
+        GyroAxisInversion gyroAxisInversion)
     {
         byte[] b = new byte[24];
         WriteU32(b, 0, Ns2ProButtons(state));
@@ -143,7 +143,7 @@ public static class VirtualPadPackets
         WriteU16(b, 8, SnapAxisCenter(state.Rx));
         WriteU16(b, 10, SnapAxisCenter(state.Ry));
         MotionVector ns2ProAccel = MapNs2ProAccel(state);
-        MotionVector ns2ProGyro = MapNs2ProGyro(state, gyroDirectionMode);
+        MotionVector ns2ProGyro = MapNs2ProGyro(state, gyroAxisInversion);
         WriteI16(b, 12, state.AccelValid ? ns2ProAccel.X : (short)0);
         WriteI16(b, 14, state.AccelValid ? ns2ProAccel.Y : (short)0);
         WriteI16(b, 16, state.AccelValid ? ns2ProAccel.Z : (short)0);
@@ -256,12 +256,12 @@ public static class VirtualPadPackets
 
     private static MotionVector MapDualSenseGyro(
         GamepadState state,
-        GyroDirectionMode gyroDirectionMode)
+        GyroAxisInversion gyroAxisInversion)
     {
-        return new MotionVector(
+        return ApplyGyroAxisInversion(new MotionVector(
             state.GyroX,
-            MapHorizontalGyro(state.GyroY, gyroDirectionMode),
-            state.GyroZ);
+            NegateI16(state.GyroY),
+            state.GyroZ), gyroAxisInversion);
     }
 
     private static MotionVector MapDualSenseAccel(GamepadState state)
@@ -274,12 +274,12 @@ public static class VirtualPadPackets
 
     private static MotionVector MapNs2ProGyro(
         GamepadState state,
-        GyroDirectionMode gyroDirectionMode)
+        GyroAxisInversion gyroAxisInversion)
     {
-        return new MotionVector(
+        return ApplyGyroAxisInversion(new MotionVector(
             state.GyroX,
-            MapHorizontalGyro(state.GyroY, gyroDirectionMode),
-            state.GyroZ);
+            NegateI16(state.GyroY),
+            state.GyroZ), gyroAxisInversion);
     }
 
     private static MotionVector MapNs2ProAccel(GamepadState state)
@@ -290,11 +290,14 @@ public static class VirtualPadPackets
             state.AccelZ);
     }
 
-    private static short MapHorizontalGyro(short sourceGyroY, GyroDirectionMode gyroDirectionMode)
+    private static MotionVector ApplyGyroAxisInversion(
+        MotionVector vector,
+        GyroAxisInversion gyroAxisInversion)
     {
-        return gyroDirectionMode == GyroDirectionMode.InvertHorizontal
-            ? sourceGyroY
-            : NegateI16(sourceGyroY);
+        return new MotionVector(
+            gyroAxisInversion.InvertX ? NegateI16(vector.X) : vector.X,
+            gyroAxisInversion.InvertY ? NegateI16(vector.Y) : vector.Y,
+            gyroAxisInversion.InvertZ ? NegateI16(vector.Z) : vector.Z);
     }
 
     private static short NegateI16(short value)

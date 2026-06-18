@@ -1,5 +1,23 @@
 # Changelog
 
+## V6.2.8 新和联胜 VIIPER Stable UI + 3-Axis Gyro Controls
+
+- Promoted the V6.2 Windows-only VIIPER route to `v6.2.8`.
+- Removed character-card and hero-image scale transforms during hover/selection so
+  the main lobby no longer visually zooms while mode/driver operations are
+  running.
+- Added a dark ComboBox template and item style so Push Hz, Gyro, Stick, and
+  Backend options remain readable on machines where the Windows theme renders
+  white selection boxes.
+- Replaced the old single Gyro Dir dropdown with independent `X 反向`, `Y 反向`,
+  and `Z 反向` switches. Existing users who selected the old left/right fix are
+  migrated to `Y 反向`.
+- Changed startup/runtime telemetry from `gyro_dir` to
+  `gyro_axis_inv=x0,y0,z0` so field logs show the exact axis switches in use.
+- No VIIPER/USBIP startup behavior was changed in this version; the reported
+  `exit=1` case was analyzed separately as a pre-BLE server/driver/port startup
+  failure.
+
 ## V6.2.7 新和联胜 VIIPER Gyro Direction Profiles
 
 - Promoted the V6.2 Windows-only VIIPER route to `v6.2.7`.

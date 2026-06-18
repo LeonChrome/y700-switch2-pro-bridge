@@ -19,7 +19,7 @@ public sealed class ViiperBridgeSession : IAsyncDisposable
     private readonly CancellationTokenSource cts = new();
     private readonly SemaphoreSlim streamRecoveryGate = new(1, 1);
     private readonly ViiperGyroMode gyroMode;
-    private readonly GyroDirectionMode gyroDirectionMode;
+    private readonly GyroAxisInversion gyroAxisInversion;
     private readonly object streamSync = new();
     private ViiperDeviceStream? stream;
     private ViiperDevice? device;
@@ -46,7 +46,7 @@ public sealed class ViiperBridgeSession : IAsyncDisposable
         IGamepadOutputSink? outputSink = null,
         IProgress<Exception>? faultProgress = null,
         ViiperGyroMode gyroMode = ViiperGyroMode.Hold250Hz,
-        GyroDirectionMode gyroDirectionMode = GyroDirectionMode.Reference)
+        GyroAxisInversion gyroAxisInversion = default)
     {
         this.client = client;
         this.profile = profile;
@@ -55,7 +55,7 @@ public sealed class ViiperBridgeSession : IAsyncDisposable
         this.outputSink = outputSink ?? inputSource as IGamepadOutputSink;
         this.faultProgress = faultProgress;
         this.gyroMode = gyroMode;
-        this.gyroDirectionMode = gyroDirectionMode;
+        this.gyroAxisInversion = gyroAxisInversion;
     }
 
     public ViiperDeviceProfile Profile => profile;
@@ -169,7 +169,7 @@ public sealed class ViiperBridgeSession : IAsyncDisposable
                         " backend=" + timer.Backend +
                         " push_target_hz=" + pushTargetHz.ToString("F1") +
                         " gyro_mode=" + GyroModeLabel(gyroMode) +
-                        " gyro_dir=" + GyroDirectionLabel(gyroDirectionMode));
+                        " gyro_axis_inv=" + gyroAxisInversion.TelemetryValue);
         while (timer.WaitForNextTick(cancellationToken))
         {
             long loopTicks = Stopwatch.GetTimestamp();
@@ -240,7 +240,7 @@ public sealed class ViiperBridgeSession : IAsyncDisposable
                 packet = VirtualPadPackets.FromGamepad(
                     profile,
                     continuous,
-                    gyroDirectionMode);
+                    gyroAxisInversion);
             }
             else
             {
@@ -350,7 +350,7 @@ public sealed class ViiperBridgeSession : IAsyncDisposable
                         " steam_device_hash_change_count=" + SteamDeviceHashChangeCount +
                         " last_viiper_error=\"" + SanitizeLogValue(lastViiperError) + "\"" +
                         " last_usbip_lifecycle_event=" + lastUsbipLifecycleEvent +
-                        " gyro_dir=" + GyroDirectionLabel(gyroDirectionMode);
+                        " gyro_axis_inv=" + gyroAxisInversion.TelemetryValue;
                     intervalWriteMsSum = 0;
                     intervalWriteMaxMs = 0;
                     intervalWriteSamples = 0;
@@ -566,16 +566,6 @@ public sealed class ViiperBridgeSession : IAsyncDisposable
             ViiperGyroMode.Source60Hz => "source_60hz_zero",
             ViiperGyroMode.Scaled250Hz => "scaled_250hz",
             ViiperGyroMode.Filtered250Hz => "filtered_hold",
-            _ => mode.ToString()
-        };
-    }
-
-    private static string GyroDirectionLabel(GyroDirectionMode mode)
-    {
-        return mode switch
-        {
-            GyroDirectionMode.Reference => "reference",
-            GyroDirectionMode.InvertHorizontal => "invert_horizontal",
             _ => mode.ToString()
         };
     }

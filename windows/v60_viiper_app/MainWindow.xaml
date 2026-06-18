@@ -2,7 +2,7 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:automation="clr-namespace:System.Windows.Automation;assembly=PresentationCore"
-        Title="PRO2 手柄无线接收器控制板 V6.2.7 · 角色选择大厅"
+        Title="PRO2 手柄无线接收器控制板 V6.2.8 · 角色选择大厅"
         Width="1440"
         Height="940"
         MinWidth="1160"
@@ -58,7 +58,7 @@
             <Setter Property="RenderTransformOrigin" Value="0.5,0.5"/>
             <Setter Property="RenderTransform">
                 <Setter.Value>
-                    <ScaleTransform ScaleX="0.97" ScaleY="0.97"/>
+                    <ScaleTransform ScaleX="1" ScaleY="1"/>
                 </Setter.Value>
             </Setter>
             <Setter Property="Effect">
@@ -71,7 +71,7 @@
                     <Setter Property="Opacity" Value="0.96"/>
                     <Setter Property="RenderTransform">
                         <Setter.Value>
-                            <ScaleTransform ScaleX="1.005" ScaleY="1.005"/>
+                            <ScaleTransform ScaleX="1" ScaleY="1"/>
                         </Setter.Value>
                     </Setter>
                 </Trigger>
@@ -95,13 +95,13 @@
                     <BeginStoryboard>
                         <Storyboard>
                             <DoubleAnimation Duration="0:0:0.22"
-                                             To="1.055"
+                                             To="1"
                                              Storyboard.TargetProperty="(UIElement.RenderTransform).(TransformGroup.Children)[0].(ScaleTransform.ScaleX)"/>
                             <DoubleAnimation Duration="0:0:0.22"
-                                             To="1.055"
+                                             To="1"
                                              Storyboard.TargetProperty="(UIElement.RenderTransform).(TransformGroup.Children)[0].(ScaleTransform.ScaleY)"/>
                             <DoubleAnimation Duration="0:0:0.22"
-                                             To="-8"
+                                             To="0"
                                              Storyboard.TargetProperty="(UIElement.RenderTransform).(TransformGroup.Children)[1].(TranslateTransform.Y)"/>
                         </Storyboard>
                     </BeginStoryboard>
@@ -168,6 +168,159 @@
             <Setter Property="BorderThickness" Value="1"/>
             <Setter Property="Padding" Value="9,7"/>
             <Setter Property="CaretBrush" Value="#58E1FF"/>
+        </Style>
+
+        <Style x:Key="DarkComboBoxItem" TargetType="{x:Type ComboBoxItem}">
+            <Setter Property="Foreground" Value="#E6EEFF"/>
+            <Setter Property="Background" Value="#10172A"/>
+            <Setter Property="Padding" Value="10,7"/>
+            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="{x:Type ComboBoxItem}">
+                        <Border x:Name="ItemChrome"
+                                Background="{TemplateBinding Background}"
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsHighlighted" Value="True">
+                                <Setter TargetName="ItemChrome" Property="Background" Value="#243452"/>
+                                <Setter Property="Foreground" Value="#FFFFFF"/>
+                            </Trigger>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter TargetName="ItemChrome" Property="Background" Value="#175B78"/>
+                                <Setter Property="Foreground" Value="#FFFFFF"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Opacity" Value="0.46"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="DarkComboBox" TargetType="{x:Type ComboBox}">
+            <Setter Property="Foreground" Value="#E6EEFF"/>
+            <Setter Property="Background" Value="#0A0F20"/>
+            <Setter Property="BorderBrush" Value="#33415F"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Padding" Value="10,6"/>
+            <Setter Property="MinHeight" Value="34"/>
+            <Setter Property="TextElement.Foreground" Value="#E6EEFF"/>
+            <Setter Property="ItemContainerStyle" Value="{StaticResource DarkComboBoxItem}"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="{x:Type ComboBox}">
+                        <Grid>
+                            <Border x:Name="Chrome"
+                                    Grid.ColumnSpan="2"
+                                    CornerRadius="8"
+                                    Background="{TemplateBinding Background}"
+                                    BorderBrush="{TemplateBinding BorderBrush}"
+                                    BorderThickness="{TemplateBinding BorderThickness}"/>
+                            <ContentPresenter x:Name="ContentSite"
+                                              Margin="{TemplateBinding Padding}"
+                                              VerticalAlignment="Center"
+                                              HorizontalAlignment="Left"
+                                              IsHitTestVisible="False"
+                                              Content="{TemplateBinding SelectionBoxItem}"
+                                              ContentTemplate="{TemplateBinding SelectionBoxItemTemplate}"
+                                              ContentStringFormat="{TemplateBinding SelectionBoxItemStringFormat}"/>
+                            <Path HorizontalAlignment="Right"
+                                  VerticalAlignment="Center"
+                                  Margin="0,0,11,0"
+                                  Fill="#B9C8E8"
+                                  Data="M 0 0 L 5 5 L 10 0 Z"/>
+                            <ToggleButton Focusable="False"
+                                          Background="Transparent"
+                                          BorderThickness="0"
+                                          Opacity="0"
+                                          ClickMode="Press"
+                                          IsChecked="{Binding IsDropDownOpen, RelativeSource={RelativeSource TemplatedParent}, Mode=TwoWay}"/>
+                            <Popup x:Name="PART_Popup"
+                                   AllowsTransparency="True"
+                                   Focusable="False"
+                                   IsOpen="{TemplateBinding IsDropDownOpen}"
+                                   Placement="Bottom"
+                                   PopupAnimation="Fade">
+                                <Border MinWidth="{Binding ActualWidth, RelativeSource={RelativeSource TemplatedParent}}"
+                                        MaxHeight="{TemplateBinding MaxDropDownHeight}"
+                                        CornerRadius="9"
+                                        Background="#10172A"
+                                        BorderBrush="#405071"
+                                        BorderThickness="1">
+                                    <ScrollViewer Margin="0"
+                                                  SnapsToDevicePixels="True"
+                                                  VerticalScrollBarVisibility="Auto">
+                                        <ItemsPresenter/>
+                                    </ScrollViewer>
+                                </Border>
+                            </Popup>
+                        </Grid>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Chrome" Property="BorderBrush" Value="#6A80B8"/>
+                            </Trigger>
+                            <Trigger Property="IsKeyboardFocusWithin" Value="True">
+                                <Setter TargetName="Chrome" Property="BorderBrush" Value="#58E1FF"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Opacity" Value="0.48"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="AxisCheckBox" TargetType="{x:Type CheckBox}">
+            <Setter Property="Foreground" Value="#D9ECFF"/>
+            <Setter Property="Margin" Value="0,0,10,0"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="{x:Type CheckBox}">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="18"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <Border x:Name="Box"
+                                    Width="16"
+                                    Height="16"
+                                    CornerRadius="4"
+                                    Background="#0A0F20"
+                                    BorderBrush="#52678F"
+                                    BorderThickness="1"/>
+                            <Border x:Name="Dot"
+                                    Width="8"
+                                    Height="8"
+                                    CornerRadius="4"
+                                    Background="#58E1FF"
+                                    Visibility="Collapsed"/>
+                            <ContentPresenter Grid.Column="1"
+                                              Margin="6,0,0,0"
+                                              VerticalAlignment="Center"/>
+                        </Grid>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="Box" Property="BorderBrush" Value="#58E1FF"/>
+                                <Setter TargetName="Box" Property="Background" Value="#123B52"/>
+                                <Setter TargetName="Dot" Property="Visibility" Value="Visible"/>
+                                <Setter Property="Foreground" Value="#FFFFFF"/>
+                            </Trigger>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Box" Property="BorderBrush" Value="#9DEEFF"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Opacity" Value="0.46"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
         </Style>
 
         <Style TargetType="ToolTip">
@@ -281,7 +434,7 @@
                                         <DropShadowEffect Color="#5EF2A5" BlurRadius="12" ShadowDepth="0"/>
                                     </Ellipse.Effect>
                                 </Ellipse>
-                                <TextBlock FontWeight="Bold" Foreground="#C9FCE0" Text="V6.2.7 LINK LAB"/>
+                                <TextBlock FontWeight="Bold" Foreground="#C9FCE0" Text="V6.2.8 LINK LAB"/>
                             </StackPanel>
                         </Border>
                         <Button Margin="0,9,0,0" HorizontalAlignment="Right"
@@ -342,7 +495,7 @@
                                             <Setter Property="BorderThickness" Value="2"/>
                                             <Setter Property="RenderTransform">
                                                 <Setter.Value>
-                                                    <ScaleTransform ScaleX="1.025" ScaleY="1.025"/>
+                                                    <ScaleTransform ScaleX="1" ScaleY="1"/>
                                                 </Setter.Value>
                                             </Setter>
                                             <Setter Property="Effect">
@@ -422,7 +575,7 @@
                                             <Setter Property="BorderThickness" Value="2"/>
                                             <Setter Property="RenderTransform">
                                                 <Setter.Value>
-                                                    <ScaleTransform ScaleX="1.025" ScaleY="1.025"/>
+                                                    <ScaleTransform ScaleX="1" ScaleY="1"/>
                                                 </Setter.Value>
                                             </Setter>
                                             <Setter Property="Effect">
@@ -502,7 +655,7 @@
                                             <Setter Property="BorderThickness" Value="2"/>
                                             <Setter Property="RenderTransform">
                                                 <Setter.Value>
-                                                    <ScaleTransform ScaleX="1.025" ScaleY="1.025"/>
+                                                    <ScaleTransform ScaleX="1" ScaleY="1"/>
                                                 </Setter.Value>
                                             </Setter>
                                             <Setter Property="Effect">
@@ -598,51 +751,57 @@
                                 <TextBlock Grid.Column="0" VerticalAlignment="Center" Style="{StaticResource SectionLabel}"
                                            Text="Push Hz"/>
                                 <ComboBox Grid.Column="1" Margin="10,0,0,0"
+                                          Style="{StaticResource DarkComboBox}"
                                           ItemsSource="{Binding PushRateChoices}"
                                           SelectedItem="{Binding SelectedPushRate, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                           IsEnabled="{Binding CanOperate}"
-                                          Background="#0A0F20"
-                                          Foreground="#E6EEFF"
-                                          BorderBrush="#33415F"
                                           ToolTip="66Hz / 125Hz / 250Hz。默认 125Hz，250Hz 用于高性能 A/B 测试。"/>
                                 <TextBlock Grid.Column="3" VerticalAlignment="Center" Style="{StaticResource SectionLabel}"
                                            Text="Gyro"/>
                                 <ComboBox Grid.Column="4" Margin="10,0,0,0"
+                                          Style="{StaticResource DarkComboBox}"
                                           ItemsSource="{Binding GyroModeChoices}"
                                           SelectedItem="{Binding SelectedGyroMode, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                           IsEnabled="{Binding CanOperate}"
-                                          Background="#0A0F20"
-                                          Foreground="#E6EEFF"
-                                          BorderBrush="#33415F"
                                           ToolTip="hold_latest 推荐；BLE 真实采样，USB 重复帧保持 latest IMU，不再清空 motion。source_60hz_zero 仅用于诊断旧问题。"/>
                             </Grid>
-                            <Grid Margin="0,8,0,0" MaxWidth="560">
+                            <Grid Margin="0,8,0,0" MaxWidth="650">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="Auto"/>
-                                    <ColumnDefinition Width="180"/>
+                                    <ColumnDefinition Width="250"/>
                                     <ColumnDefinition Width="18"/>
                                     <ColumnDefinition Width="Auto"/>
-                                    <ColumnDefinition Width="230"/>
+                                    <ColumnDefinition Width="220"/>
                                 </Grid.ColumnDefinitions>
                                 <TextBlock Grid.Column="0" VerticalAlignment="Center" Style="{StaticResource SectionLabel}"
-                                           Text="Gyro Dir"/>
-                                <ComboBox Grid.Column="1" Margin="10,0,0,0"
-                                          ItemsSource="{Binding GyroDirectionChoices}"
-                                          SelectedItem="{Binding SelectedGyroDirection, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                                          IsEnabled="{Binding CanOperate}"
-                                          Background="#0A0F20"
-                                          Foreground="#E6EEFF"
-                                          BorderBrush="#33415F"
-                                          ToolTip="默认标准方向。只有当游戏里左右陀螺仪反了，才切到左右反向修正。"/>
+                                           Text="Gyro Axis"/>
+                                <StackPanel Grid.Column="1"
+                                            Margin="10,0,0,0"
+                                            Orientation="Horizontal"
+                                            VerticalAlignment="Center">
+                                    <CheckBox Style="{StaticResource AxisCheckBox}"
+                                              Content="X 反向"
+                                              IsChecked="{Binding InvertGyroX, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                              IsEnabled="{Binding CanOperate}"
+                                              ToolTip="翻转虚拟 gyro X 轴。默认关闭。"/>
+                                    <CheckBox Style="{StaticResource AxisCheckBox}"
+                                              Content="Y 反向"
+                                              IsChecked="{Binding InvertGyroY, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                              IsEnabled="{Binding CanOperate}"
+                                              ToolTip="左右 / Yaw 方向反了，通常先试这个。"/>
+                                    <CheckBox Style="{StaticResource AxisCheckBox}"
+                                              Content="Z 反向"
+                                              IsChecked="{Binding InvertGyroZ, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                              IsEnabled="{Binding CanOperate}"
+                                              ToolTip="翻转虚拟 gyro Z 轴。默认关闭。"/>
+                                </StackPanel>
                                 <TextBlock Grid.Column="3" VerticalAlignment="Center" Style="{StaticResource SectionLabel}"
                                            Text="Stick"/>
                                 <ComboBox Grid.Column="4" Margin="10,0,0,0"
+                                          Style="{StaticResource DarkComboBox}"
                                           ItemsSource="{Binding StickProcessingChoices}"
                                           SelectedItem="{Binding SelectedStickProcessing, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                           IsEnabled="{Binding CanOperate}"
-                                          Background="#0A0F20"
-                                          Foreground="#E6EEFF"
-                                          BorderBrush="#33415F"
                                           ToolTip="Raw Direct 推荐：摇杆原始值直通。Stability Guard 只用于怀疑坏轴时诊断。"/>
                             </Grid>
                             <Grid Margin="0,8,0,0" MaxWidth="560">
@@ -653,12 +812,10 @@
                                 <TextBlock Grid.Column="0" VerticalAlignment="Center" Style="{StaticResource SectionLabel}"
                                            Text="Backend"/>
                                 <ComboBox Grid.Column="1" Margin="10,0,0,0"
+                                          Style="{StaticResource DarkComboBox}"
                                           ItemsSource="{Binding BackendChoices}"
                                           SelectedItem="{Binding SelectedBackend, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                           IsEnabled="{Binding CanOperate}"
-                                          Background="#0A0F20"
-                                          Foreground="#E6EEFF"
-                                          BorderBrush="#33415F"
                                           ToolTip="V6.2 后端路线。默认 VIIPER server；libVIIPER/Embedded USBIP 是短链路实验档。"/>
                             </Grid>
                             <TextBlock Margin="0,6,0,0"
