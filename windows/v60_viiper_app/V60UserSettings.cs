@@ -11,6 +11,7 @@ public sealed class V60UserSettings
     public double RumbleMultiplier { get; set; } = 1.0;
     public string PushRateLabel { get; set; } = ViiperPushRateOption.Default.Label;
     public string GyroModeLabel { get; set; } = ViiperGyroModeOption.Default.Label;
+    public string GyroDirectionLabel { get; set; } = GyroDirectionOption.Default.Label;
     public string BackendLabel { get; set; } = VirtualBackendOption.Default.Label;
     public string StickProcessingLabel { get; set; } = StickProcessingOption.Default.Label;
 
@@ -38,6 +39,8 @@ public sealed class V60UserSettings
                     ViiperPushRateOption.FromLabel(loaded.PushRateLabel).Label;
                 loaded.GyroModeLabel =
                     ViiperGyroModeOption.FromLabel(loaded.GyroModeLabel).Label;
+                loaded.GyroDirectionLabel =
+                    GyroDirectionOption.FromLabel(loaded.GyroDirectionLabel).Label;
                 loaded.BackendLabel =
                     VirtualBackendOption.FromLabel(loaded.BackendLabel).Label;
                 loaded.StickProcessingLabel =
@@ -60,6 +63,7 @@ public sealed class V60UserSettings
             RumbleMultiplier = NormalizeRumbleMultiplier(RumbleMultiplier);
             PushRateLabel = ViiperPushRateOption.FromLabel(PushRateLabel).Label;
             GyroModeLabel = ViiperGyroModeOption.FromLabel(GyroModeLabel).Label;
+            GyroDirectionLabel = GyroDirectionOption.FromLabel(GyroDirectionLabel).Label;
             BackendLabel = VirtualBackendOption.FromLabel(BackendLabel).Label;
             StickProcessingLabel = StickProcessingOption.FromLabel(StickProcessingLabel).Label;
             string temporary = SettingsPath + ".tmp";

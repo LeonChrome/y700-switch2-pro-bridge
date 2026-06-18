@@ -1,5 +1,19 @@
 # Changelog
 
+## V6.2.7 新和联胜 VIIPER Gyro Direction Profiles
+
+- Promoted the V6.2 Windows-only VIIPER route to `v6.2.7`.
+- Added a visible `Gyro Dir` selector in LINK LAB:
+  `标准方向（推荐）` keeps the proven V6.2.6 report-space mapping, while
+  `左右反向修正` is for field environments where games report left/right gyro
+  reversed.
+- The direction profile only changes the horizontal gyro/Yaw sign for
+  DualSense-like and NS2Pro virtual devices. It does not change accel mapping,
+  vertical gyro axes, stick processing, or Xbox/XInput behavior.
+- Added `gyro_dir` startup/runtime telemetry so field logs show which direction
+  profile was active.
+- Added packet-mapper coverage for standard and inverted gyro direction output.
+
 ## V6.2.6 新和联胜 VIIPER Latest-Held Gyro
 
 - Promoted the V6.2 Windows-only VIIPER route to `v6.2.6`.

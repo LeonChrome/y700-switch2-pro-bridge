@@ -8,13 +8,13 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>Y700Switch2V60Viiper</AssemblyName>
-    <AssemblyTitle>PRO2 手柄无线接收器控制板 V6.2.6 VIIPER Windows 版</AssemblyTitle>
+    <AssemblyTitle>PRO2 手柄无线接收器控制板 V6.2.7 VIIPER Windows 版</AssemblyTitle>
     <Product>PRO2 手柄无线接收器控制板</Product>
-    <Description>V6.2.6 Windows-only VIIPER route with latest-held gyro timing and calibrated motion mapping.</Description>
-    <Version>6.2.6</Version>
-    <AssemblyVersion>6.2.6.0</AssemblyVersion>
-    <FileVersion>6.2.6.0</FileVersion>
-    <InformationalVersion>6.2.6-latest-held-gyro</InformationalVersion>
+    <Description>V6.2.7 Windows-only VIIPER route with gyro direction profiles for field environments.</Description>
+    <Version>6.2.7</Version>
+    <AssemblyVersion>6.2.7.0</AssemblyVersion>
+    <FileVersion>6.2.7.0</FileVersion>
+    <InformationalVersion>6.2.7-gyro-direction-profiles</InformationalVersion>
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <PublishSingleFile>true</PublishSingleFile>

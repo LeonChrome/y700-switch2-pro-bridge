@@ -2,7 +2,7 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:automation="clr-namespace:System.Windows.Automation;assembly=PresentationCore"
-        Title="PRO2 手柄无线接收器控制板 V6.2.6 · 角色选择大厅"
+        Title="PRO2 手柄无线接收器控制板 V6.2.7 · 角色选择大厅"
         Width="1440"
         Height="940"
         MinWidth="1160"
@@ -281,7 +281,7 @@
                                         <DropShadowEffect Color="#5EF2A5" BlurRadius="12" ShadowDepth="0"/>
                                     </Ellipse.Effect>
                                 </Ellipse>
-                                <TextBlock FontWeight="Bold" Foreground="#C9FCE0" Text="V6.2.6 LINK LAB"/>
+                                <TextBlock FontWeight="Bold" Foreground="#C9FCE0" Text="V6.2.7 LINK LAB"/>
                             </StackPanel>
                         </Border>
                         <Button Margin="0,9,0,0" HorizontalAlignment="Right"
@@ -619,14 +619,24 @@
                             <Grid Margin="0,8,0,0" MaxWidth="560">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="Auto"/>
-                                    <ColumnDefinition Width="170"/>
+                                    <ColumnDefinition Width="180"/>
                                     <ColumnDefinition Width="18"/>
                                     <ColumnDefinition Width="Auto"/>
-                                    <ColumnDefinition Width="250"/>
+                                    <ColumnDefinition Width="230"/>
                                 </Grid.ColumnDefinitions>
                                 <TextBlock Grid.Column="0" VerticalAlignment="Center" Style="{StaticResource SectionLabel}"
-                                           Text="Stick"/>
+                                           Text="Gyro Dir"/>
                                 <ComboBox Grid.Column="1" Margin="10,0,0,0"
+                                          ItemsSource="{Binding GyroDirectionChoices}"
+                                          SelectedItem="{Binding SelectedGyroDirection, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                          IsEnabled="{Binding CanOperate}"
+                                          Background="#0A0F20"
+                                          Foreground="#E6EEFF"
+                                          BorderBrush="#33415F"
+                                          ToolTip="默认标准方向。只有当游戏里左右陀螺仪反了，才切到左右反向修正。"/>
+                                <TextBlock Grid.Column="3" VerticalAlignment="Center" Style="{StaticResource SectionLabel}"
+                                           Text="Stick"/>
+                                <ComboBox Grid.Column="4" Margin="10,0,0,0"
                                           ItemsSource="{Binding StickProcessingChoices}"
                                           SelectedItem="{Binding SelectedStickProcessing, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                           IsEnabled="{Binding CanOperate}"
@@ -634,9 +644,15 @@
                                           Foreground="#E6EEFF"
                                           BorderBrush="#33415F"
                                           ToolTip="Raw Direct 推荐：摇杆原始值直通。Stability Guard 只用于怀疑坏轴时诊断。"/>
-                                <TextBlock Grid.Column="3" VerticalAlignment="Center" Style="{StaticResource SectionLabel}"
+                            </Grid>
+                            <Grid Margin="0,8,0,0" MaxWidth="560">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="420"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Grid.Column="0" VerticalAlignment="Center" Style="{StaticResource SectionLabel}"
                                            Text="Backend"/>
-                                <ComboBox Grid.Column="4" Margin="10,0,0,0"
+                                <ComboBox Grid.Column="1" Margin="10,0,0,0"
                                           ItemsSource="{Binding BackendChoices}"
                                           SelectedItem="{Binding SelectedBackend, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                           IsEnabled="{Binding CanOperate}"

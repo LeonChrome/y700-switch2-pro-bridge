@@ -31,10 +31,11 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private ViiperBridgeSession? session;
     private string host = "127.0.0.1";
     private string port = "3242";
-    private string status = "V6.2.6 VIIPER Windows-only 新和联胜 Gyro 丝滑版已就绪。如未安装 usbip-win2，请先点击安装/修复。";
+    private string status = "V6.2.7 VIIPER Windows-only 新和联胜 Gyro 方向档位版已就绪。如未安装 usbip-win2，请先点击安装/修复。";
     private string inputStatus = "真实 Pro2 BLE 输入未连接。";
     private string selectedPushRateLabel = ViiperPushRateOption.Default.Label;
     private string selectedGyroModeLabel = ViiperGyroModeOption.Default.Label;
+    private string selectedGyroDirectionLabel = GyroDirectionOption.Default.Label;
     private string selectedBackendLabel = VirtualBackendOption.Default.Label;
     private string selectedStickProcessingLabel = StickProcessingOption.Default.Label;
     private bool running;
@@ -73,6 +74,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
             ViiperPushRateOption.FromLabel(userSettings.PushRateLabel).Label;
         selectedGyroModeLabel =
             ViiperGyroModeOption.FromLabel(userSettings.GyroModeLabel).Label;
+        selectedGyroDirectionLabel =
+            GyroDirectionOption.FromLabel(userSettings.GyroDirectionLabel).Label;
         selectedBackendLabel =
             VirtualBackendOption.FromLabel(userSettings.BackendLabel).Label;
         selectedStickProcessingLabel =
@@ -85,11 +88,12 @@ public sealed class MainViewModel : INotifyPropertyChanged
         {
             AppendLog(StartupProcessGuard.LastSummary);
         }
-        AppendLog("V6.2.6 说明：默认 Raw Direct 摇杆直通；IMU 使用静置零偏校准、PS5/NS2Pro 坐标映射，并以 hold_latest 零阶保持方式推送 gyro/accel。");
+        AppendLog("V6.2.7 说明：默认 Raw Direct 摇杆直通；IMU 使用静置零偏校准、PS5/NS2Pro 坐标映射、hold_latest 零阶保持，并新增 gyro 左右方向档位。");
         AppendLog("[RUNTIME] " + RuntimeReadinessText);
         AppendLog("[RUMBLE_GAIN] multiplier=" + rumbleMultiplier.ToString("F1"));
         AppendLog("[LINK_TUNING] push_hz=" + SelectedPushRateOption.Hz.ToString("F1") +
                   " gyro_mode=" + SelectedGyroModeOption.Label +
+                  " gyro_dir=" + SelectedGyroDirectionOption.Label +
                   " stick=" + SelectedStickProcessingOption.Label +
                   " backend=" + SelectedBackendOption.Label);
     }
@@ -218,6 +222,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public IReadOnlyList<string> GyroModeChoices =>
         ViiperGyroModeOption.All.Select(o => o.Label).ToArray();
 
+    public IReadOnlyList<string> GyroDirectionChoices =>
+        GyroDirectionOption.All.Select(o => o.Label).ToArray();
+
     public IReadOnlyList<string> BackendChoices =>
         VirtualBackendOption.All.Select(o => o.Label).ToArray();
 
@@ -261,6 +268,27 @@ public sealed class MainViewModel : INotifyPropertyChanged
             userSettings.GyroModeLabel = normalized;
             SaveUserSettings("[LINK_TUNING]");
             AppendLog("[LINK_TUNING] gyro_mode=" + SelectedGyroModeOption.Label +
+                      (Running ? " apply=next_session" : " apply=next_start"));
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(LinkTuningSummary));
+        }
+    }
+
+    public string SelectedGyroDirection
+    {
+        get => selectedGyroDirectionLabel;
+        set
+        {
+            string normalized = GyroDirectionOption.FromLabel(value).Label;
+            if (selectedGyroDirectionLabel == normalized)
+            {
+                return;
+            }
+
+            selectedGyroDirectionLabel = normalized;
+            userSettings.GyroDirectionLabel = normalized;
+            SaveUserSettings("[LINK_TUNING]");
+            AppendLog("[LINK_TUNING] gyro_dir=" + SelectedGyroDirectionOption.Label +
                       (Running ? " apply=next_session" : " apply=next_start"));
             OnPropertyChanged();
             OnPropertyChanged(nameof(LinkTuningSummary));
@@ -315,6 +343,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public string LinkTuningSummary =>
         "push=" + SelectedPushRateOption.Hz.ToString("F1") +
         "Hz · gyro=" + SelectedGyroModeOption.Label +
+        " · dir=" + SelectedGyroDirectionOption.Label +
         " · stick=" + SelectedStickProcessingOption.Label +
         " · backend=" + SelectedBackendOption.Label;
 
@@ -971,12 +1000,14 @@ public sealed class MainViewModel : INotifyPropertyChanged
             Status = "正在启动 " + profile.Label + " 虚拟手柄...";
             ViiperPushRateOption pushRate = SelectedPushRateOption;
             ViiperGyroModeOption gyro = SelectedGyroModeOption;
+            GyroDirectionOption gyroDirection = SelectedGyroDirectionOption;
             ViiperDeviceProfile runtimeProfile = profile with { SendInterval = pushRate.Interval };
             AppendLog("[START] mode=" + runtimeProfile.Label +
                       " type=" + runtimeProfile.DeviceType +
                       " push_hz=" + pushRate.Hz.ToString("F1") +
                       " interval_ms=" + pushRate.Interval.TotalMilliseconds.ToString("F1") +
                       " gyro_mode=" + gyro.Label +
+                      " gyro_dir=" + gyroDirection.Label +
                       " backend=" + SelectedBackendOption.Label +
                       " flush=immediate");
             ResolveExperimentalBackendSelection(runtimeProfile);
@@ -997,7 +1028,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
                 inputSource,
                 inputSource,
                 faultProgress,
-                gyro.Mode);
+                gyro.Mode,
+                gyroDirection.Mode);
             session = createdSession;
             await createdSession.StartAsync(cancellationToken);
             SetActiveMode(runtimeProfile.Mode);
@@ -1248,7 +1280,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "PRO2WirelessReceiverControlBoard",
             "embedded",
-            "v6.2.6",
+            "v6.2.7",
             "viiper",
             "haptic-v0.8.0");
         Directory.CreateDirectory(root);
@@ -1382,6 +1414,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
         ViiperPushRateOption.FromLabel(selectedPushRateLabel);
     private ViiperGyroModeOption SelectedGyroModeOption =>
         ViiperGyroModeOption.FromLabel(selectedGyroModeLabel);
+    private GyroDirectionOption SelectedGyroDirectionOption =>
+        GyroDirectionOption.FromLabel(selectedGyroDirectionLabel);
     private VirtualBackendOption SelectedBackendOption =>
         VirtualBackendOption.FromLabel(selectedBackendLabel);
     private StickProcessingOption SelectedStickProcessingOption =>

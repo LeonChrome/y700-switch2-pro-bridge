@@ -161,6 +161,14 @@ Expect(BinaryPrimitives.ReadInt16LittleEndian(dsMotion.AsSpan(25, 2)) == -300, "
 Expect(BinaryPrimitives.ReadInt16LittleEndian(dsMotion.AsSpan(27, 2)) == 10, "DualSense accel X maps directly");
 Expect(BinaryPrimitives.ReadInt16LittleEndian(dsMotion.AsSpan(29, 2)) == 20, "DualSense accel Y takes source Z");
 Expect(BinaryPrimitives.ReadInt16LittleEndian(dsMotion.AsSpan(31, 2)) == -8192, "DualSense accel Z flips source Y");
+byte[] dsMotionInverted = VirtualPadPackets.FromGamepad(
+    ViiperDeviceProfile.DualSenseLike,
+    motionState,
+    GyroDirectionMode.InvertHorizontal);
+Expect(BinaryPrimitives.ReadInt16LittleEndian(dsMotionInverted.AsSpan(21, 2)) == 100, "DualSense inverted keeps gyro X");
+Expect(BinaryPrimitives.ReadInt16LittleEndian(dsMotionInverted.AsSpan(23, 2)) == 200, "DualSense inverted flips only horizontal gyro Y");
+Expect(BinaryPrimitives.ReadInt16LittleEndian(dsMotionInverted.AsSpan(25, 2)) == -300, "DualSense inverted keeps gyro Z");
+Expect(BinaryPrimitives.ReadInt16LittleEndian(dsMotionInverted.AsSpan(31, 2)) == -8192, "DualSense inverted leaves accel mapping unchanged");
 byte[] nsMotion = VirtualPadPackets.FromGamepad(ViiperDeviceProfile.Pro2, motionState);
 Expect(BinaryPrimitives.ReadInt16LittleEndian(nsMotion.AsSpan(12, 2)) == 10, "NS2Pro accel X maps directly");
 Expect(BinaryPrimitives.ReadInt16LittleEndian(nsMotion.AsSpan(14, 2)) == -8192, "NS2Pro accel Y flips source Y");
@@ -168,6 +176,15 @@ Expect(BinaryPrimitives.ReadInt16LittleEndian(nsMotion.AsSpan(16, 2)) == 20, "NS
 Expect(BinaryPrimitives.ReadInt16LittleEndian(nsMotion.AsSpan(18, 2)) == 100, "NS2Pro gyro X maps directly");
 Expect(BinaryPrimitives.ReadInt16LittleEndian(nsMotion.AsSpan(20, 2)) == -200, "NS2Pro gyro Y flips source Y");
 Expect(BinaryPrimitives.ReadInt16LittleEndian(nsMotion.AsSpan(22, 2)) == -300, "NS2Pro gyro Z maps directly");
+byte[] nsMotionInverted = VirtualPadPackets.FromGamepad(
+    ViiperDeviceProfile.Pro2,
+    motionState,
+    GyroDirectionMode.InvertHorizontal);
+Expect(BinaryPrimitives.ReadInt16LittleEndian(nsMotionInverted.AsSpan(18, 2)) == 100, "NS2Pro inverted keeps gyro X");
+Expect(BinaryPrimitives.ReadInt16LittleEndian(nsMotionInverted.AsSpan(20, 2)) == 200, "NS2Pro inverted flips only horizontal gyro Y");
+Expect(BinaryPrimitives.ReadInt16LittleEndian(nsMotionInverted.AsSpan(22, 2)) == -300, "NS2Pro inverted keeps gyro Z");
+Expect(BinaryPrimitives.ReadInt16LittleEndian(nsMotionInverted.AsSpan(14, 2)) == -8192, "NS2Pro inverted leaves accel mapping unchanged");
+Expect(GyroDirectionOption.Default.Mode == GyroDirectionMode.Reference, "gyro direction defaults to reference mapping");
 
 var parser = new Pro2HidReportParser();
 byte[] report = new byte[49];

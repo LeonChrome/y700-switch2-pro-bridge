@@ -19,6 +19,12 @@ public enum ViiperGyroMode
     Filtered250Hz
 }
 
+public enum GyroDirectionMode
+{
+    Reference,
+    InvertHorizontal
+}
+
 public enum VirtualBackendMode
 {
     ViiperServer,
@@ -92,6 +98,31 @@ public sealed record ViiperGyroModeOption(
             return All.First(o => o.Mode == ViiperGyroMode.Hold250Hz);
         }
 
+        return All.FirstOrDefault(o => string.Equals(o.Label, label, StringComparison.Ordinal)) ?? Default;
+    }
+}
+
+public sealed record GyroDirectionOption(
+    GyroDirectionMode Mode,
+    string Label,
+    string Description)
+{
+    public static IReadOnlyList<GyroDirectionOption> All { get; } =
+    [
+        new(
+            GyroDirectionMode.Reference,
+            "标准方向（推荐）",
+            "参考 VIIPER / Tommy / JSL 的 report-space 映射；适合已确认方向正常的机器与多数游戏。"),
+        new(
+            GyroDirectionMode.InvertHorizontal,
+            "左右反向修正",
+            "仅当游戏内左右陀螺仪相反时使用；只翻水平 gyro/Yaw，不改变加速度和垂直轴。")
+    ];
+
+    public static GyroDirectionOption Default => All[0];
+
+    public static GyroDirectionOption FromLabel(string? label)
+    {
         return All.FirstOrDefault(o => string.Equals(o.Label, label, StringComparison.Ordinal)) ?? Default;
     }
 }
