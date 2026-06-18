@@ -32,7 +32,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private ViiperBridgeSession? session;
     private string host = "127.0.0.1";
     private string port = "3242";
-    private string status = "V6.2.13 VIIPER Windows-only 新和联胜 PS5 IMU 映射可选版已就绪。如未安装 usbip-win2，请先点击安装/修复。";
+    private string status = "V6.2.14 VIIPER Windows-only 新和联胜稳定诊断版已就绪。如未安装 usbip-win2，请先点击安装/修复。";
     private string inputStatus = "真实 Pro2 BLE 输入未连接。";
     private string selectedPushRateLabel = ViiperPushRateOption.Default.Label;
     private string selectedGyroModeLabel = ViiperGyroModeOption.Default.Label;
@@ -42,6 +42,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private bool invertGyroZ;
     private string selectedBackendLabel = VirtualBackendOption.Default.Label;
     private string selectedStickProcessingLabel = StickProcessingOption.Default.Label;
+    private bool audioEndpointGuardEnabled = true;
     private bool running;
     private bool busy;
     private bool shuttingDown;
@@ -60,6 +61,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         ScanPro2InputCommand = new RelayCommand(_ => RunExclusiveAsync("扫描 Pro2 BLE", ScanPro2InputAsync));
         ConnectPro2InputCommand = new RelayCommand(_ => RunExclusiveAsync("进入游戏", EnterGameAsync));
         DisconnectPro2InputCommand = new RelayCommand(_ => RunExclusiveAsync("断开 Pro2 BLE", DisconnectPro2InputAsync));
+        FixAudioDefaultsCommand = new RelayCommand(_ => RunExclusiveAsync("修复音频默认设备", FixAudioDefaultsAsync));
         StartDualSenseCommand = new RelayCommand(_ => RunExclusiveAsync(
             "切换 新和联胜 / PS5",
             token => SwitchModeAsync(ViiperDeviceProfile.DualSenseLike, token)));
@@ -87,6 +89,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             VirtualBackendOption.FromLabel(userSettings.BackendLabel).Label;
         selectedStickProcessingLabel =
             StickProcessingOption.FromLabel(userSettings.StickProcessingLabel).Label;
+        audioEndpointGuardEnabled = userSettings.AudioEndpointGuardEnabled;
         inputSource.SetRumbleGain(rumbleMultiplier);
         inputSource.SetStickProcessingMode(SelectedStickProcessingOption.Mode);
         RefreshRuntimeReadiness();
@@ -95,7 +98,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         {
             AppendLog(StartupProcessGuard.LastSummary);
         }
-        AppendLog("V6.2.13 说明：默认 Raw Direct 摇杆直通；PRO2 IMU 保持不变，PS5 IMU Map 可在前端选择，默认 SDL/Nintendo 基线。");
+        AppendLog("V6.2.14 说明：主界面布局锁定；PS5 模式保留 IMU Map 可选，并新增 DualSense 音频默认设备保护、BLE 适配器诊断、自动重连冷却退避。");
         AppendLog("[RUNTIME] " + RuntimeReadinessText);
         AppendLog("[RUMBLE_GAIN] multiplier=" + rumbleMultiplier.ToString("F1"));
         AppendLog("[LINK_TUNING] push_hz=" + SelectedPushRateOption.Hz.ToString("F1") +
@@ -103,6 +106,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
                   " ps5_imu_map=" + SelectedPs5ImuMappingOption.Mapping.TelemetryValue +
                   " gyro_axis_inv=" + SelectedGyroAxisInversion.TelemetryValue +
                   " stick=" + SelectedStickProcessingOption.Label +
+                  " audio_guard=" + audioEndpointGuardEnabled +
                   " backend=" + SelectedBackendOption.Label);
     }
 
@@ -369,6 +373,30 @@ public sealed class MainViewModel : INotifyPropertyChanged
         }
     }
 
+    public bool AudioEndpointGuardEnabled
+    {
+        get => audioEndpointGuardEnabled;
+        set
+        {
+            if (audioEndpointGuardEnabled == value)
+            {
+                return;
+            }
+
+            audioEndpointGuardEnabled = value;
+            userSettings.AudioEndpointGuardEnabled = value;
+            SaveUserSettings("[AUDIO_GUARD]");
+            AppendLog("[AUDIO_GUARD] enabled=" + value);
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(AudioEndpointGuardText));
+            OnPropertyChanged(nameof(LinkTuningSummary));
+        }
+    }
+
+    public string AudioEndpointGuardText => AudioEndpointGuardEnabled
+        ? "音频保护已开启：PS5 模式会自动阻止 DualSense 成为默认播放/通信/麦克风。"
+        : "音频保护已关闭：Windows 可能把 DualSense 设为默认音频或麦克风。";
+
     private void SetGyroAxisInversion(ref bool field, bool value, string propertyName)
     {
         if (field == value)
@@ -394,6 +422,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         " · PS5=" + SelectedPs5ImuMappingOption.Mapping.DisplayValue +
         " · axis=" + SelectedGyroAxisInversion.DisplayValue +
         " · stick=" + SelectedStickProcessingOption.Label +
+        " · audio_guard=" + (AudioEndpointGuardEnabled ? "on" : "off") +
         " · backend=" + SelectedBackendOption.Label;
 
     public string Ps5ImuMappingSummary =>
@@ -448,6 +477,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public ICommand ScanPro2InputCommand { get; }
     public ICommand ConnectPro2InputCommand { get; }
     public ICommand DisconnectPro2InputCommand { get; }
+    public ICommand FixAudioDefaultsCommand { get; }
     public ICommand StartDualSenseCommand { get; }
     public ICommand StartPro2Command { get; }
     public ICommand StartXboxCommand { get; }
@@ -955,7 +985,11 @@ public sealed class MainViewModel : INotifyPropertyChanged
             var candidates = await inputSource.ScanAsync(progress, TimeSpan.FromSeconds(8), cancellationToken);
             if (candidates.Count == 0)
             {
-                InputStatus = "没有扫描到真实 Pro2 BLE。唤醒手柄并确保没有被 ESP32、Switch、手机或旧进程占用。";
+                string diagnostic = inputSource.LastScanDiagnostic;
+                InputStatus = string.IsNullOrWhiteSpace(diagnostic)
+                    ? "没有扫描到真实 Pro2 BLE。唤醒手柄并确保没有被 ESP32、Switch、手机或旧进程占用。"
+                    : "没有扫描到真实 Pro2 BLE：" + diagnostic;
+                Status = InputStatus;
                 AppendLog("[PRO2_BLE] scan none");
                 return;
             }
@@ -1132,6 +1166,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private async Task AutoReconnectLoopAsync(CancellationToken cancellationToken)
     {
         int attempt = 0;
+        int failedAttemptStreak = 0;
         bool previouslyLive = false;
         try
         {
@@ -1142,6 +1177,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
                             age <= TimeSpan.FromMilliseconds(LostInputTimeoutMilliseconds);
                 if (live)
                 {
+                    failedAttemptStreak = 0;
                     if (!previouslyLive)
                     {
                         previouslyLive = true;
@@ -1192,20 +1228,40 @@ public sealed class MainViewModel : INotifyPropertyChanged
                 }
                 catch (Exception ex)
                 {
+                    failedAttemptStreak++;
+                    TimeSpan retryDelay = Pro2ReconnectDelayForAttempt(failedAttemptStreak);
                     AppendLog("[PRO2_AUTO] attempt=" + attempt + " failed: " + ex);
-                    InputStatus = "本轮连接异常：" + FirstLine(ex.Message) + "。3 秒后自动继续。";
-                    Status = "Pro2 自动重连仍在运行，瞬时 BLE/GATT 错误不会停止守护。";
-                    await Task.Delay(3000, cancellationToken);
+                    InputStatus = "本轮连接异常：" + FirstLine(ex.Message) + "。" +
+                                  retryDelay.TotalSeconds.ToString("F1") +
+                                  " 秒后自动继续，连续失败会退避以避免手柄进入冷却。";
+                    Status = "Pro2 自动重连仍在运行；失败退避中，不会反复猛连手柄。";
+                    AppendLog("[PRO2_AUTO] attempt=" + attempt +
+                              " retry_delay_ms=" + retryDelay.TotalMilliseconds.ToString("F0") +
+                              " failed_streak=" + failedAttemptStreak +
+                              " reason=connect_exception cooldown_guard=1.");
+                    await Task.Delay(retryDelay, cancellationToken);
                     continue;
                 }
                 RaiseConnectionStateChanged();
 
                 if (!inputSource.IsRunning)
                 {
-                    InputStatus = "本轮未连接到 Pro2，2.5 秒后自动继续扫描。可在手动控制区停止自动重连。";
-                    Status = "自动重连持续运行中。本轮没有找到可用 Pro2，将自动开始下一轮。";
-                    AppendLog("[PRO2_AUTO] attempt=" + attempt + " no_live; retry_delay_ms=2500.");
-                    await Task.Delay(2500, cancellationToken);
+                    failedAttemptStreak++;
+                    TimeSpan retryDelay = Pro2ReconnectDelayForAttempt(failedAttemptStreak);
+                    string diagnostic = inputSource.LastScanDiagnostic;
+                    InputStatus = string.IsNullOrWhiteSpace(diagnostic)
+                        ? "本轮未连接到 Pro2，" + retryDelay.TotalSeconds.ToString("F1") +
+                          " 秒后自动继续扫描。可在手动控制区停止自动重连。"
+                        : "本轮未连接到 Pro2：" + diagnostic + " " +
+                          retryDelay.TotalSeconds.ToString("F1") + " 秒后自动继续扫描。";
+                    Status = failedAttemptStreak >= 4
+                        ? "自动重连持续运行中。已进入温和退避，避免连续连接触发手柄冷却。"
+                        : "自动重连持续运行中。本轮没有找到可用 Pro2，将自动开始下一轮。";
+                    AppendLog("[PRO2_AUTO] attempt=" + attempt +
+                              " no_live; retry_delay_ms=" + retryDelay.TotalMilliseconds.ToString("F0") +
+                              " failed_streak=" + failedAttemptStreak +
+                              " cooldown_guard=1.");
+                    await Task.Delay(retryDelay, cancellationToken);
                 }
             }
         }
@@ -1227,6 +1283,24 @@ public sealed class MainViewModel : INotifyPropertyChanged
             }
             RaiseConnectionStateChanged();
         }
+    }
+
+    private static TimeSpan Pro2ReconnectDelayForAttempt(int failedAttemptStreak)
+    {
+        if (failedAttemptStreak <= 3)
+        {
+            return TimeSpan.FromMilliseconds(2500);
+        }
+        if (failedAttemptStreak <= 6)
+        {
+            return TimeSpan.FromSeconds(5);
+        }
+        if (failedAttemptStreak <= 10)
+        {
+            return TimeSpan.FromSeconds(10);
+        }
+
+        return TimeSpan.FromSeconds(30);
     }
 
     private async Task StopAutoReconnectAsync()
@@ -1281,6 +1355,10 @@ public sealed class MainViewModel : INotifyPropertyChanged
                       " gyro_axis_inv=" + gyroAxisInversion.TelemetryValue +
                       " backend=" + SelectedBackendOption.Label +
                       " flush=immediate");
+            if (runtimeProfile.Mode == ViiperVirtualMode.DualSenseLike)
+            {
+                AppendDualSenseAudioEndpointHint();
+            }
             ResolveExperimentalBackendSelection(runtimeProfile);
             var progress = new Progress<string>(AppendLog);
             ViiperBridgeSession? createdSession = null;
@@ -1305,6 +1383,11 @@ public sealed class MainViewModel : INotifyPropertyChanged
             session = createdSession;
             await createdSession.StartAsync(cancellationToken);
             SetActiveMode(runtimeProfile.Mode);
+            if (runtimeProfile.Mode == ViiperVirtualMode.DualSenseLike &&
+                AudioEndpointGuardEnabled)
+            {
+                await ApplyDualSenseAudioGuardAsync(cancellationToken);
+            }
             Status = runtimeProfile.Label + " 虚拟设备已连接。当前输入源：" +
                 (inputLive
                     ? "Pro2 BLE live，rumble 写回已启用"
@@ -1343,6 +1426,47 @@ public sealed class MainViewModel : INotifyPropertyChanged
                   " mode=" + backend.Mode +
                   " profile=" + profile.DeviceType +
                   " active=viiper_server fallback_reason=\"" + reason + "\"");
+    }
+
+    private void AppendDualSenseAudioEndpointHint()
+    {
+        AppendLog("[AUDIO_HINT] PS5 mode exposes a DualSense audio/haptic endpoint for HD vibration. " +
+                  "Do not set \"DualSense Wireless Controller\" as the Windows default speaker/headset. " +
+                  "If desktop/game audio stutters or disappears, set the default playback device back to the real speakers/headset; " +
+                  "the DualSense endpoint should be used by games only for controller haptic audio. The app will now guard defaults automatically.");
+    }
+
+    private async Task ApplyDualSenseAudioGuardAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            await Task.Delay(900, cancellationToken);
+            RunAudioEndpointGuard();
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            AppendLog("[AUDIO_GUARD] warning: " + ex.GetType().Name + ": " + ex.Message);
+        }
+    }
+
+    private Task FixAudioDefaultsAsync(CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        RunAudioEndpointGuard();
+        Status = "已检查 Windows 默认播放/通信/麦克风，DualSense 不会作为默认音频设备。";
+        return Task.CompletedTask;
+    }
+
+    private void RunAudioEndpointGuard()
+    {
+        foreach (string line in AudioEndpointGuard.EnsureDualSenseIsNotDefault())
+        {
+            AppendLog(line);
+        }
     }
 
     private static string? FindLibViiperCandidate()
@@ -1552,7 +1676,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "PRO2WirelessReceiverControlBoard",
             "embedded",
-            "v6.2.13",
+            "v6.2.14",
             "viiper",
             "haptic-v0.8.0");
         Directory.CreateDirectory(root);

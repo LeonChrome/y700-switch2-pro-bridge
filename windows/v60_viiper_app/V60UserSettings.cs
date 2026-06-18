@@ -18,6 +18,7 @@ public sealed class V60UserSettings
     public bool InvertGyroZ { get; set; }
     public string BackendLabel { get; set; } = VirtualBackendOption.Default.Label;
     public string StickProcessingLabel { get; set; } = StickProcessingOption.Default.Label;
+    public bool AudioEndpointGuardEnabled { get; set; } = true;
 
     public static V60UserSettings Load()
     {

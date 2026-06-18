@@ -9,6 +9,7 @@ using System.Threading.Tasks;
 using Windows.Devices.Bluetooth;
 using Windows.Devices.Bluetooth.Advertisement;
 using Windows.Devices.Bluetooth.GenericAttributeProfile;
+using Windows.Devices.Radios;
 using Windows.Storage.Streams;
 
 namespace Y700Switch2V60Viiper;
@@ -103,6 +104,7 @@ public sealed class Pro2BleInputSource :
     private double rumbleGain = 1.0;
     private StickProcessingMode stickProcessingMode = StickProcessingOption.Default.Mode;
     private string status = "未连接真实 Pro2 BLE。";
+    private string lastScanDiagnostic = "";
     private string connectedLabel = "";
     private string lastNotifySummary = "";
     private string connectionPreferenceStatus = "not_requested";
@@ -147,6 +149,12 @@ public sealed class Pro2BleInputSource :
     {
         get { lock (gate) return status; }
         private set { lock (gate) status = value; }
+    }
+
+    public string LastScanDiagnostic
+    {
+        get { lock (gate) return lastScanDiagnostic; }
+        private set { lock (gate) lastScanDiagnostic = value; }
     }
 
     public string MetricsSummary
@@ -737,19 +745,86 @@ public sealed class Pro2BleInputSource :
         TimeSpan duration,
         CancellationToken cancellationToken)
     {
+        await ReportBluetoothAdapterDiagnosticsAsync(progress);
+        List<BleCandidate> active = await ScanCandidatesCoreAsync(
+            progress,
+            duration,
+            BluetoothLEScanningMode.Active,
+            "active",
+            cancellationToken);
+        if (active.Count > 0 || cancellationToken.IsCancellationRequested)
+        {
+            return active;
+        }
+
+        progress.Report("[PRO2_BLE] active scan found no Pro2 candidate; retrying passive scan for USB Bluetooth adapter compatibility.");
+        TimeSpan passiveDuration = TimeSpan.FromSeconds(Math.Min(5.0, Math.Max(3.0, duration.TotalSeconds * 0.65)));
+        return await ScanCandidatesCoreAsync(
+            progress,
+            passiveDuration,
+            BluetoothLEScanningMode.Passive,
+            "passive",
+            cancellationToken);
+    }
+
+    private async Task<List<BleCandidate>> ScanCandidatesCoreAsync(
+        IProgress<string> progress,
+        TimeSpan duration,
+        BluetoothLEScanningMode scanningMode,
+        string scanLabel,
+        CancellationToken cancellationToken)
+    {
         Dictionary<ulong, BleCandidate> found = new();
+        HashSet<ulong> seenAdvertisements = [];
+        List<string> rejectedSamples = [];
+        int rawAdvertisementCount = 0;
+        int emptyNameAdvertisementCount = 0;
+        int nintendoAdvertisementCount = 0;
+        int nameMatchAdvertisementCount = 0;
+        int rejectedAdvertisementCount = 0;
         TaskCompletionSource scanDone = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        BluetoothError stopError = BluetoothError.Success;
         BluetoothLEAdvertisementWatcher localWatcher = new()
         {
-            ScanningMode = BluetoothLEScanningMode.Active
+            ScanningMode = scanningMode
         };
         watcher = localWatcher;
+        LastScanDiagnostic = scanLabel + " scan started.";
 
         localWatcher.Received += (_, args) =>
         {
+            string name = args.Advertisement.LocalName ?? "";
+            bool nintendo = args.Advertisement.ManufacturerData.Any(m => m.CompanyId == NintendoCompanyId);
+            bool nameMatch = NameLooksLikeSwitchController(name);
+            lock (found)
+            {
+                rawAdvertisementCount++;
+                seenAdvertisements.Add(args.BluetoothAddress);
+                if (string.IsNullOrWhiteSpace(name))
+                {
+                    emptyNameAdvertisementCount++;
+                }
+                if (nintendo)
+                {
+                    nintendoAdvertisementCount++;
+                }
+                if (nameMatch)
+                {
+                    nameMatchAdvertisementCount++;
+                }
+            }
+
             BleCandidate? candidate = CandidateFromAdvertisement(args);
             if (candidate == null)
             {
+                lock (found)
+                {
+                    rejectedAdvertisementCount++;
+                    if (rejectedSamples.Count < 6 && !string.IsNullOrWhiteSpace(name))
+                    {
+                        rejectedSamples.Add(DescribeRejectedAdvertisement(args, nintendo, nameMatch));
+                    }
+                }
                 return;
             }
 
@@ -764,9 +839,27 @@ public sealed class Pro2BleInputSource :
                 }
             }
         };
-        localWatcher.Stopped += (_, _) => scanDone.TrySetResult();
+        localWatcher.Stopped += (_, args) =>
+        {
+            stopError = args.Error;
+            progress.Report("[PRO2_BLE] " + scanLabel + " watcher stopped status=" +
+                            localWatcher.Status + " error=" + args.Error);
+            scanDone.TrySetResult();
+        };
 
-        localWatcher.Start();
+        progress.Report("[PRO2_BLE] " + scanLabel + " scan start duration_ms=" +
+                        duration.TotalMilliseconds.ToString("F0"));
+        try
+        {
+            localWatcher.Start();
+        }
+        catch (Exception ex)
+        {
+            progress.Report("[PRO2_BLE] " + scanLabel + " scan start failed: " + ex.GetType().Name + ": " + ex.Message);
+            watcher = null;
+            return [];
+        }
+        progress.Report("[PRO2_BLE] " + scanLabel + " watcher status=" + localWatcher.Status);
         try
         {
             await Task.WhenAny(Task.Delay(duration, cancellationToken), scanDone.Task);
@@ -784,11 +877,164 @@ public sealed class Pro2BleInputSource :
         await Task.Delay(150, CancellationToken.None);
         lock (found)
         {
-            return found.Values
+            List<BleCandidate> result = found.Values
                 .OrderByDescending(c => c.Score)
                 .ThenByDescending(c => c.Rssi)
                 .ToList();
+            progress.Report("[PRO2_BLE] " + scanLabel + " scan result count=" + result.Count +
+                            " stop_error=" + stopError);
+            progress.Report("[PRO2_BLE_DIAG] " + scanLabel +
+                            " raw_ads=" + rawAdvertisementCount +
+                            " unique_addr=" + seenAdvertisements.Count +
+                            " empty_name=" + emptyNameAdvertisementCount +
+                            " nintendo_mfg=" + nintendoAdvertisementCount +
+                            " name_match=" + nameMatchAdvertisementCount +
+                            " rejected=" + rejectedAdvertisementCount +
+                            " candidates=" + result.Count);
+            if (rawAdvertisementCount == 0)
+            {
+                LastScanDiagnostic = scanLabel +
+                                     " 扫描没有收到任何 BLE 广播。优先检查蓝牙接收器/驱动/蓝牙开关/Windows 蓝牙服务。";
+                progress.Report("[PRO2_BLE_DIAG] " + scanLabel +
+                                " saw zero BLE advertisements. If this repeats, suspect Bluetooth adapter/driver/radio or Windows privacy/service state before suspecting the Pro2 protocol.");
+            }
+            else if (result.Count == 0)
+            {
+                LastScanDiagnostic = scanLabel +
+                                     " 收到 " + rawAdvertisementCount +
+                                     " 个 BLE 广播，但没有匹配到 Pro2。优先确认手柄正在配对广播且未被其他主机占用。";
+                progress.Report("[PRO2_BLE_DIAG] " + scanLabel +
+                                " saw BLE traffic but no Pro2 candidate. Suspect the controller is not advertising, is captured by another host, or the identifying name/manufacturer differs from our filter.");
+                foreach (string sample in rejectedSamples)
+                {
+                    progress.Report("[PRO2_BLE_DIAG] rejected_sample " + sample);
+                }
+            }
+            else
+            {
+                LastScanDiagnostic = scanLabel +
+                                     " 扫描发现 " + result.Count + " 个 Pro2 候选。";
+            }
+            return result;
         }
+    }
+
+    private static async Task ReportBluetoothAdapterDiagnosticsAsync(IProgress<string> progress)
+    {
+        try
+        {
+            BluetoothAdapter? adapter = await BluetoothAdapter.GetDefaultAsync();
+            if (adapter == null)
+            {
+                progress.Report("[BLE_ADAPTER] default=none. Windows did not expose a BLE adapter. " +
+                                "A USB dongle must support Bluetooth LE Central and use a working Windows driver.");
+                await ReportBluetoothRadiosAsync(progress);
+                return;
+            }
+
+            progress.Report("[BLE_ADAPTER] default address=" + FormatAddress(adapter.BluetoothAddress) +
+                            " central=" + adapter.IsCentralRoleSupported +
+                            " peripheral=" + adapter.IsPeripheralRoleSupported +
+                            " low_energy=" + adapter.IsLowEnergySupported +
+                            " classic=" + adapter.IsClassicSupported +
+                            " device_id=\"" + SanitizeDeviceId(adapter.DeviceId) + "\"");
+
+            if (!adapter.IsCentralRoleSupported || !adapter.IsLowEnergySupported)
+            {
+                progress.Report("[BLE_ADAPTER] warning: this adapter does not report BLE Central support. " +
+                                "It may install successfully but still cannot scan/connect Pro2 BLE.");
+            }
+
+            try
+            {
+                Radio? radio = await adapter.GetRadioAsync();
+                if (radio == null)
+                {
+                    progress.Report("[BLE_RADIO] default adapter radio unavailable.");
+                }
+                else
+                {
+                    progress.Report("[BLE_RADIO] default name=\"" + radio.Name +
+                                    "\" state=" + radio.State +
+                                    " kind=" + radio.Kind);
+                    if (radio.State != RadioState.On)
+                    {
+                        progress.Report("[BLE_RADIO] warning: Bluetooth radio is not On. Turn on Bluetooth in Windows settings.");
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                progress.Report("[BLE_RADIO] default query failed: " + ex.GetType().Name + ": " + ex.Message);
+            }
+
+            await ReportBluetoothRadiosAsync(progress);
+        }
+        catch (Exception ex)
+        {
+            progress.Report("[BLE_ADAPTER] diagnostics failed: " + ex.GetType().Name + ": " + ex.Message);
+        }
+    }
+
+    private static async Task ReportBluetoothRadiosAsync(IProgress<string> progress)
+    {
+        try
+        {
+            IReadOnlyList<Radio> radios = await Radio.GetRadiosAsync();
+            IEnumerable<Radio> bluetoothRadios = radios.Where(r => r.Kind == RadioKind.Bluetooth);
+            int count = 0;
+            foreach (Radio radio in bluetoothRadios)
+            {
+                count++;
+                progress.Report("[BLE_RADIO] radio[" + count + "] name=\"" + radio.Name +
+                                "\" state=" + radio.State +
+                                " kind=" + radio.Kind);
+            }
+
+            if (count == 0)
+            {
+                progress.Report("[BLE_RADIO] no Bluetooth radio listed by Windows.");
+            }
+        }
+        catch (Exception ex)
+        {
+            progress.Report("[BLE_RADIO] list failed: " + ex.GetType().Name + ": " + ex.Message);
+        }
+    }
+
+    private static string SanitizeDeviceId(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return "";
+        }
+
+        return value.Replace("\r", " ").Replace("\n", " ");
+    }
+
+    private static string DescribeRejectedAdvertisement(
+        BluetoothLEAdvertisementReceivedEventArgs args,
+        bool nintendo,
+        bool nameMatch)
+    {
+        string name = args.Advertisement.LocalName ?? "";
+        string companyIds = string.Join(
+            ",",
+            args.Advertisement.ManufacturerData
+                .Take(4)
+                .Select(m => "0x" + m.CompanyId.ToString("x4")));
+        if (string.IsNullOrWhiteSpace(companyIds))
+        {
+            companyIds = "none";
+        }
+
+        return "addr=" + FormatAddress(args.BluetoothAddress) +
+               " type=" + args.BluetoothAddressType +
+               " rssi=" + args.RawSignalStrengthInDBm +
+               " name=\"" + SanitizeDeviceId(name) + "\"" +
+               " nintendo_mfg=" + nintendo +
+               " name_match=" + nameMatch +
+               " mfg=" + companyIds;
     }
 
     private static BleCandidate? CandidateFromAdvertisement(BluetoothLEAdvertisementReceivedEventArgs args)
