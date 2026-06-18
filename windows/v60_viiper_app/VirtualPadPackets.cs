@@ -261,8 +261,8 @@ public static class VirtualPadPackets
         // DualSense and Nintendo/Pro2 reports use different IMU coordinate conventions.
         // Convert Pro2 raw gyro into the DualSense raw axis order expected by PS5-aware hosts.
         return ApplyGyroAxisInversion(new MotionVector(
-            NegateI16(state.GyroY),
-            state.GyroZ,
+            state.GyroY,
+            NegateI16(state.GyroZ),
             NegateI16(state.GyroX)), gyroAxisInversion);
     }
 
