@@ -1,5 +1,7 @@
 # Local build output
 build/
+artifacts/
+**/artifacts/
 work/
 logs/
 bin/
@@ -42,3 +44,9 @@ tools/steam_input_probe_runtime/steam_api64.dll
 !release/v5.9/
 !release/v5.9/**
 release/v5.9/DualSenseHostTrace-v*/
+
+# Release binaries are published through GitHub Releases; keep source-side
+# release notes and checksums in git, but keep local EXE/publish output out of
+# the working tree status.
+release/**/publish*/
+release/**/*.exe
