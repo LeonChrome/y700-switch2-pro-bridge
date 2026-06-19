@@ -34,11 +34,25 @@ typedef struct {
     uint32_t stale_recovery_count;
     uint32_t notify_rx_count;
     uint32_t notify_parsed_count;
+    uint32_t notify_actual_millihz;
+    uint32_t notify_last_gap_us;
+    uint32_t notify_max_gap_us;
+    uint32_t notify_parsed_actual_millihz;
+    uint32_t notify_parsed_last_gap_us;
+    uint32_t notify_parsed_max_gap_us;
     int64_t last_connect_us;
     int64_t last_disconnect_us;
     int64_t last_stale_recovery_us;
     int64_t last_notify_us;
     int64_t last_parsed_notify_us;
+    int64_t notify_window_start_us;
+    int64_t notify_last_event_us;
+    uint32_t notify_window_count;
+    uint32_t notify_window_max_gap_us;
+    int64_t notify_parsed_window_start_us;
+    int64_t notify_parsed_last_event_us;
+    uint32_t notify_parsed_window_count;
+    uint32_t notify_parsed_window_max_gap_us;
 } ble_central_conn_metrics_t;
 
 void ble_central_init(void);

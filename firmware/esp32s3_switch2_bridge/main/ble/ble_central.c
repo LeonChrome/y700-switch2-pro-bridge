@@ -337,6 +337,55 @@ static void clear_conn_metrics(void)
     s_conn_metrics.supervision_timeout = 0;
     s_conn_metrics.last_update_start_rc = -1;
     s_conn_metrics.last_update_event_status = -1;
+    s_conn_metrics.notify_actual_millihz = 0;
+    s_conn_metrics.notify_last_gap_us = 0;
+    s_conn_metrics.notify_max_gap_us = 0;
+    s_conn_metrics.notify_parsed_actual_millihz = 0;
+    s_conn_metrics.notify_parsed_last_gap_us = 0;
+    s_conn_metrics.notify_parsed_max_gap_us = 0;
+    s_conn_metrics.notify_window_start_us = 0;
+    s_conn_metrics.notify_last_event_us = 0;
+    s_conn_metrics.notify_window_count = 0;
+    s_conn_metrics.notify_window_max_gap_us = 0;
+    s_conn_metrics.notify_parsed_window_start_us = 0;
+    s_conn_metrics.notify_parsed_last_event_us = 0;
+    s_conn_metrics.notify_parsed_window_count = 0;
+    s_conn_metrics.notify_parsed_window_max_gap_us = 0;
+}
+
+static void update_rate_window(uint32_t *actual_millihz,
+                               uint32_t *last_gap_us,
+                               uint32_t *max_gap_us,
+                               int64_t *window_start_us,
+                               int64_t *last_event_us,
+                               uint32_t *window_count,
+                               uint32_t *window_max_gap_us,
+                               int64_t now_us)
+{
+    if (*window_start_us == 0) {
+        *window_start_us = now_us;
+    }
+    if (*last_event_us > 0 && now_us > *last_event_us) {
+        uint32_t gap_us = (uint32_t)(now_us - *last_event_us);
+        *last_gap_us = gap_us;
+        if (gap_us > *window_max_gap_us) {
+            *window_max_gap_us = gap_us;
+        }
+    }
+
+    *last_event_us = now_us;
+    (*window_count)++;
+
+    int64_t elapsed_us = now_us - *window_start_us;
+    if (elapsed_us >= 1000000LL) {
+        *actual_millihz = (uint32_t)(((uint64_t)(*window_count) * 1000000000ULL +
+                                      (uint64_t)(elapsed_us / 2)) /
+                                     (uint64_t)elapsed_us);
+        *max_gap_us = *window_max_gap_us;
+        *window_count = 0;
+        *window_max_gap_us = 0;
+        *window_start_us = now_us;
+    }
 }
 
 static void update_conn_metrics_from_desc(uint16_t conn_handle, const char *reason)
@@ -1481,7 +1530,16 @@ static void start_gatt_discovery(uint16_t conn_handle)
 static void handle_notify_rx(const struct ble_gap_event *event)
 {
     s_conn_metrics.notify_rx_count++;
-    s_conn_metrics.last_notify_us = esp_timer_get_time();
+    int64_t now_us = esp_timer_get_time();
+    s_conn_metrics.last_notify_us = now_us;
+    update_rate_window(&s_conn_metrics.notify_actual_millihz,
+                       &s_conn_metrics.notify_last_gap_us,
+                       &s_conn_metrics.notify_max_gap_us,
+                       &s_conn_metrics.notify_window_start_us,
+                       &s_conn_metrics.notify_last_event_us,
+                       &s_conn_metrics.notify_window_count,
+                       &s_conn_metrics.notify_window_max_gap_us,
+                       now_us);
     uint16_t len = OS_MBUF_PKTLEN(event->notify_rx.om);
     uint16_t copy_len = len > BLE_NOTIFY_BUF_MAX ? BLE_NOTIFY_BUF_MAX : len;
     uint8_t data[BLE_NOTIFY_BUF_MAX];
@@ -1565,7 +1623,16 @@ static void handle_notify_rx(const struct ble_gap_event *event)
     if (err == ESP_OK) {
         switch2_state_store_live(&state);
         s_conn_metrics.notify_parsed_count++;
-        s_conn_metrics.last_parsed_notify_us = esp_timer_get_time();
+        now_us = esp_timer_get_time();
+        s_conn_metrics.last_parsed_notify_us = now_us;
+        update_rate_window(&s_conn_metrics.notify_parsed_actual_millihz,
+                           &s_conn_metrics.notify_parsed_last_gap_us,
+                           &s_conn_metrics.notify_parsed_max_gap_us,
+                           &s_conn_metrics.notify_parsed_window_start_us,
+                           &s_conn_metrics.notify_parsed_last_event_us,
+                           &s_conn_metrics.notify_parsed_window_count,
+                           &s_conn_metrics.notify_parsed_window_max_gap_us,
+                           now_us);
         uint32_t updates = 0;
         (void)switch2_state_get_live(NULL, &updates, NULL);
         if ((updates & 0x1ff) == 1) {

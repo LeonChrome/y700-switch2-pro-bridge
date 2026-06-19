@@ -3652,6 +3652,12 @@ public sealed class MainViewModel : INotifyPropertyChanged
         public long BleNotifyParsed { get; init; }
         public long BleNotifyAgeMs { get; init; }
         public long BleNotifyParsedAgeMs { get; init; }
+        public long BleNotifyActualMilliHz { get; init; }
+        public long BleNotifyLastGapUs { get; init; }
+        public long BleNotifyMaxGapUs { get; init; }
+        public long BleNotifyParsedActualMilliHz { get; init; }
+        public long BleNotifyParsedLastGapUs { get; init; }
+        public long BleNotifyParsedMaxGapUs { get; init; }
         public bool UsbMounted { get; init; }
         public bool UsbSuspended { get; init; }
         public bool UsbConfigurationReady { get; init; }
@@ -3747,6 +3753,12 @@ public sealed class MainViewModel : INotifyPropertyChanged
                 BleNotifyParsed = Counter(status, "ble_notify_parsed"),
                 BleNotifyAgeMs = ReadJsonCounter(status, "ble_notify_age_ms"),
                 BleNotifyParsedAgeMs = ReadJsonCounter(status, "ble_notify_parsed_age_ms"),
+                BleNotifyActualMilliHz = Counter(status, "ble_notify_actual_mhz"),
+                BleNotifyLastGapUs = Counter(status, "ble_notify_last_gap_us"),
+                BleNotifyMaxGapUs = Counter(status, "ble_notify_max_gap_us"),
+                BleNotifyParsedActualMilliHz = Counter(status, "ble_notify_parsed_actual_mhz"),
+                BleNotifyParsedLastGapUs = Counter(status, "ble_notify_parsed_last_gap_us"),
+                BleNotifyParsedMaxGapUs = Counter(status, "ble_notify_parsed_max_gap_us"),
                 UsbMounted = Bool(status, "usb_mounted"),
                 UsbSuspended = Bool(status, "usb_suspended"),
                 UsbConfigurationReady = Bool(status, "usb_configuration_ready"),
@@ -3868,6 +3880,10 @@ public sealed class MainViewModel : INotifyPropertyChanged
                    " notify_parsed=" + BleNotifyParsed +
                    " notify_age_ms=" + BleNotifyAgeMs +
                    " notify_parsed_age_ms=" + BleNotifyParsedAgeMs +
+                   " notify_rate_millihz=" + BleNotifyActualMilliHz +
+                   " notify_gap_us=" + BleNotifyLastGapUs + "/" + BleNotifyMaxGapUs +
+                   " parsed_notify_rate_millihz=" + BleNotifyParsedActualMilliHz +
+                   " parsed_notify_gap_us=" + BleNotifyParsedLastGapUs + "/" + BleNotifyParsedMaxGapUs +
                    " usb_mounted=" + UsbMounted.ToString().ToLowerInvariant() +
                    " usb_suspended=" + UsbSuspended.ToString().ToLowerInvariant() +
                    " usb_configuration_ready=" + UsbConfigurationReady.ToString().ToLowerInvariant() +

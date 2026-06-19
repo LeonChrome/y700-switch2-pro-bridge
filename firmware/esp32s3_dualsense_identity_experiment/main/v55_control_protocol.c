@@ -229,6 +229,10 @@ static void append_runtime_diagnostics(char *out,
              "\"ble_disconnect_age_ms\":%lld,\"ble_notify_rx\":%lu,"
              "\"ble_notify_parsed\":%lu,\"ble_notify_age_ms\":%lld,"
              "\"ble_notify_parsed_age_ms\":%lld,"
+             "\"ble_notify_actual_hz\":%lu,\"ble_notify_actual_mhz\":%lu,"
+             "\"ble_notify_last_gap_us\":%lu,\"ble_notify_max_gap_us\":%lu,"
+             "\"ble_notify_parsed_actual_hz\":%lu,\"ble_notify_parsed_actual_mhz\":%lu,"
+             "\"ble_notify_parsed_last_gap_us\":%lu,\"ble_notify_parsed_max_gap_us\":%lu,"
              "\"ble_stale_recoveries\":%lu,\"ble_stale_recovery_age_ms\":%lld",
              (long long)(now_us / 1000),
              (int)esp_reset_reason(),
@@ -302,6 +306,14 @@ static void append_runtime_diagnostics(char *out,
              (unsigned long)ble->notify_parsed_count,
              runtime_age_ms(now_us, ble->last_notify_us),
              runtime_age_ms(now_us, ble->last_parsed_notify_us),
+             (unsigned long)((ble->notify_actual_millihz + 500u) / 1000u),
+             (unsigned long)ble->notify_actual_millihz,
+             (unsigned long)ble->notify_last_gap_us,
+             (unsigned long)ble->notify_max_gap_us,
+             (unsigned long)((ble->notify_parsed_actual_millihz + 500u) / 1000u),
+             (unsigned long)ble->notify_parsed_actual_millihz,
+             (unsigned long)ble->notify_parsed_last_gap_us,
+             (unsigned long)ble->notify_parsed_max_gap_us,
              (unsigned long)ble->stale_recovery_count,
              runtime_age_ms(now_us, ble->last_stale_recovery_us));
 }
@@ -615,7 +627,7 @@ static void format_status_diag_extra(char *out, size_t out_len)
 static esp_err_t handle_haptic_command(const char *cmd, char *reply, int reply_len)
 {
     if (strcmp(cmd, "haptic status lite") == 0 || strcmp(cmd, "haptic lite") == 0) {
-        static char extra[4096];
+        static char extra[5120];
         format_status_lite_extra(extra, sizeof(extra));
         return json_ok(reply, reply_len, "haptic status lite", extra);
     }
@@ -798,7 +810,7 @@ esp_err_t v55_control_protocol_handle_line(const char *line, char *reply, int re
         return json_ok(reply, reply_len, "status", extra);
     }
     if (strcmp(cmd, "status lite") == 0 || strcmp(cmd, "param get lite") == 0) {
-        static char extra[4096];
+        static char extra[5120];
         format_status_lite_extra(extra, sizeof(extra));
         return json_ok(reply, reply_len, "status lite", extra);
     }

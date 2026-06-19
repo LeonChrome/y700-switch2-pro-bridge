@@ -61,7 +61,7 @@ static void control_task(void *arg)
     uint8_t rx[64];
     size_t line_len = 0;
     bool overflow = false;
-    static char reply[3072];
+    static char reply[6144];
 
     while (true) {
         int rx_len = read(STDIN_FILENO, rx, sizeof(rx));

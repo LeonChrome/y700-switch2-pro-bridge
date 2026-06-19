@@ -40,6 +40,11 @@ static void write_u32_le(uint8_t *dst, uint32_t value)
     dst[3] = (uint8_t)((value >> 24) & 0xff);
 }
 
+static int16_t negate_i16(int16_t value)
+{
+    return value == INT16_MIN ? INT16_MAX : (int16_t)-value;
+}
+
 static void apply_sequence_and_timing(
     uint8_t report[DUALSENSE_INPUT_PAYLOAD_SIZE])
 {
@@ -111,6 +116,8 @@ void dualsense_report_mapper_from_internal(
 
     int16_t accel[3] = {0, 0, 0};
     int16_t gyro[3] = {0, 0, 0};
+    int16_t ds5_accel[3] = {0, 0, 0};
+    int16_t ds5_gyro[3] = {0, 0, 0};
     if (state->accel_valid || state->gyro_valid) {
         accel[0] = state->accel_valid ? state->accel[0] : 0;
         accel[1] = state->accel_valid ? state->accel[1] : 0;
@@ -119,12 +126,19 @@ void dualsense_report_mapper_from_internal(
         gyro[1] = state->gyro_valid ? state->gyro[1] : 0;
         gyro[2] = state->gyro_valid ? state->gyro[2] : 0;
 
-        write_i16_le(report + 15, gyro[0]);
-        write_i16_le(report + 17, gyro[2]);
-        write_i16_le(report + 19, gyro[1]);
-        write_i16_le(report + 21, accel[0]);
-        write_i16_le(report + 23, accel[1]);
-        write_i16_le(report + 25, accel[2]);
+        ds5_gyro[0] = negate_i16(gyro[0]);
+        ds5_gyro[1] = gyro[2];
+        ds5_gyro[2] = negate_i16(gyro[1]);
+        ds5_accel[0] = negate_i16(accel[0]);
+        ds5_accel[1] = accel[2];
+        ds5_accel[2] = negate_i16(accel[1]);
+
+        write_i16_le(report + 15, ds5_gyro[0]);
+        write_i16_le(report + 17, ds5_gyro[1]);
+        write_i16_le(report + 19, ds5_gyro[2]);
+        write_i16_le(report + 21, ds5_accel[0]);
+        write_i16_le(report + 23, ds5_accel[1]);
+        write_i16_le(report + 25, ds5_accel[2]);
     }
 
     if (debug) {
@@ -142,8 +156,8 @@ void dualsense_report_mapper_from_internal(
         debug->hat = hat;
         debug->buttons = (uint16_t)report[7] | ((uint16_t)report[8] << 8);
         debug->motion_valid = state->accel_valid || state->gyro_valid;
-        memcpy(debug->gyro, gyro, sizeof(gyro));
-        memcpy(debug->accel, accel, sizeof(accel));
+        memcpy(debug->gyro, ds5_gyro, sizeof(ds5_gyro));
+        memcpy(debug->accel, ds5_accel, sizeof(ds5_accel));
     }
 }
 
