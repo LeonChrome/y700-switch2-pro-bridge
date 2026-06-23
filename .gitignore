@@ -1,0 +1,20 @@
+# Build outputs
+bin/
+obj/
+work/
+artifacts/
+logs/
+.vs/
+__pycache__/
+*.log
+*.tmp
+*.bak
+*.user
+*.suo
+*.pdb
+*.ilk
+
+# Local packages
+release/**/publish*/
+release/**/*.exe
+release/**/*.zip
