@@ -1,0 +1,28 @@
+# Build outputs
+bin/
+obj/
+build/
+work/
+artifacts/
+logs/
+.vs/
+.toolchain/
+__pycache__/
+*.log
+*.tmp
+*.bak
+*.user
+*.suo
+*.pdb
+*.ilk
+
+# ESP-IDF generated state
+firmware/**/build/
+firmware/**/managed_components/
+firmware/**/sdkconfig
+firmware/**/sdkconfig.old
+
+# Release binaries are published through GitHub Releases, not source branches.
+release/**/*.exe
+release/**/*.zip
+release/**/publish*/
