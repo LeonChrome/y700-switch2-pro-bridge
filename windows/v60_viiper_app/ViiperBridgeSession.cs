@@ -177,7 +177,7 @@ public sealed class ViiperBridgeSession : IAsyncDisposable
             " push_target_hz=" + pushTargetHz.ToString("F1") +
             " gyro_mode=" + GyroModeLabel(gyroMode) +
             " gyro_axis_inv=" + gyroAxisInversion.TelemetryValue;
-        if (profile.Mode == ViiperVirtualMode.DualSenseLike)
+        if (profile.IsPs5Family)
         {
             timerLine +=
                 " ps5_imu_map=" + ps5ImuMapping.TelemetryValue +
@@ -367,7 +367,7 @@ public sealed class ViiperBridgeSession : IAsyncDisposable
                         " last_viiper_error=\"" + SanitizeLogValue(lastViiperError) + "\"" +
                         " last_usbip_lifecycle_event=" + lastUsbipLifecycleEvent +
                         " gyro_axis_inv=" + gyroAxisInversion.TelemetryValue;
-                    if (profile.Mode == ViiperVirtualMode.DualSenseLike)
+                    if (profile.IsPs5Family)
                     {
                         rateSummary += " ps5_imu_map=" + ps5ImuMapping.TelemetryValue;
                     }

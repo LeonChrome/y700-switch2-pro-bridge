@@ -44,6 +44,39 @@ public sealed class ViiperProtocolClient
         return list;
     }
 
+    public async Task<IReadOnlyList<ViiperDevice>> BusDevicesAsync(
+        uint busId,
+        CancellationToken cancellationToken)
+    {
+        using JsonDocument doc = JsonDocument.Parse(
+            await RequestAsync("bus/" + busId + "/list", null, cancellationToken));
+        var list = new List<ViiperDevice>();
+        if (doc.RootElement.TryGetProperty("devices", out JsonElement devices))
+        {
+            foreach (JsonElement item in devices.EnumerateArray())
+            {
+                list.Add(new ViiperDevice(
+                    item.TryGetProperty("busId", out JsonElement itemBusId)
+                        ? itemBusId.GetUInt32()
+                        : busId,
+                    item.TryGetProperty("devId", out JsonElement devId)
+                        ? devId.GetString() ?? ""
+                        : "",
+                    item.TryGetProperty("vid", out JsonElement vid)
+                        ? vid.GetString() ?? ""
+                        : "",
+                    item.TryGetProperty("pid", out JsonElement pid)
+                        ? pid.GetString() ?? ""
+                        : "",
+                    item.TryGetProperty("type", out JsonElement type)
+                        ? type.GetString() ?? ""
+                        : ""));
+            }
+        }
+
+        return list;
+    }
+
     public async Task<uint> BusCreateAsync(CancellationToken cancellationToken)
     {
         using JsonDocument doc = JsonDocument.Parse(await RequestAsync("bus/create", "0", cancellationToken));

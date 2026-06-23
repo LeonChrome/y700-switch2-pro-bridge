@@ -8,13 +8,13 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>Y700Switch2V60Viiper</AssemblyName>
-    <AssemblyTitle>PRO2 手柄无线接收器控制板 V6.2.17-test VIIPER Windows 版</AssemblyTitle>
+    <AssemblyTitle>PRO2 手柄无线接收器控制板 V6.2.18 VIIPER Windows 版</AssemblyTitle>
     <Product>PRO2 手柄无线接收器控制板</Product>
-    <Description>V6.2.17-test Windows-only VIIPER route with PS5 output-layer IMU acceleration and gyro direction tuning.</Description>
-    <Version>6.2.17</Version>
-    <AssemblyVersion>6.2.17.0</AssemblyVersion>
-    <FileVersion>6.2.17.0</FileVersion>
-    <InformationalVersion>6.2.17-test-ps5-output-imu-tuning</InformationalVersion>
+    <Description>V6.2.18 Windows-only VIIPER route with PS5 output IMU tuning and independent DualSense Edge L4/R4 mode.</Description>
+    <Version>6.2.18</Version>
+    <AssemblyVersion>6.2.18.0</AssemblyVersion>
+    <FileVersion>6.2.18.0</FileVersion>
+    <InformationalVersion>6.2.18-dualsense-edge-release</InformationalVersion>
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <PublishSingleFile>true</PublishSingleFile>

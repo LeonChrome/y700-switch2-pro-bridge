@@ -12,6 +12,7 @@ public sealed class V60UserSettings
     public string PushRateLabel { get; set; } = ViiperPushRateOption.Default.Label;
     public string BackendLabel { get; set; } = VirtualBackendOption.Default.Label;
     public string StickProcessingLabel { get; set; } = StickProcessingOption.Default.Label;
+    public string SelectedModeKey { get; set; } = "dualsense";
     public bool AudioEndpointGuardEnabled { get; set; } = true;
     public double Ps5GyroScalePitch { get; set; } = 1.0;
     public double Ps5GyroScaleYaw { get; set; } = 1.0;
@@ -43,6 +44,8 @@ public sealed class V60UserSettings
                     VirtualBackendOption.FromLabel(loaded.BackendLabel).Label;
                 loaded.StickProcessingLabel =
                     StickProcessingOption.FromLabel(loaded.StickProcessingLabel).Label;
+                loaded.SelectedModeKey =
+                    NormalizeModeKey(loaded.SelectedModeKey);
                 loaded.Ps5GyroScalePitch =
                     NormalizePs5GyroScale(loaded.Ps5GyroScalePitch);
                 loaded.Ps5GyroScaleYaw =
@@ -68,6 +71,7 @@ public sealed class V60UserSettings
             PushRateLabel = ViiperPushRateOption.FromLabel(PushRateLabel).Label;
             BackendLabel = VirtualBackendOption.FromLabel(BackendLabel).Label;
             StickProcessingLabel = StickProcessingOption.FromLabel(StickProcessingLabel).Label;
+            SelectedModeKey = NormalizeModeKey(SelectedModeKey);
             Ps5GyroScalePitch = NormalizePs5GyroScale(Ps5GyroScalePitch);
             Ps5GyroScaleYaw = NormalizePs5GyroScale(Ps5GyroScaleYaw);
             Ps5GyroScaleRoll = NormalizePs5GyroScale(Ps5GyroScaleRoll);
@@ -97,6 +101,17 @@ public sealed class V60UserSettings
             return 1.0;
         }
         return Math.Round(Math.Clamp(value, 0.1, 4.0), 2);
+    }
+
+    public static string NormalizeModeKey(string? value)
+    {
+        return (value ?? "").Trim().ToLowerInvariant() switch
+        {
+            "dualsenseedge" or "dualsense_edge" or "edge" or "ps5edge" => "dualsenseedge",
+            "pro2" or "ns2pro" or "nintendo" => "pro2",
+            "xbox" or "xinput" or "xbox360" => "xbox",
+            _ => "dualsense"
+        };
     }
 
     private static string SettingsPath => Path.Combine(

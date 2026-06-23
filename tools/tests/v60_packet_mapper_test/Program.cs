@@ -123,9 +123,25 @@ Expect(unchecked((sbyte)ds[3]) == 127, "DualSense RY inverted min");
 uint dsButtons = BinaryPrimitives.ReadUInt32LittleEndian(ds.AsSpan(4, 4));
 Expect((dsButtons & 0x000000F0) == 0x000000F0, "DualSense face buttons");
 Expect((dsButtons & 0x0003FC00) == 0x0003FC00, "DualSense system/shoulder buttons");
+Expect((dsButtons & 0x00C00000) == 0, "ordinary DualSense does not expose Edge L4/R4 paddles");
 Expect(ds[8] == 0x09, "DualSense dpad bitfield");
 Expect(ds[9] == 255 && ds[10] == 255, "DualSense triggers");
 Expect(BinaryPrimitives.ReadInt16LittleEndian(ds.AsSpan(31, 2)) == 16384, "DualSense PS5 output accel Z fallback is sign/scaled");
+
+var edgeState = state.Clone();
+edgeState.Buttons |= GamepadButtons.PaddleLeft | GamepadButtons.PaddleRight;
+byte[] edge = VirtualPadPackets.FromGamepad(ViiperDeviceProfile.DualSenseEdge, edgeState);
+Expect(edge.Length == 33, "DualSense Edge wire size");
+Expect(
+    ViiperDeviceProfile.DualSenseEdge.DeviceType == "dualsenseedge" &&
+    ViiperDeviceProfile.DualSenseEdge.FeedbackSize == 6,
+    "DualSense Edge profile uses VIIPER dualsenseedge identity and 6-byte feedback");
+uint edgeButtons = BinaryPrimitives.ReadUInt32LittleEndian(edge.AsSpan(4, 4));
+Expect((edgeButtons & 0x00400000) != 0, "DualSense Edge maps Pro2 left paddle to L4");
+Expect((edgeButtons & 0x00800000) != 0, "DualSense Edge maps Pro2 right paddle to R4");
+byte[] ordinaryWithPaddles = VirtualPadPackets.FromGamepad(ViiperDeviceProfile.DualSenseLike, edgeState);
+uint ordinaryPaddleButtons = BinaryPrimitives.ReadUInt32LittleEndian(ordinaryWithPaddles.AsSpan(4, 4));
+Expect((ordinaryPaddleButtons & 0x00C00000) == 0, "ordinary DualSense still drops Edge paddle bits when source has paddles");
 
 byte[] ns = VirtualPadPackets.FromGamepad(ViiperDeviceProfile.Pro2, state);
 Expect(ns.Length == 24, "NS2Pro wire size");
@@ -161,6 +177,8 @@ Expect(BinaryPrimitives.ReadInt16LittleEndian(dsMotion.AsSpan(25, 2)) == 200, "D
 Expect(BinaryPrimitives.ReadInt16LittleEndian(dsMotion.AsSpan(27, 2)) == -20, "DualSense PS5 accel X is doubled without sign change");
 Expect(BinaryPrimitives.ReadInt16LittleEndian(dsMotion.AsSpan(29, 2)) == 40, "DualSense PS5 accel Y is doubled without sign change");
 Expect(BinaryPrimitives.ReadInt16LittleEndian(dsMotion.AsSpan(31, 2)) == 16384, "DualSense PS5 accel Z is doubled and sign-flipped");
+byte[] edgeMotion = VirtualPadPackets.FromGamepad(ViiperDeviceProfile.DualSenseEdge, motionState);
+Expect(edgeMotion.AsSpan(21, 12).SequenceEqual(dsMotion.AsSpan(21, 12)), "DualSense Edge shares the fixed PS5 output-layer IMU tuning");
 byte[] dsMotionScaled = VirtualPadPackets.FromGamepad(
     ViiperDeviceProfile.DualSenseLike,
     motionState,
@@ -335,6 +353,10 @@ Expect(ordinaryPacket.Report[0] == 0x02, "ordinary report id");
 Expect(ordinaryPacket.Report[1] == 0x50 && ordinaryPacket.Report[17] == 0x50, "ordinary motor block headers");
 Expect(ordinaryPacket.Active, "ordinary active rumble detected");
 Expect(ordinaryPacket.Report[2] != 0 || ordinaryPacket.Report[18] != 0, "ordinary rumble frame populated");
+
+byte[] edgeFeedback = [44, 180, 0, 0, 64, 1];
+Expect(Pro2OutputPacketMapper.TryMapFeedback(ViiperDeviceProfile.DualSenseEdge, edgeFeedback, out Pro2OutputPacket edgeRumble, out _), "map DualSense Edge ordinary feedback");
+Expect(edgeRumble.Source == "dualsense-edge-ordinary" && edgeRumble.Active, "DualSense Edge feedback uses ordinary rumble path");
 
 byte[] stopFeedback = [0, 0];
 Expect(Pro2OutputPacketMapper.TryMapFeedback(ViiperDeviceProfile.Xbox, stopFeedback, out Pro2OutputPacket stopPacket, out _), "map xinput stop feedback");

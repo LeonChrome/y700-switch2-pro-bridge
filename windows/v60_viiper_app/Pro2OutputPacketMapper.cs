@@ -45,6 +45,14 @@ public static class Pro2OutputPacketMapper
                 }
                 packet = BuildOrdinaryPacket(feedback[0], feedback[1], "dualsense-ordinary");
                 return true;
+            case ViiperVirtualMode.DualSenseEdge:
+                if (feedback.Length < 2)
+                {
+                    reason = "dualsense edge feedback too short";
+                    return false;
+                }
+                packet = BuildOrdinaryPacket(feedback[0], feedback[1], "dualsense-edge-ordinary");
+                return true;
             default:
                 reason = "unsupported profile";
                 return false;

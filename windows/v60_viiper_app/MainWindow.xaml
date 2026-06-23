@@ -2,7 +2,7 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:automation="clr-namespace:System.Windows.Automation;assembly=PresentationCore"
-        Title="PRO2 手柄无线接收器控制板 V6.2.17-test · 角色选择大厅"
+        Title="PRO2 手柄无线接收器控制板 V6.2.18 · 角色选择大厅"
         Width="1440"
         Height="940"
         MinWidth="1160"
@@ -434,7 +434,7 @@
                                         <DropShadowEffect Color="#5EF2A5" BlurRadius="12" ShadowDepth="0"/>
                                     </Ellipse.Effect>
                                 </Ellipse>
-                                <TextBlock FontWeight="Bold" Foreground="#C9FCE0" Text="V6.2.17-test LINK LAB"/>
+                                <TextBlock FontWeight="Bold" Foreground="#C9FCE0" Text="V6.2.18 EDGE RELEASE"/>
                             </StackPanel>
                         </Border>
                         <Button Margin="0,9,0,0" HorizontalAlignment="Right"
@@ -465,6 +465,7 @@
 
                 <Grid Grid.Row="2" Height="485">
                     <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
                         <ColumnDefinition Width="*"/>
                         <ColumnDefinition Width="*"/>
                         <ColumnDefinition Width="*"/>
@@ -733,6 +734,94 @@
                             </Grid>
                         </Border>
                     </Button>
+
+                    <Button Grid.Column="3"
+                            Style="{StaticResource HeroButton}"
+                            Command="{Binding StartDualSenseEdgeCommand}"
+                            IsEnabled="{Binding CanOperate}"
+                            automation:AutomationProperties.Name="启动 PS5 Edge / 背键"
+                            ToolTip="部署 PS5 Edge 模式，映射 Pro2 背键为 Edge L4/R4">
+                        <Border>
+                            <Border.Style>
+                                <Style TargetType="Border" BasedOn="{StaticResource HeroCard}">
+                                    <Setter Property="Background">
+                                        <Setter.Value>
+                                            <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
+                                                <GradientStop Color="#3F27103A" Offset="0"/>
+                                                <GradientStop Color="#C41B1036" Offset="0.58"/>
+                                                <GradientStop Color="#F2080918" Offset="1"/>
+                                            </LinearGradientBrush>
+                                        </Setter.Value>
+                                    </Setter>
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding IsDualSenseEdgeSelected}" Value="True">
+                                            <Setter Property="Opacity" Value="1"/>
+                                            <Setter Property="BorderBrush" Value="#C084FC"/>
+                                            <Setter Property="BorderThickness" Value="2"/>
+                                            <Setter Property="RenderTransform">
+                                                <Setter.Value>
+                                                    <ScaleTransform ScaleX="1" ScaleY="1"/>
+                                                </Setter.Value>
+                                            </Setter>
+                                            <Setter Property="Effect">
+                                                <Setter.Value>
+                                                    <DropShadowEffect Color="#A855F7" BlurRadius="34" ShadowDepth="0" Opacity="0.58"/>
+                                                </Setter.Value>
+                                            </Setter>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Border.Style>
+                            <Grid>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="*"/>
+                                    <RowDefinition Height="Auto"/>
+                                </Grid.RowDefinitions>
+                                <Ellipse Width="300" Height="300" VerticalAlignment="Center" Fill="#2CC084FC">
+                                    <Ellipse.Style>
+                                        <Style TargetType="Ellipse">
+                                            <Setter Property="Opacity" Value="0"/>
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding IsDualSenseEdgeSelected}" Value="True">
+                                                    <Setter Property="Opacity" Value="0.42"/>
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </Ellipse.Style>
+                                    <Ellipse.Effect>
+                                        <BlurEffect Radius="54"/>
+                                    </Ellipse.Effect>
+                                </Ellipse>
+                                <TextBlock Margin="20,16" HorizontalAlignment="Left" VerticalAlignment="Top"
+                                           FontSize="11" FontWeight="Bold" Foreground="#D8B4FE" Text="04 · EDGE PADDLES"/>
+                                <Border Margin="0,14,16,0" Padding="9,5" HorizontalAlignment="Right"
+                                        VerticalAlignment="Top" CornerRadius="10" Background="#D3A855F7">
+                                    <Border.Style>
+                                        <Style TargetType="Border">
+                                            <Setter Property="Opacity" Value="0"/>
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding IsDualSenseEdgeActive}" Value="True">
+                                                    <Setter Property="Opacity" Value="1"/>
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </Border.Style>
+                                    <TextBlock FontSize="10" FontWeight="Black" Text="LIVE"/>
+                                </Border>
+                                <Image Grid.Row="0" Margin="40,34,40,-8" Style="{StaticResource HeroImage}"
+                                       Source="/Assets/Characters/kratos.png"/>
+                                <Border Grid.Row="1" Background="#D90B0D16" Padding="20,15" CornerRadius="0,0,24,24">
+                                    <StackPanel>
+                                        <TextBlock FontSize="22" FontWeight="Black" Text="PS5 EDGE"/>
+                                        <TextBlock Margin="0,2,0,0" FontSize="12" FontWeight="Bold" Foreground="#C084FC"
+                                                   Text="DUALSENSE EDGE · L4/R4"/>
+                                        <TextBlock Margin="0,8,0,0" FontSize="11" Foreground="#AEB7CC"
+                                                   Text="背键直通 · 054C:0DF2 · 普通反馈"/>
+                                    </StackPanel>
+                                </Border>
+                            </Grid>
+                        </Border>
+                    </Button>
                 </Grid>
 
                 <Border Grid.Row="3" Margin="10,25,10,18" Padding="24,17" CornerRadius="22"
@@ -809,7 +898,7 @@
                                        MaxWidth="760"
                                        Foreground="#89A7CF"
                                        FontSize="11"
-                                       Text="V6.2.17-test：仅 PS5 输出层修正 IMU，Accel=X×2/Y×2/Z×-2，Gyro 三轴取反并乘上方倍率。"/>
+                                       Text="V6.2.18：PS5/Edge 共用输出层 IMU 修正；普通 PS5 保留 HD haptic，Edge 只启用 L4/R4 背键与普通反馈。"/>
                             <Grid Margin="0,8,0,0" MaxWidth="560">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="Auto"/>
@@ -960,8 +1049,29 @@
                                 </Grid.RowDefinitions>
                                 <DockPanel>
                                     <TextBlock DockPanel.Dock="Left" Style="{StaticResource SectionLabel}" Text="LIVE DIAGNOSTICS"/>
-                                    <Button DockPanel.Dock="Right" Style="{StaticResource ConsoleButton}"
-                                            MinWidth="70" Padding="8,4" Content="清空" Command="{Binding ClearLogCommand}"/>
+                                    <WrapPanel DockPanel.Dock="Right">
+                                        <Button Style="{StaticResource ConsoleButton}"
+                                                MinWidth="108" Padding="8,4"
+                                                Content="设备枚举"
+                                                Command="{Binding DumpControllerEnumerationCommand}"
+                                                IsEnabled="{Binding CanOperate}"
+                                                ToolTip="Dump VIIPER bus、usbip port 和 Windows PnP/HID 字段。"/>
+                                        <Button Style="{StaticResource ConsoleButton}"
+                                                MinWidth="128" Padding="8,4"
+                                                Content="清理残留虚拟"
+                                                Command="{Binding CleanupStaleVirtualDevicesCommand}"
+                                                IsEnabled="{Binding CanOperate}"
+                                                ToolTip="停止当前会话后，清理本地 VIIPER bus 与匹配目标 VID/PID 的 usbip port。"/>
+                                        <Button Style="{StaticResource ConsoleButton}"
+                                                MinWidth="96" Padding="8,4"
+                                                Content="导出诊断"
+                                                Command="{Binding ExportDiagnosticsLogCommand}"
+                                                IsEnabled="{Binding CanOperate}"/>
+                                        <Button Style="{StaticResource ConsoleButton}"
+                                                MinWidth="70" Padding="8,4"
+                                                Content="清空"
+                                                Command="{Binding ClearLogCommand}"/>
+                                    </WrapPanel>
                                 </DockPanel>
                                 <TextBox Grid.Row="1"
                                          Margin="0,9,0,0"

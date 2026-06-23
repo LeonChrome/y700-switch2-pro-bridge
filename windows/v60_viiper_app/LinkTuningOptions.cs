@@ -87,7 +87,7 @@ public sealed record Ps5ImuMappingOption(
             new Ps5ImuMapping(
                 N(ImuAxisSource.X), P(ImuAxisSource.Z), N(ImuAxisSource.Y),
                 N(ImuAxisSource.X), P(ImuAxisSource.Z), N(ImuAxisSource.Y)),
-            "V6.2.15 实测确认的 PS5 轴顺序基线；V6.2.17-test 在输出层追加 accel 倍率/方向和 gyro 方向修正。")
+            "V6.2.15 实测确认的 PS5 轴顺序基线；V6.2.18 在输出层固化 accel 倍率/方向和 gyro 方向修正。")
     ];
 
     public static Ps5ImuMappingOption Default => All[0];

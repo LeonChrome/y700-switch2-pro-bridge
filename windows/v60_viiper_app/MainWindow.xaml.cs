@@ -49,6 +49,7 @@ public partial class MainWindow : Window
     {
         trayMenu = new Forms.ContextMenuStrip();
         trayMenu.Items.Add("切换 新和联胜 / PS5", null, (_, _) => ExecuteTrayCommand(vm => vm.StartDualSenseCommand));
+        trayMenu.Items.Add("切换 PS5 Edge / 背键", null, (_, _) => ExecuteTrayCommand(vm => vm.StartDualSenseEdgeCommand));
         trayMenu.Items.Add("切换 Pro2 / Nintendo", null, (_, _) => ExecuteTrayCommand(vm => vm.StartPro2Command));
         trayMenu.Items.Add("切换 Xbox / XInput", null, (_, _) => ExecuteTrayCommand(vm => vm.StartXboxCommand));
         trayMenu.Items.Add(new Forms.ToolStripSeparator());
@@ -60,7 +61,7 @@ public partial class MainWindow : Window
         trayIcon = new Forms.NotifyIcon
         {
             Icon = SystemIcons.Application,
-            Text = "PRO2 控制板 V6.2.17-test 新和联胜",
+            Text = "PRO2 控制板 V6.2.18 新和联胜",
             ContextMenuStrip = trayMenu,
             Visible = true
         };

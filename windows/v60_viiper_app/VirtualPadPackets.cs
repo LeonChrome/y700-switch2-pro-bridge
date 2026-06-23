@@ -6,6 +6,7 @@ namespace Y700Switch2V60Viiper;
 public enum ViiperVirtualMode
 {
     DualSenseLike,
+    DualSenseEdge,
     Pro2,
     Xbox
 }
@@ -26,6 +27,14 @@ public sealed record ViiperDeviceProfile(
         DualSenseHapticFrame.WireSize,
         TimeSpan.FromMilliseconds(4));
 
+    public static ViiperDeviceProfile DualSenseEdge { get; } = new(
+        ViiperVirtualMode.DualSenseEdge,
+        "PS5 Edge / 背键",
+        "dualsenseedge",
+        33,
+        6,
+        TimeSpan.FromMilliseconds(4));
+
     public static ViiperDeviceProfile Pro2 { get; } = new(
         ViiperVirtualMode.Pro2,
         "Pro2 / Nintendo",
@@ -41,6 +50,9 @@ public sealed record ViiperDeviceProfile(
         20,
         2,
         TimeSpan.FromMilliseconds(4));
+
+    public bool IsPs5Family =>
+        Mode is ViiperVirtualMode.DualSenseLike or ViiperVirtualMode.DualSenseEdge;
 }
 
 public static class VirtualPadPackets
@@ -56,6 +68,7 @@ public static class VirtualPadPackets
         return profile.Mode switch
         {
             ViiperVirtualMode.DualSenseLike => DualSenseNeutral(),
+            ViiperVirtualMode.DualSenseEdge => DualSenseNeutral(),
             ViiperVirtualMode.Pro2 => Ns2ProNeutral(),
             ViiperVirtualMode.Xbox => new byte[20],
             _ => throw new ArgumentOutOfRangeException(nameof(profile))
@@ -76,7 +89,14 @@ public static class VirtualPadPackets
                 state,
                 gyroAxisInversion,
                 ps5ImuMapping ?? Ps5ImuMappingOption.Default.Mapping,
-                ps5OutputImuTuning ?? Ps5OutputImuTuning.Default),
+                ps5OutputImuTuning ?? Ps5OutputImuTuning.Default,
+                includeEdgePaddles: false),
+            ViiperVirtualMode.DualSenseEdge => DualSenseFromGamepad(
+                state,
+                gyroAxisInversion,
+                ps5ImuMapping ?? Ps5ImuMappingOption.Default.Mapping,
+                ps5OutputImuTuning ?? Ps5OutputImuTuning.Default,
+                includeEdgePaddles: true),
             ViiperVirtualMode.Pro2 => Ns2ProFromGamepad(state, gyroAxisInversion),
             ViiperVirtualMode.Xbox => XboxFromGamepad(state),
             _ => throw new ArgumentOutOfRangeException(nameof(profile))
@@ -90,6 +110,8 @@ public static class VirtualPadPackets
             ViiperVirtualMode.DualSenseLike when
                 DualSenseHapticFrame.TryParse(data, out DualSenseHapticFrame frame, out _) =>
                 $"DualSense haptic frame: kind={frame.Kind}, bytes={frame.Payload.Length}",
+            ViiperVirtualMode.DualSenseEdge when data.Length >= 6 =>
+                $"DualSense Edge output: small={data[0]}, large={data[1]}, led=({data[2]},{data[3]},{data[4]}), player={data[5]}",
             ViiperVirtualMode.Pro2 when data.Length >= 34 =>
                 $"NS2Pro output: flags=0x{data[32]:X2}, player_led=0x{data[33]:X2}, L={Hex(data.AsSpan(0, 6))}, R={Hex(data.AsSpan(16, 6))}",
             ViiperVirtualMode.Xbox when data.Length >= 2 =>
@@ -121,14 +143,15 @@ public static class VirtualPadPackets
         GamepadState state,
         GyroAxisInversion gyroAxisInversion,
         Ps5ImuMapping ps5ImuMapping,
-        Ps5OutputImuTuning ps5OutputImuTuning)
+        Ps5OutputImuTuning ps5OutputImuTuning,
+        bool includeEdgePaddles)
     {
         byte[] b = new byte[33];
         b[0] = unchecked((byte)Axis12ToI8(state.Lx, invert: false));
         b[1] = unchecked((byte)Axis12ToI8(state.Ly, invert: true));
         b[2] = unchecked((byte)Axis12ToI8(state.Rx, invert: false));
         b[3] = unchecked((byte)Axis12ToI8(state.Ry, invert: true));
-        WriteU32(b, 4, DualSenseButtons(state));
+        WriteU32(b, 4, DualSenseButtons(state, includeEdgePaddles));
         b[8] = DualSenseDpad(state);
         b[9] = Trigger12ToU8(state.L2, state.IsPressed(GamepadButtons.L2));
         b[10] = Trigger12ToU8(state.R2, state.IsPressed(GamepadButtons.R2));
@@ -185,7 +208,7 @@ public static class VirtualPadPackets
         return b;
     }
 
-    private static uint DualSenseButtons(GamepadState state)
+    private static uint DualSenseButtons(GamepadState state, bool includeEdgePaddles)
     {
         uint buttons = 0;
         if (state.IsPressed(GamepadButtons.West)) buttons |= 0x00000010;
@@ -202,8 +225,8 @@ public static class VirtualPadPackets
         if (state.IsPressed(GamepadButtons.RightStick)) buttons |= 0x00008000;
         if (state.IsPressed(GamepadButtons.Home)) buttons |= 0x00010000;
         if (state.IsPressed(GamepadButtons.Capture)) buttons |= 0x00020000;
-        if (state.IsPressed(GamepadButtons.PaddleLeft)) buttons |= 0x00400000;
-        if (state.IsPressed(GamepadButtons.PaddleRight)) buttons |= 0x00800000;
+        if (includeEdgePaddles && state.IsPressed(GamepadButtons.PaddleLeft)) buttons |= 0x00400000;
+        if (includeEdgePaddles && state.IsPressed(GamepadButtons.PaddleRight)) buttons |= 0x00800000;
         return buttons;
     }
 
@@ -345,7 +368,7 @@ public static class VirtualPadPackets
         MotionVector mappedGyro,
         Ps5OutputImuTuning tuning)
     {
-        // V6.2.17-test: real-page verification showed PS5 pitch/yaw/roll
+        // V6.2.18: real-page verification showed PS5 pitch/yaw/roll
         // directions are all inverted after the existing axis mapping.
         return new MotionVector(
             ScaleI16(mappedGyro.X, -tuning.GyroScalePitch),

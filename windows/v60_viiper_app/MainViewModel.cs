@@ -32,7 +32,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private ViiperBridgeSession? session;
     private string host = "127.0.0.1";
     private string port = "3242";
-    private string status = "V6.2.17-test VIIPER Windows-only 新和联胜版已就绪。PS5 IMU 输出层已加入加速度倍率/方向修正与可调陀螺仪倍率。";
+    private string status = "V6.2.18 VIIPER Windows-only 新和联胜版已就绪。PS5 IMU 输出层已固化，新增独立 PS5 Edge 背键模式。";
     private string inputStatus = "真实 Pro2 BLE 输入未连接。";
     private string selectedPushRateLabel = ViiperPushRateOption.Default.Label;
     private string selectedBackendLabel = VirtualBackendOption.Default.Label;
@@ -58,9 +58,15 @@ public sealed class MainViewModel : INotifyPropertyChanged
         ConnectPro2InputCommand = new RelayCommand(_ => RunExclusiveAsync("进入游戏", EnterGameAsync));
         DisconnectPro2InputCommand = new RelayCommand(_ => RunExclusiveAsync("断开 Pro2 BLE", DisconnectPro2InputAsync));
         FixAudioDefaultsCommand = new RelayCommand(_ => RunExclusiveAsync("修复音频默认设备", FixAudioDefaultsAsync));
+        DumpControllerEnumerationCommand = new RelayCommand(_ => RunExclusiveAsync("设备枚举诊断", DumpControllerEnumerationAsync));
+        CleanupStaleVirtualDevicesCommand = new RelayCommand(_ => RunExclusiveAsync("清理残留虚拟设备", CleanupStaleVirtualDevicesAsync));
+        ExportDiagnosticsLogCommand = new RelayCommand(_ => RunExclusiveAsync("导出诊断包", ExportDiagnosticsLogAsync));
         StartDualSenseCommand = new RelayCommand(_ => RunExclusiveAsync(
             "切换 新和联胜 / PS5",
             token => SwitchModeAsync(ViiperDeviceProfile.DualSenseLike, token)));
+        StartDualSenseEdgeCommand = new RelayCommand(_ => RunExclusiveAsync(
+            "切换 PS5 Edge / 背键",
+            token => SwitchModeAsync(ViiperDeviceProfile.DualSenseEdge, token)));
         StartPro2Command = new RelayCommand(_ => RunExclusiveAsync(
             "切换 Pro2 / Nintendo",
             token => SwitchModeAsync(ViiperDeviceProfile.Pro2, token)));
@@ -82,6 +88,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         selectedStickProcessingLabel =
             StickProcessingOption.FromLabel(userSettings.StickProcessingLabel).Label;
         audioEndpointGuardEnabled = userSettings.AudioEndpointGuardEnabled;
+        selectedMode = ModeFromKey(userSettings.SelectedModeKey);
         inputSource.SetRumbleGain(rumbleMultiplier);
         inputSource.SetStickProcessingMode(SelectedStickProcessingOption.Mode);
         RefreshRuntimeReadiness();
@@ -90,7 +97,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         {
             AppendLog(StartupProcessGuard.LastSummary);
         }
-        AppendLog("V6.2.17-test 说明：仅在 PS5/DualSense 输出层修正 IMU；Accel=X*2,Y*2,Z*-2，Gyro 三轴取反并乘可调倍率。Pro2 / Xbox 路径不受影响。");
+        AppendLog("V6.2.18 说明：PS5/DualSense 输出层 IMU 修正已固化；普通 PS5 仍为 054C:0CE6 + HD haptic，PS5 Edge 为 054C:0DF2 + L4/R4 背键。Pro2 / Xbox 路径不受影响。");
         AppendLog("[RUNTIME] " + RuntimeReadinessText);
         AppendLog("[RUMBLE_GAIN] multiplier=" + rumbleMultiplier.ToString("F1"));
         AppendLog("[LINK_TUNING] push_hz=" + SelectedPushRateOption.Hz.ToString("F1") +
@@ -360,9 +367,11 @@ public sealed class MainViewModel : INotifyPropertyChanged
         " · backend=" + SelectedBackendOption.Label;
 
     public bool IsDualSenseSelected => selectedMode == ViiperVirtualMode.DualSenseLike;
+    public bool IsDualSenseEdgeSelected => selectedMode == ViiperVirtualMode.DualSenseEdge;
     public bool IsPro2Selected => selectedMode == ViiperVirtualMode.Pro2;
     public bool IsXboxSelected => selectedMode == ViiperVirtualMode.Xbox;
     public bool IsDualSenseActive => Running && activeMode == ViiperVirtualMode.DualSenseLike;
+    public bool IsDualSenseEdgeActive => Running && activeMode == ViiperVirtualMode.DualSenseEdge;
     public bool IsPro2Active => Running && activeMode == ViiperVirtualMode.Pro2;
     public bool IsXboxActive => Running && activeMode == ViiperVirtualMode.Xbox;
     public bool IsInputConnected =>
@@ -385,6 +394,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public string SelectedHeroName => selectedMode switch
     {
         ViiperVirtualMode.DualSenseLike => "KRATOS",
+        ViiperVirtualMode.DualSenseEdge => "KRATOS EDGE",
         ViiperVirtualMode.Pro2 => "MARIO",
         ViiperVirtualMode.Xbox => "MASTER CHIEF",
         _ => ""
@@ -392,6 +402,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public string SelectedModeSubtitle => selectedMode switch
     {
         ViiperVirtualMode.DualSenseLike => "新和联胜 · DUALSENSE IDENTITY · 054C:0CE6",
+        ViiperVirtualMode.DualSenseEdge => "PS5 EDGE · L4/R4 PADDLES · 054C:0DF2",
         ViiperVirtualMode.Pro2 => "NINTENDO PROTOCOL · HD RUMBLE · 057E:2069",
         ViiperVirtualMode.Xbox => "XINPUT PROTOCOL · 045E:028E",
         _ => ""
@@ -409,7 +420,11 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public ICommand ConnectPro2InputCommand { get; }
     public ICommand DisconnectPro2InputCommand { get; }
     public ICommand FixAudioDefaultsCommand { get; }
+    public ICommand DumpControllerEnumerationCommand { get; }
+    public ICommand CleanupStaleVirtualDevicesCommand { get; }
+    public ICommand ExportDiagnosticsLogCommand { get; }
     public ICommand StartDualSenseCommand { get; }
+    public ICommand StartDualSenseEdgeCommand { get; }
     public ICommand StartPro2Command { get; }
     public ICommand StartXboxCommand { get; }
     public ICommand StopCommand { get; }
@@ -1292,6 +1307,10 @@ public sealed class MainViewModel : INotifyPropertyChanged
             {
                 AppendDualSenseAudioEndpointHint();
             }
+            else if (runtimeProfile.Mode == ViiperVirtualMode.DualSenseEdge)
+            {
+                AppendLog("[EDGE_IDENTITY] type=dualsenseedge vid=0x054c pid=0x0df2 product=\"DualSense Edge Wireless Controller\" paddles=L4/R4 feedback=ordinary_6byte");
+            }
             ResolveExperimentalBackendSelection(runtimeProfile);
             var progress = new Progress<string>(AppendLog);
             ViiperBridgeSession? createdSession = null;
@@ -1393,6 +1412,78 @@ public sealed class MainViewModel : INotifyPropertyChanged
         RunAudioEndpointGuard();
         Status = "已检查 Windows 默认播放/通信/麦克风，DualSense 不会作为默认音频设备。";
         return Task.CompletedTask;
+    }
+
+    private async Task DumpControllerEnumerationAsync(CancellationToken cancellationToken)
+    {
+        var client = new ViiperProtocolClient(Host, ParsePort());
+        IReadOnlyList<string> lines =
+            await ControllerEnumerationDiagnostics.DumpAsync(
+                client,
+                sessionLog.FilePath,
+                cancellationToken);
+        foreach (string line in lines)
+        {
+            AppendLog(line);
+        }
+        Status = "设备枚举诊断已写入日志。重点看 [VIIPER_DUMP]、[USBIP_PORT]、[PNP_HID]。";
+    }
+
+    private async Task CleanupStaleVirtualDevicesAsync(CancellationToken cancellationToken)
+    {
+        if (!IsLoopbackHost(Host))
+        {
+            throw new InvalidOperationException("清理残留虚拟设备只允许本地 VIIPER（localhost/127.0.0.1），避免误删远端 USBIP bus。");
+        }
+
+        await StopAutoReconnectAsync();
+        await StopSessionAsync(updateStatus: false);
+        var client = new ViiperProtocolClient(Host, ParsePort());
+        IReadOnlyList<string> lines =
+            await ControllerEnumerationDiagnostics.CleanupStaleVirtualDevicesAsync(
+                client,
+                cancellationToken);
+        foreach (string line in lines)
+        {
+            AppendLog(line);
+        }
+        Status = "残留虚拟设备清理已完成。若 [PNP_HID] 仍有 If_Hid，请根据 MI/usage 判断是否是描述符命名问题。";
+    }
+
+    private async Task ExportDiagnosticsLogAsync(CancellationToken cancellationToken)
+    {
+        var client = new ViiperProtocolClient(Host, ParsePort());
+        IReadOnlyList<string> dump =
+            await ControllerEnumerationDiagnostics.DumpAsync(
+                client,
+                sessionLog.FilePath,
+                cancellationToken);
+        string directory = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "PRO2WirelessReceiverControlBoard",
+            "v6_logs");
+        Directory.CreateDirectory(directory);
+        string path = Path.Combine(
+            directory,
+            "diagnostics_v6_2_18_" + DateTime.Now.ToString("yyyyMMdd_HHmmss") + ".log");
+        var builder = new StringBuilder();
+        builder.AppendLine("# V6.2.18 diagnostics export");
+        builder.AppendLine("# session_log=" + sessionLog.FilePath);
+        builder.AppendLine();
+        foreach (string line in dump)
+        {
+            builder.AppendLine(line);
+        }
+        builder.AppendLine();
+        builder.AppendLine("# UI log snapshot");
+        builder.Append(LogText);
+        await File.WriteAllTextAsync(
+            path,
+            builder.ToString(),
+            new UTF8Encoding(encoderShouldEmitUTF8Identifier: false),
+            cancellationToken);
+        AppendLog("[DIAG_EXPORT] path=\"" + path + "\"");
+        Status = "诊断包已导出：" + path;
     }
 
     private void RunAudioEndpointGuard()
@@ -1610,7 +1701,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "PRO2WirelessReceiverControlBoard",
             "embedded",
-            "v6.2.17-test",
+            "v6.2.18",
             "viiper",
             "haptic-v0.8.0");
         Directory.CreateDirectory(root);
@@ -1986,9 +2077,32 @@ public sealed class MainViewModel : INotifyPropertyChanged
         return mode switch
         {
             ViiperVirtualMode.DualSenseLike => ViiperDeviceProfile.DualSenseLike,
+            ViiperVirtualMode.DualSenseEdge => ViiperDeviceProfile.DualSenseEdge,
             ViiperVirtualMode.Pro2 => ViiperDeviceProfile.Pro2,
             ViiperVirtualMode.Xbox => ViiperDeviceProfile.Xbox,
             _ => throw new ArgumentOutOfRangeException(nameof(mode))
+        };
+    }
+
+    private static ViiperVirtualMode ModeFromKey(string? key)
+    {
+        return V60UserSettings.NormalizeModeKey(key) switch
+        {
+            "dualsenseedge" => ViiperVirtualMode.DualSenseEdge,
+            "pro2" => ViiperVirtualMode.Pro2,
+            "xbox" => ViiperVirtualMode.Xbox,
+            _ => ViiperVirtualMode.DualSenseLike
+        };
+    }
+
+    private static string ModeKey(ViiperVirtualMode mode)
+    {
+        return mode switch
+        {
+            ViiperVirtualMode.DualSenseEdge => "dualsenseedge",
+            ViiperVirtualMode.Pro2 => "pro2",
+            ViiperVirtualMode.Xbox => "xbox",
+            _ => "dualsense"
         };
     }
 
@@ -2000,7 +2114,10 @@ public sealed class MainViewModel : INotifyPropertyChanged
         }
 
         selectedMode = mode;
+        userSettings.SelectedModeKey = ModeKey(mode);
+        SaveUserSettings("[MODE_SELECT]");
         OnPropertyChanged(nameof(IsDualSenseSelected));
+        OnPropertyChanged(nameof(IsDualSenseEdgeSelected));
         OnPropertyChanged(nameof(IsPro2Selected));
         OnPropertyChanged(nameof(IsXboxSelected));
         OnPropertyChanged(nameof(SelectedModeLabel));
@@ -2013,6 +2130,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     {
         activeMode = mode;
         OnPropertyChanged(nameof(IsDualSenseActive));
+        OnPropertyChanged(nameof(IsDualSenseEdgeActive));
         OnPropertyChanged(nameof(IsPro2Active));
         OnPropertyChanged(nameof(IsXboxActive));
         OnPropertyChanged(nameof(ModeHeadline));
