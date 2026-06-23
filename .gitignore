@@ -18,3 +18,4 @@ __pycache__/
 release/**/publish*/
 release/**/*.exe
 release/**/*.zip
+release/**/usbip-win2/

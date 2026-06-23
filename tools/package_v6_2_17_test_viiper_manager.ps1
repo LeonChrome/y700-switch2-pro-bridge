@@ -6,7 +6,7 @@ param(
 $ErrorActionPreference = "Stop"
 $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $ManagerRoot = Join-Path $RepoRoot "windows\v60_viiper_app"
-$ReleaseRoot = Join-Path $RepoRoot "release\v6.2.16"
+$ReleaseRoot = Join-Path $RepoRoot "release\v6.2.17-test"
 $PublishRoot = Join-Path $ReleaseRoot "publish"
 $UsbipSourceRoot = Join-Path $RepoRoot "tools\usbip-win2\v0.9.7.7"
 $UsbipReleaseRoot = Join-Path $ReleaseRoot "usbip-win2\v0.9.7.7"
@@ -14,13 +14,13 @@ $UsbipInstallerName = "USBip-0.9.7.7-x64.exe"
 $SingleExeName = [System.Text.Encoding]::UTF8.GetString([byte[]](
     0xE6,0x96,0xB0,0xE5,0x92,0x8C,0xE8,0x81,0x94,0xE8,0x83,0x9C,0x56,0x49,0x49,0x50,
     0x45,0x52,0xE7,0x89,0x88,0xE6,0x9C,0xAC,0x2D,0x61,0x69,0x6F,0x2D,0x76,0x36,
-    0x2E,0x32,0x2E,0x31,0x36,0x2E,0x65,0x78,0x65))
+    0x2E,0x32,0x2E,0x31,0x37,0x2D,0x74,0x65,0x73,0x74,0x2E,0x65,0x78,0x65))
 $SingleExe = Join-Path $ReleaseRoot $SingleExeName
-$HashFile = Join-Path $ReleaseRoot "SHA256SUMS-v6.2.16.txt"
+$HashFile = Join-Path $ReleaseRoot "SHA256SUMS-v6.2.17-test.txt"
 $DotnetRoot = Join-Path $RepoRoot "work\dotnet"
 
 function Write-Step([string]$Name, [string]$Value) {
-    Write-Output "[V6_2_16_PACKAGE] $Name=$Value"
+    Write-Output "[V6_2_17_TEST_PACKAGE] $Name=$Value"
 }
 
 function Remove-TreeWithRetry([string]$Path) {
@@ -51,9 +51,9 @@ Write-Step "dotnet" $dotnet
 if (!$DryRun) {
     New-Item -ItemType Directory -Force -Path $ReleaseRoot | Out-Null
     Remove-TreeWithRetry $PublishRoot
-    Get-ChildItem -LiteralPath $ReleaseRoot -Filter "*v6.2.16*.exe" -ErrorAction SilentlyContinue |
+    Get-ChildItem -LiteralPath $ReleaseRoot -Filter "*v6.2.17-test*.exe" -ErrorAction SilentlyContinue |
         Remove-Item -Force
-    Get-ChildItem -LiteralPath $ReleaseRoot -Filter "SHA256SUMS-v6.2.16*.txt" -ErrorAction SilentlyContinue |
+    Get-ChildItem -LiteralPath $ReleaseRoot -Filter "SHA256SUMS-v6.2.17-test*.txt" -ErrorAction SilentlyContinue |
         Remove-Item -Force
     Remove-TreeWithRetry (Join-Path $ReleaseRoot "usbip-win2")
 

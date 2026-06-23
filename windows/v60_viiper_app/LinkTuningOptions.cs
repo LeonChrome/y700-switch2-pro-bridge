@@ -83,11 +83,11 @@ public sealed record Ps5ImuMappingOption(
     public static IReadOnlyList<Ps5ImuMappingOption> All { get; } =
     [
         new(
-            "固定正确映射  G=-X,+Z,-Y  A=-X,+Z,-Y",
+            "PS5 基线映射  G=-X,+Z,-Y  A=-X,+Z,-Y",
             new Ps5ImuMapping(
                 N(ImuAxisSource.X), P(ImuAxisSource.Z), N(ImuAxisSource.Y),
                 N(ImuAxisSource.X), P(ImuAxisSource.Z), N(ImuAxisSource.Y)),
-            "V6.2.15 实测确认的 PS5 正确映射；gyro/accel 成对固定，PRO2 模式不受影响。")
+            "V6.2.15 实测确认的 PS5 轴顺序基线；V6.2.17-test 在输出层追加 accel 倍率/方向和 gyro 方向修正。")
     ];
 
     public static Ps5ImuMappingOption Default => All[0];
@@ -96,6 +96,29 @@ public sealed record Ps5ImuMappingOption(
     {
         return All.FirstOrDefault(o => string.Equals(o.Label, label, StringComparison.Ordinal)) ?? Default;
     }
+}
+
+public readonly record struct Ps5OutputImuTuning(
+    double GyroScalePitch,
+    double GyroScaleYaw,
+    double GyroScaleRoll)
+{
+    public static Ps5OutputImuTuning Default { get; } = new(1.0, 1.0, 1.0);
+
+    public string TelemetryValue =>
+        "accel=x2,y2,z-2;gyro=neg;scale_pitch=" + GyroScalePitch.ToString("0.###") +
+        ",scale_yaw=" + GyroScaleYaw.ToString("0.###") +
+        ",scale_roll=" + GyroScaleRoll.ToString("0.###");
+
+    public string DisplayValue =>
+        "Gyro " + GyroScalePitch.ToString("0.##") + "x / " +
+        GyroScaleYaw.ToString("0.##") + "x / " +
+        GyroScaleRoll.ToString("0.##") + "x";
+
+    public Ps5OutputImuTuning Normalize() => new(
+        V60UserSettings.NormalizePs5GyroScale(GyroScalePitch),
+        V60UserSettings.NormalizePs5GyroScale(GyroScaleYaw),
+        V60UserSettings.NormalizePs5GyroScale(GyroScaleRoll));
 }
 
 public enum VirtualBackendMode

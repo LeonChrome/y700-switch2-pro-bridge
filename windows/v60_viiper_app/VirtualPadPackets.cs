@@ -48,6 +48,8 @@ public static class VirtualPadPackets
     private const ushort AxisCenter = GamepadState.AxisCenter;
     private const ushort AxisMax = GamepadState.AxisMax;
     private const ushort TriggerMax = GamepadState.TriggerMax;
+    private static readonly MotionVector Ps5NeutralAccel =
+        ApplyPs5AccelOutputTuning(new MotionVector(0, 0, -8192));
 
     public static byte[] NeutralInput(ViiperDeviceProfile profile)
     {
@@ -64,7 +66,8 @@ public static class VirtualPadPackets
         ViiperDeviceProfile profile,
         GamepadState? state,
         GyroAxisInversion gyroAxisInversion = default,
-        Ps5ImuMapping? ps5ImuMapping = null)
+        Ps5ImuMapping? ps5ImuMapping = null,
+        Ps5OutputImuTuning? ps5OutputImuTuning = null)
     {
         state ??= GamepadState.Neutral();
         return profile.Mode switch
@@ -72,7 +75,8 @@ public static class VirtualPadPackets
             ViiperVirtualMode.DualSenseLike => DualSenseFromGamepad(
                 state,
                 gyroAxisInversion,
-                ps5ImuMapping ?? Ps5ImuMappingOption.Default.Mapping),
+                ps5ImuMapping ?? Ps5ImuMappingOption.Default.Mapping,
+                ps5OutputImuTuning ?? Ps5OutputImuTuning.Default),
             ViiperVirtualMode.Pro2 => Ns2ProFromGamepad(state, gyroAxisInversion),
             ViiperVirtualMode.Xbox => XboxFromGamepad(state),
             _ => throw new ArgumentOutOfRangeException(nameof(profile))
@@ -97,7 +101,9 @@ public static class VirtualPadPackets
     private static byte[] DualSenseNeutral()
     {
         byte[] b = new byte[33];
-        BinaryPrimitives.WriteInt16LittleEndian(b.AsSpan(31, 2), -8192);
+        BinaryPrimitives.WriteInt16LittleEndian(
+            b.AsSpan(31, 2),
+            Ps5NeutralAccel.Z);
         return b;
     }
 
@@ -114,7 +120,8 @@ public static class VirtualPadPackets
     private static byte[] DualSenseFromGamepad(
         GamepadState state,
         GyroAxisInversion gyroAxisInversion,
-        Ps5ImuMapping ps5ImuMapping)
+        Ps5ImuMapping ps5ImuMapping,
+        Ps5OutputImuTuning ps5OutputImuTuning)
     {
         byte[] b = new byte[33];
         b[0] = unchecked((byte)Axis12ToI8(state.Lx, invert: false));
@@ -131,12 +138,16 @@ public static class VirtualPadPackets
             gyroAxisInversion,
             ps5ImuMapping);
         MotionVector dualSenseAccel = MapDualSenseAccel(state, ps5ImuMapping);
+        dualSenseGyro = ApplyPs5GyroOutputTuning(
+            dualSenseGyro,
+            ps5OutputImuTuning.Normalize());
+        dualSenseAccel = ApplyPs5AccelOutputTuning(dualSenseAccel);
         WriteI16(b, 21, state.GyroValid ? dualSenseGyro.X : (short)0);
         WriteI16(b, 23, state.GyroValid ? dualSenseGyro.Y : (short)0);
         WriteI16(b, 25, state.GyroValid ? dualSenseGyro.Z : (short)0);
         WriteI16(b, 27, state.AccelValid ? dualSenseAccel.X : (short)0);
         WriteI16(b, 29, state.AccelValid ? dualSenseAccel.Y : (short)0);
-        WriteI16(b, 31, state.AccelValid ? dualSenseAccel.Z : (short)-8192);
+        WriteI16(b, 31, state.AccelValid ? dualSenseAccel.Z : Ps5NeutralAccel.Z);
         return b;
     }
 
@@ -328,6 +339,36 @@ public static class VirtualPadPackets
             _ => 0
         };
         return axis.Invert ? NegateI16(value) : value;
+    }
+
+    private static MotionVector ApplyPs5GyroOutputTuning(
+        MotionVector mappedGyro,
+        Ps5OutputImuTuning tuning)
+    {
+        // V6.2.17-test: real-page verification showed PS5 pitch/yaw/roll
+        // directions are all inverted after the existing axis mapping.
+        return new MotionVector(
+            ScaleI16(mappedGyro.X, -tuning.GyroScalePitch),
+            ScaleI16(mappedGyro.Y, -tuning.GyroScaleYaw),
+            ScaleI16(mappedGyro.Z, -tuning.GyroScaleRoll));
+    }
+
+    private static MotionVector ApplyPs5AccelOutputTuning(MotionVector mappedAccel)
+    {
+        // Six-face static test showed the current DualSense output is about
+        // 0.5g and only Z has the wrong sign: X*2, Y*2, Z*-2.
+        return new MotionVector(
+            ScaleI16(mappedAccel.X, 2.0),
+            ScaleI16(mappedAccel.Y, 2.0),
+            ScaleI16(mappedAccel.Z, -2.0));
+    }
+
+    private static short ScaleI16(short value, double scale)
+    {
+        double scaled = Math.Round(value * scale, MidpointRounding.AwayFromZero);
+        if (scaled < short.MinValue) return short.MinValue;
+        if (scaled > short.MaxValue) return short.MaxValue;
+        return (short)scaled;
     }
 
     private static short NegateI16(short value)

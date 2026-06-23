@@ -21,6 +21,7 @@ public sealed class ViiperBridgeSession : IAsyncDisposable
     private readonly ViiperGyroMode gyroMode;
     private readonly GyroAxisInversion gyroAxisInversion;
     private readonly Ps5ImuMapping ps5ImuMapping;
+    private readonly Ps5OutputImuTuning ps5OutputImuTuning;
     private readonly object streamSync = new();
     private ViiperDeviceStream? stream;
     private ViiperDevice? device;
@@ -48,7 +49,8 @@ public sealed class ViiperBridgeSession : IAsyncDisposable
         IProgress<Exception>? faultProgress = null,
         ViiperGyroMode gyroMode = ViiperGyroMode.Hold250Hz,
         GyroAxisInversion gyroAxisInversion = default,
-        Ps5ImuMapping? ps5ImuMapping = null)
+        Ps5ImuMapping? ps5ImuMapping = null,
+        Ps5OutputImuTuning? ps5OutputImuTuning = null)
     {
         this.client = client;
         this.profile = profile;
@@ -59,6 +61,7 @@ public sealed class ViiperBridgeSession : IAsyncDisposable
         this.gyroMode = gyroMode;
         this.gyroAxisInversion = gyroAxisInversion;
         this.ps5ImuMapping = ps5ImuMapping ?? Ps5ImuMappingOption.Default.Mapping;
+        this.ps5OutputImuTuning = (ps5OutputImuTuning ?? Ps5OutputImuTuning.Default).Normalize();
     }
 
     public ViiperDeviceProfile Profile => profile;
@@ -176,7 +179,9 @@ public sealed class ViiperBridgeSession : IAsyncDisposable
             " gyro_axis_inv=" + gyroAxisInversion.TelemetryValue;
         if (profile.Mode == ViiperVirtualMode.DualSenseLike)
         {
-            timerLine += " ps5_imu_map=" + ps5ImuMapping.TelemetryValue;
+            timerLine +=
+                " ps5_imu_map=" + ps5ImuMapping.TelemetryValue +
+                " ps5_output_imu=" + ps5OutputImuTuning.TelemetryValue;
         }
         progress.Report(timerLine);
         while (timer.WaitForNextTick(cancellationToken))
@@ -250,7 +255,8 @@ public sealed class ViiperBridgeSession : IAsyncDisposable
                     profile,
                     continuous,
                     gyroAxisInversion,
-                    ps5ImuMapping);
+                    ps5ImuMapping,
+                    ps5OutputImuTuning);
             }
             else
             {

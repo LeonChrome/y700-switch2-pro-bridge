@@ -8,13 +8,13 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>Y700Switch2V60Viiper</AssemblyName>
-    <AssemblyTitle>PRO2 手柄无线接收器控制板 V6.2.16 VIIPER Windows 版</AssemblyTitle>
+    <AssemblyTitle>PRO2 手柄无线接收器控制板 V6.2.17-test VIIPER Windows 版</AssemblyTitle>
     <Product>PRO2 手柄无线接收器控制板</Product>
-    <Description>V6.2.16 Windows-only VIIPER route with fixed confirmed PS5 gyro mapping and no front-end gyro mapping selectors.</Description>
-    <Version>6.2.16</Version>
-    <AssemblyVersion>6.2.16.0</AssemblyVersion>
-    <FileVersion>6.2.16.0</FileVersion>
-    <InformationalVersion>6.2.16-fixed-ps5-gyro-map</InformationalVersion>
+    <Description>V6.2.17-test Windows-only VIIPER route with PS5 output-layer IMU acceleration and gyro direction tuning.</Description>
+    <Version>6.2.17</Version>
+    <AssemblyVersion>6.2.17.0</AssemblyVersion>
+    <FileVersion>6.2.17.0</FileVersion>
+    <InformationalVersion>6.2.17-test-ps5-output-imu-tuning</InformationalVersion>
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <PublishSingleFile>true</PublishSingleFile>

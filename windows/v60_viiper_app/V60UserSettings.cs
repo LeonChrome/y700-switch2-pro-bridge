@@ -13,6 +13,9 @@ public sealed class V60UserSettings
     public string BackendLabel { get; set; } = VirtualBackendOption.Default.Label;
     public string StickProcessingLabel { get; set; } = StickProcessingOption.Default.Label;
     public bool AudioEndpointGuardEnabled { get; set; } = true;
+    public double Ps5GyroScalePitch { get; set; } = 1.0;
+    public double Ps5GyroScaleYaw { get; set; } = 1.0;
+    public double Ps5GyroScaleRoll { get; set; } = 1.0;
 
     public static V60UserSettings Load()
     {
@@ -40,6 +43,12 @@ public sealed class V60UserSettings
                     VirtualBackendOption.FromLabel(loaded.BackendLabel).Label;
                 loaded.StickProcessingLabel =
                     StickProcessingOption.FromLabel(loaded.StickProcessingLabel).Label;
+                loaded.Ps5GyroScalePitch =
+                    NormalizePs5GyroScale(loaded.Ps5GyroScalePitch);
+                loaded.Ps5GyroScaleYaw =
+                    NormalizePs5GyroScale(loaded.Ps5GyroScaleYaw);
+                loaded.Ps5GyroScaleRoll =
+                    NormalizePs5GyroScale(loaded.Ps5GyroScaleRoll);
                 return loaded;
             }
             catch
@@ -59,6 +68,9 @@ public sealed class V60UserSettings
             PushRateLabel = ViiperPushRateOption.FromLabel(PushRateLabel).Label;
             BackendLabel = VirtualBackendOption.FromLabel(BackendLabel).Label;
             StickProcessingLabel = StickProcessingOption.FromLabel(StickProcessingLabel).Label;
+            Ps5GyroScalePitch = NormalizePs5GyroScale(Ps5GyroScalePitch);
+            Ps5GyroScaleYaw = NormalizePs5GyroScale(Ps5GyroScaleYaw);
+            Ps5GyroScaleRoll = NormalizePs5GyroScale(Ps5GyroScaleRoll);
             string temporary = SettingsPath + ".tmp";
             File.WriteAllText(
                 temporary,
@@ -76,6 +88,15 @@ public sealed class V60UserSettings
             return 1.0;
         }
         return Math.Round(Math.Clamp(value, 0.0, 3.0), 1);
+    }
+
+    public static double NormalizePs5GyroScale(double value)
+    {
+        if (double.IsNaN(value) || double.IsInfinity(value))
+        {
+            return 1.0;
+        }
+        return Math.Round(Math.Clamp(value, 0.1, 4.0), 2);
     }
 
     private static string SettingsPath => Path.Combine(

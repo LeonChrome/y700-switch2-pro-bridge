@@ -125,7 +125,7 @@ Expect((dsButtons & 0x000000F0) == 0x000000F0, "DualSense face buttons");
 Expect((dsButtons & 0x0003FC00) == 0x0003FC00, "DualSense system/shoulder buttons");
 Expect(ds[8] == 0x09, "DualSense dpad bitfield");
 Expect(ds[9] == 255 && ds[10] == 255, "DualSense triggers");
-Expect(BinaryPrimitives.ReadInt16LittleEndian(ds.AsSpan(31, 2)) == -8192, "DualSense static accel Z");
+Expect(BinaryPrimitives.ReadInt16LittleEndian(ds.AsSpan(31, 2)) == 16384, "DualSense PS5 output accel Z fallback is sign/scaled");
 
 byte[] ns = VirtualPadPackets.FromGamepad(ViiperDeviceProfile.Pro2, state);
 Expect(ns.Length == 24, "NS2Pro wire size");
@@ -155,28 +155,36 @@ motionState.AccelX = 10;
 motionState.AccelY = 8192;
 motionState.AccelZ = 20;
 byte[] dsMotion = VirtualPadPackets.FromGamepad(ViiperDeviceProfile.DualSenseLike, motionState);
-Expect(BinaryPrimitives.ReadInt16LittleEndian(dsMotion.AsSpan(21, 2)) == -100, "DualSense default gyro X uses flipped source X after pitch/roll swap");
-Expect(BinaryPrimitives.ReadInt16LittleEndian(dsMotion.AsSpan(23, 2)) == -300, "DualSense default gyro Y uses SDL source Z");
-Expect(BinaryPrimitives.ReadInt16LittleEndian(dsMotion.AsSpan(25, 2)) == -200, "DualSense default gyro Z takes flipped source Y after pitch/roll swap");
-Expect(BinaryPrimitives.ReadInt16LittleEndian(dsMotion.AsSpan(27, 2)) == -10, "DualSense default accel X uses flipped source X after pitch/roll swap");
-Expect(BinaryPrimitives.ReadInt16LittleEndian(dsMotion.AsSpan(29, 2)) == 20, "DualSense default accel Y uses SDL source Z");
-Expect(BinaryPrimitives.ReadInt16LittleEndian(dsMotion.AsSpan(31, 2)) == -8192, "DualSense default accel Z uses flipped source Y after pitch/roll swap");
+Expect(BinaryPrimitives.ReadInt16LittleEndian(dsMotion.AsSpan(21, 2)) == 100, "DualSense PS5 gyro X is inverted after existing mapping");
+Expect(BinaryPrimitives.ReadInt16LittleEndian(dsMotion.AsSpan(23, 2)) == 300, "DualSense PS5 gyro Y is inverted after existing mapping");
+Expect(BinaryPrimitives.ReadInt16LittleEndian(dsMotion.AsSpan(25, 2)) == 200, "DualSense PS5 gyro Z is inverted after existing mapping");
+Expect(BinaryPrimitives.ReadInt16LittleEndian(dsMotion.AsSpan(27, 2)) == -20, "DualSense PS5 accel X is doubled without sign change");
+Expect(BinaryPrimitives.ReadInt16LittleEndian(dsMotion.AsSpan(29, 2)) == 40, "DualSense PS5 accel Y is doubled without sign change");
+Expect(BinaryPrimitives.ReadInt16LittleEndian(dsMotion.AsSpan(31, 2)) == 16384, "DualSense PS5 accel Z is doubled and sign-flipped");
+byte[] dsMotionScaled = VirtualPadPackets.FromGamepad(
+    ViiperDeviceProfile.DualSenseLike,
+    motionState,
+    ps5OutputImuTuning: new Ps5OutputImuTuning(2.0, 0.5, 1.5));
+Expect(BinaryPrimitives.ReadInt16LittleEndian(dsMotionScaled.AsSpan(21, 2)) == 200, "DualSense PS5 gyro pitch scale is configurable");
+Expect(BinaryPrimitives.ReadInt16LittleEndian(dsMotionScaled.AsSpan(23, 2)) == 150, "DualSense PS5 gyro yaw scale is configurable");
+Expect(BinaryPrimitives.ReadInt16LittleEndian(dsMotionScaled.AsSpan(25, 2)) == 300, "DualSense PS5 gyro roll scale is configurable");
+Expect(BinaryPrimitives.ReadInt16LittleEndian(dsMotionScaled.AsSpan(31, 2)) == 16384, "DualSense PS5 gyro scale does not affect accel");
 byte[] dsMotionInverted = VirtualPadPackets.FromGamepad(
     ViiperDeviceProfile.DualSenseLike,
     motionState,
     new GyroAxisInversion(false, true, false));
-Expect(BinaryPrimitives.ReadInt16LittleEndian(dsMotionInverted.AsSpan(21, 2)) == -100, "DualSense inverted keeps mapped gyro X");
-Expect(BinaryPrimitives.ReadInt16LittleEndian(dsMotionInverted.AsSpan(23, 2)) == 300, "DualSense inverted flips mapped gyro Y");
-Expect(BinaryPrimitives.ReadInt16LittleEndian(dsMotionInverted.AsSpan(25, 2)) == -200, "DualSense inverted keeps mapped gyro Z");
-Expect(BinaryPrimitives.ReadInt16LittleEndian(dsMotionInverted.AsSpan(31, 2)) == -8192, "DualSense inverted leaves accel mapping unchanged");
+Expect(BinaryPrimitives.ReadInt16LittleEndian(dsMotionInverted.AsSpan(21, 2)) == 100, "DualSense inverted keeps final gyro X correction");
+Expect(BinaryPrimitives.ReadInt16LittleEndian(dsMotionInverted.AsSpan(23, 2)) == -300, "DualSense inverted Y is still followed by final PS5 sign correction");
+Expect(BinaryPrimitives.ReadInt16LittleEndian(dsMotionInverted.AsSpan(25, 2)) == 200, "DualSense inverted keeps final gyro Z correction");
+Expect(BinaryPrimitives.ReadInt16LittleEndian(dsMotionInverted.AsSpan(31, 2)) == 16384, "DualSense inverted leaves accel output correction unchanged");
 byte[] dsMotionXzInverted = VirtualPadPackets.FromGamepad(
     ViiperDeviceProfile.DualSenseLike,
     motionState,
     new GyroAxisInversion(true, false, true));
-Expect(BinaryPrimitives.ReadInt16LittleEndian(dsMotionXzInverted.AsSpan(21, 2)) == 100, "DualSense X switch flips mapped gyro X");
-Expect(BinaryPrimitives.ReadInt16LittleEndian(dsMotionXzInverted.AsSpan(23, 2)) == -300, "DualSense X/Z switch keeps mapped gyro Y standard");
-Expect(BinaryPrimitives.ReadInt16LittleEndian(dsMotionXzInverted.AsSpan(25, 2)) == 200, "DualSense Z switch flips mapped gyro Z");
-Expect(BinaryPrimitives.ReadInt16LittleEndian(dsMotionXzInverted.AsSpan(31, 2)) == -8192, "DualSense X/Z switches leave accel mapping unchanged");
+Expect(BinaryPrimitives.ReadInt16LittleEndian(dsMotionXzInverted.AsSpan(21, 2)) == -100, "DualSense X switch is followed by final PS5 sign correction");
+Expect(BinaryPrimitives.ReadInt16LittleEndian(dsMotionXzInverted.AsSpan(23, 2)) == 300, "DualSense X/Z switch keeps final gyro Y correction");
+Expect(BinaryPrimitives.ReadInt16LittleEndian(dsMotionXzInverted.AsSpan(25, 2)) == -200, "DualSense Z switch is followed by final PS5 sign correction");
+Expect(BinaryPrimitives.ReadInt16LittleEndian(dsMotionXzInverted.AsSpan(31, 2)) == 16384, "DualSense X/Z switches leave accel output correction unchanged");
 Expect(
     Ps5ImuMappingOption.FromLabel("SDL/Nintendo 基线  G=-Y,+Z,-X  A=-Y,+Z,-X").Label ==
     Ps5ImuMappingOption.Default.Label,
@@ -386,6 +394,15 @@ Expect(
     V60UserSettings.NormalizeRumbleMultiplier(3.8) == 3 &&
     V60UserSettings.NormalizeRumbleMultiplier(double.NaN) == 1,
     "rumble multiplier is normalized to 0..3");
+Expect(
+    V60UserSettings.NormalizePs5GyroScale(0.01) == 0.1 &&
+    V60UserSettings.NormalizePs5GyroScale(4.8) == 4 &&
+    V60UserSettings.NormalizePs5GyroScale(double.NaN) == 1,
+    "PS5 gyro scale is normalized to 0.1..4.0");
+Expect(
+    new Ps5OutputImuTuning(double.NaN, 2.349, 9).Normalize() ==
+    new Ps5OutputImuTuning(1.0, 2.35, 4.0),
+    "PS5 output IMU tuning normalizes per-axis gyro scale");
 Expect(
     ViiperGyroModeOption.Default.Mode == ViiperGyroMode.Hold250Hz &&
     ViiperGyroModeOption.FromLabel("source_60hz（推荐）").Mode == ViiperGyroMode.Hold250Hz &&
