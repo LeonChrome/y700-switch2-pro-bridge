@@ -61,7 +61,7 @@ public partial class MainWindow : Window
         trayIcon = new Forms.NotifyIcon
         {
             Icon = SystemIcons.Application,
-            Text = "PRO2 控制板 V6.2.18 新和联胜",
+            Text = "PRO2 控制板 V6.2.20",
             ContextMenuStrip = trayMenu,
             Visible = true
         };

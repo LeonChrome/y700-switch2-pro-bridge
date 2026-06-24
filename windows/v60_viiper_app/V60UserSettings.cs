@@ -17,6 +17,9 @@ public sealed class V60UserSettings
     public double Ps5GyroScalePitch { get; set; } = 1.0;
     public double Ps5GyroScaleYaw { get; set; } = 1.0;
     public double Ps5GyroScaleRoll { get; set; } = 1.0;
+    public bool ProfessionalInvertGyroPitch { get; set; }
+    public bool ProfessionalInvertGyroYaw { get; set; } = true;
+    public bool ProfessionalInvertGyroRoll { get; set; } = true;
 
     public static V60UserSettings Load()
     {
@@ -108,7 +111,9 @@ public sealed class V60UserSettings
         return (value ?? "").Trim().ToLowerInvariant() switch
         {
             "dualsenseedge" or "dualsense_edge" or "edge" or "ps5edge" => "dualsenseedge",
+            "dualsenseproimu" or "dualsense_professional_imu" or "ps5proimu" or "ps5_professional_imu" => "dualsenseproimu",
             "pro2" or "ns2pro" or "nintendo" => "pro2",
+            "xboxproimu" or "xbox_professional_imu" or "xinputproimu" => "xboxproimu",
             "xbox" or "xinput" or "xbox360" => "xbox",
             _ => "dualsense"
         };

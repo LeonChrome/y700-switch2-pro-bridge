@@ -8,7 +8,9 @@ public enum ViiperVirtualMode
     DualSenseLike,
     DualSenseEdge,
     Pro2,
-    Xbox
+    Xbox,
+    DualSenseProfessionalImuTest,
+    XboxProfessionalImuTest
 }
 
 public sealed record ViiperDeviceProfile(
@@ -51,8 +53,34 @@ public sealed record ViiperDeviceProfile(
         2,
         TimeSpan.FromMilliseconds(4));
 
+    public static ViiperDeviceProfile DualSenseProfessionalImuTest { get; } = new(
+        ViiperVirtualMode.DualSenseProfessionalImuTest,
+        "PS5 / Professional IMU Test",
+        "dualsensehaptic",
+        33,
+        DualSenseHapticFrame.WireSize,
+        TimeSpan.FromMilliseconds(4));
+
+    public static ViiperDeviceProfile XboxProfessionalImuTest { get; } = new(
+        ViiperVirtualMode.XboxProfessionalImuTest,
+        "Xbox / Professional IMU Test",
+        "xbox360",
+        20,
+        2,
+        TimeSpan.FromMilliseconds(4));
+
     public bool IsPs5Family =>
-        Mode is ViiperVirtualMode.DualSenseLike or ViiperVirtualMode.DualSenseEdge;
+        Mode is ViiperVirtualMode.DualSenseLike
+            or ViiperVirtualMode.DualSenseEdge
+            or ViiperVirtualMode.DualSenseProfessionalImuTest;
+
+    public bool UsesDualSenseHaptics =>
+        Mode is ViiperVirtualMode.DualSenseLike
+            or ViiperVirtualMode.DualSenseProfessionalImuTest;
+
+    public bool IsProfessionalImuTest =>
+        Mode is ViiperVirtualMode.DualSenseProfessionalImuTest
+            or ViiperVirtualMode.XboxProfessionalImuTest;
 }
 
 public static class VirtualPadPackets
@@ -69,8 +97,10 @@ public static class VirtualPadPackets
         {
             ViiperVirtualMode.DualSenseLike => DualSenseNeutral(),
             ViiperVirtualMode.DualSenseEdge => DualSenseNeutral(),
+            ViiperVirtualMode.DualSenseProfessionalImuTest => DualSenseNeutral(),
             ViiperVirtualMode.Pro2 => Ns2ProNeutral(),
             ViiperVirtualMode.Xbox => new byte[20],
+            ViiperVirtualMode.XboxProfessionalImuTest => new byte[20],
             _ => throw new ArgumentOutOfRangeException(nameof(profile))
         };
     }
@@ -80,7 +110,9 @@ public static class VirtualPadPackets
         GamepadState? state,
         GyroAxisInversion gyroAxisInversion = default,
         Ps5ImuMapping? ps5ImuMapping = null,
-        Ps5OutputImuTuning? ps5OutputImuTuning = null)
+        Ps5OutputImuTuning? ps5OutputImuTuning = null,
+        DualSenseImuRawSample? professionalDualSenseImu = null,
+        GamepadState? professionalXboxState = null)
     {
         state ??= GamepadState.Neutral();
         return profile.Mode switch
@@ -90,15 +122,25 @@ public static class VirtualPadPackets
                 gyroAxisInversion,
                 ps5ImuMapping ?? Ps5ImuMappingOption.Default.Mapping,
                 ps5OutputImuTuning ?? Ps5OutputImuTuning.Default,
-                includeEdgePaddles: false),
+                includeEdgePaddles: false,
+                professionalImu: null),
             ViiperVirtualMode.DualSenseEdge => DualSenseFromGamepad(
                 state,
                 gyroAxisInversion,
                 ps5ImuMapping ?? Ps5ImuMappingOption.Default.Mapping,
                 ps5OutputImuTuning ?? Ps5OutputImuTuning.Default,
-                includeEdgePaddles: true),
+                includeEdgePaddles: true,
+                professionalImu: null),
+            ViiperVirtualMode.DualSenseProfessionalImuTest => DualSenseFromGamepad(
+                state,
+                gyroAxisInversion,
+                ps5ImuMapping ?? Ps5ImuMappingOption.Default.Mapping,
+                ps5OutputImuTuning ?? Ps5OutputImuTuning.Default,
+                includeEdgePaddles: false,
+                professionalImu: professionalDualSenseImu),
             ViiperVirtualMode.Pro2 => Ns2ProFromGamepad(state, gyroAxisInversion),
             ViiperVirtualMode.Xbox => XboxFromGamepad(state),
+            ViiperVirtualMode.XboxProfessionalImuTest => XboxFromGamepad(professionalXboxState ?? state),
             _ => throw new ArgumentOutOfRangeException(nameof(profile))
         };
     }
@@ -110,12 +152,17 @@ public static class VirtualPadPackets
             ViiperVirtualMode.DualSenseLike when
                 DualSenseHapticFrame.TryParse(data, out DualSenseHapticFrame frame, out _) =>
                 $"DualSense haptic frame: kind={frame.Kind}, bytes={frame.Payload.Length}",
+            ViiperVirtualMode.DualSenseProfessionalImuTest when
+                DualSenseHapticFrame.TryParse(data, out DualSenseHapticFrame frame, out _) =>
+                $"DualSense Professional haptic frame: kind={frame.Kind}, bytes={frame.Payload.Length}",
             ViiperVirtualMode.DualSenseEdge when data.Length >= 6 =>
                 $"DualSense Edge output: small={data[0]}, large={data[1]}, led=({data[2]},{data[3]},{data[4]}), player={data[5]}",
             ViiperVirtualMode.Pro2 when data.Length >= 34 =>
                 $"NS2Pro output: flags=0x{data[32]:X2}, player_led=0x{data[33]:X2}, L={Hex(data.AsSpan(0, 6))}, R={Hex(data.AsSpan(16, 6))}",
             ViiperVirtualMode.Xbox when data.Length >= 2 =>
                 $"XInput output: left={data[0]}, right={data[1]}",
+            ViiperVirtualMode.XboxProfessionalImuTest when data.Length >= 2 =>
+                $"XInput Professional output: left={data[0]}, right={data[1]}",
             _ => profile.Label + " output: " + Hex(data)
         };
     }
@@ -144,7 +191,8 @@ public static class VirtualPadPackets
         GyroAxisInversion gyroAxisInversion,
         Ps5ImuMapping ps5ImuMapping,
         Ps5OutputImuTuning ps5OutputImuTuning,
-        bool includeEdgePaddles)
+        bool includeEdgePaddles,
+        DualSenseImuRawSample? professionalImu)
     {
         byte[] b = new byte[33];
         b[0] = unchecked((byte)Axis12ToI8(state.Lx, invert: false));
@@ -156,21 +204,33 @@ public static class VirtualPadPackets
         b[9] = Trigger12ToU8(state.L2, state.IsPressed(GamepadButtons.L2));
         b[10] = Trigger12ToU8(state.R2, state.IsPressed(GamepadButtons.R2));
 
-        MotionVector dualSenseGyro = MapDualSenseGyro(
-            state,
-            gyroAxisInversion,
-            ps5ImuMapping);
-        MotionVector dualSenseAccel = MapDualSenseAccel(state, ps5ImuMapping);
-        dualSenseGyro = ApplyPs5GyroOutputTuning(
-            dualSenseGyro,
-            ps5OutputImuTuning.Normalize());
-        dualSenseAccel = ApplyPs5AccelOutputTuning(dualSenseAccel);
-        WriteI16(b, 21, state.GyroValid ? dualSenseGyro.X : (short)0);
-        WriteI16(b, 23, state.GyroValid ? dualSenseGyro.Y : (short)0);
-        WriteI16(b, 25, state.GyroValid ? dualSenseGyro.Z : (short)0);
-        WriteI16(b, 27, state.AccelValid ? dualSenseAccel.X : (short)0);
-        WriteI16(b, 29, state.AccelValid ? dualSenseAccel.Y : (short)0);
-        WriteI16(b, 31, state.AccelValid ? dualSenseAccel.Z : Ps5NeutralAccel.Z);
+        if (professionalImu is { Valid: true } proImu)
+        {
+            WriteI16(b, 21, proImu.GyroX);
+            WriteI16(b, 23, proImu.GyroY);
+            WriteI16(b, 25, proImu.GyroZ);
+            WriteI16(b, 27, proImu.AccelX);
+            WriteI16(b, 29, proImu.AccelY);
+            WriteI16(b, 31, proImu.AccelZ);
+        }
+        else
+        {
+            MotionVector dualSenseGyro = MapDualSenseGyro(
+                state,
+                gyroAxisInversion,
+                ps5ImuMapping);
+            MotionVector dualSenseAccel = MapDualSenseAccel(state, ps5ImuMapping);
+            dualSenseGyro = ApplyPs5GyroOutputTuning(
+                dualSenseGyro,
+                ps5OutputImuTuning.Normalize());
+            dualSenseAccel = ApplyPs5AccelOutputTuning(dualSenseAccel);
+            WriteI16(b, 21, state.GyroValid ? dualSenseGyro.X : (short)0);
+            WriteI16(b, 23, state.GyroValid ? dualSenseGyro.Y : (short)0);
+            WriteI16(b, 25, state.GyroValid ? dualSenseGyro.Z : (short)0);
+            WriteI16(b, 27, state.AccelValid ? dualSenseAccel.X : (short)0);
+            WriteI16(b, 29, state.AccelValid ? dualSenseAccel.Y : (short)0);
+            WriteI16(b, 31, state.AccelValid ? dualSenseAccel.Z : Ps5NeutralAccel.Z);
+        }
         return b;
     }
 
@@ -368,12 +428,13 @@ public static class VirtualPadPackets
         MotionVector mappedGyro,
         Ps5OutputImuTuning tuning)
     {
-        // V6.2.18: real-page verification showed PS5 pitch/yaw/roll
-        // directions are all inverted after the existing axis mapping.
+        // V6.2.20: R7 verification kept pitch inverted after the existing
+        // baseline map, while yaw/roll are correct without the old blanket
+        // inversion.
         return new MotionVector(
             ScaleI16(mappedGyro.X, -tuning.GyroScalePitch),
-            ScaleI16(mappedGyro.Y, -tuning.GyroScaleYaw),
-            ScaleI16(mappedGyro.Z, -tuning.GyroScaleRoll));
+            ScaleI16(mappedGyro.Y, tuning.GyroScaleYaw),
+            ScaleI16(mappedGyro.Z, tuning.GyroScaleRoll));
     }
 
     private static MotionVector ApplyPs5AccelOutputTuning(MotionVector mappedAccel)

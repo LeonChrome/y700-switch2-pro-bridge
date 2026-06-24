@@ -254,7 +254,7 @@ try {
     foreach ($mode in $modes) {
         $before = (Get-Value $logEdit).Length
         $addedText = '[VIIPER] added ' + $mode.Label
-        $ratePattern = [regex]::Escape($mode.Label) + ' frames target_hz=([0-9.]+) actual_hz=([0-9.]+)'
+        $ratePattern = [regex]::Escape($mode.Label) + ' frames target_hz=([0-9.]+).*? actual_hz=([0-9.]+)'
         Invoke-Button -Root $root -Name $mode.Button
         Wait-Until -TimeoutSeconds 20 -Failure ('Mode did not start: ' + $mode.Label) -Condition {
             $text = Get-Value $logEdit
@@ -322,13 +322,13 @@ try {
     Wait-Until -TimeoutSeconds 15 -Failure "Background cadence was not reported." -Condition {
         $text = Get-Value $logEdit
         $suffix = $text.Substring([Math]::Min($backgroundOffset, $text.Length))
-        $suffix -match 'Xbox / XInput frames target_hz=([0-9.]+) actual_hz=([0-9.]+)'
+        $suffix -match 'Xbox / XInput frames target_hz=([0-9.]+).*? actual_hz=([0-9.]+)'
     }
     $text = Get-Value $logEdit
     $suffix = $text.Substring([Math]::Min($backgroundOffset, $text.Length))
     $backgroundRates = [regex]::Matches(
         $suffix,
-        'Xbox / XInput frames target_hz=([0-9.]+) actual_hz=([0-9.]+)')
+        'Xbox / XInput frames target_hz=([0-9.]+).*? actual_hz=([0-9.]+)')
     $backgroundRate = [double]$backgroundRates[$backgroundRates.Count - 1].Groups[2].Value
     if ($backgroundRate -lt $MinimumFeedHz) {
         throw "Background feed rate $backgroundRate Hz is below $MinimumFeedHz Hz."

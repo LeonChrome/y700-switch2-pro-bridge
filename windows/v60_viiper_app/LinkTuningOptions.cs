@@ -106,7 +106,7 @@ public readonly record struct Ps5OutputImuTuning(
     public static Ps5OutputImuTuning Default { get; } = new(1.0, 1.0, 1.0);
 
     public string TelemetryValue =>
-        "accel=x2,y2,z-2;gyro=neg;scale_pitch=" + GyroScalePitch.ToString("0.###") +
+        "accel=x2,y2,z-2;gyro=r7_pitch_neg_yaw_roll_normal;scale_pitch=" + GyroScalePitch.ToString("0.###") +
         ",scale_yaw=" + GyroScaleYaw.ToString("0.###") +
         ",scale_roll=" + GyroScaleRoll.ToString("0.###");
 

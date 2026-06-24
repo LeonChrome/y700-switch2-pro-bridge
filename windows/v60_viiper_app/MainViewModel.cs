@@ -18,8 +18,11 @@ namespace Y700Switch2V60Viiper;
 
 public sealed class MainViewModel : INotifyPropertyChanged
 {
+    private const int MaxUiLogCharacters = 120000;
+    private const int TrimmedUiLogCharacters = 70000;
     private readonly StringBuilder log = new();
     private readonly Pro2BleInputSource inputSource = new();
+    private readonly ProfessionalHidAuditController professionalHidAuditController = new();
     private readonly SessionLogWriter sessionLog = new();
     private readonly V60UserSettings userSettings = V60UserSettings.Load();
     private readonly SemaphoreSlim operationGate = new(1, 1);
@@ -32,7 +35,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private ViiperBridgeSession? session;
     private string host = "127.0.0.1";
     private string port = "3242";
-    private string status = "V6.2.18 VIIPER Windows-only 新和联胜版已就绪。PS5 IMU 输出层已固化，新增独立 PS5 Edge 背键模式。";
+    private string status = "V6.2.20 正式版已就绪。PS5 / Edge 陀螺仪已固化 R7 成果，测试模式不在正式界面显示。";
     private string inputStatus = "真实 Pro2 BLE 输入未连接。";
     private string selectedPushRateLabel = ViiperPushRateOption.Default.Label;
     private string selectedBackendLabel = VirtualBackendOption.Default.Label;
@@ -43,8 +46,23 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private bool shuttingDown;
     private bool autoReconnectEnabled;
     private string runtimeReadinessText = "";
+    private string professionalBiasStatusText =
+        "Bias: NotCalibrated / source=none / applied=false / updates=0 / raw=0,0,0";
+    private string professionalRawGyroText = "Raw Gyro raw: X=0 Y=0 Z=0";
+    private string professionalCorrectedGyroText = "Corrected Gyro Preview (°/s): Pitch Rate=0 Yaw Rate=0 Roll Rate=0";
+    private string professionalOutputGyroText = "Output Gyro (°/s): Pitch Rate=0 Yaw Rate=0 Roll Rate=0";
+    private string professionalIntegratedAngleText = "Integrated Angle (°): Pitch Angle=0 Yaw Angle=0 Roll Angle=0 · integral_state=Disabled · integral_running=false";
+    private string professionalNinetyDegreeTestText = "90° test idle.";
+    private string selectedProfessionalHidAuditMode = ProfessionalHidAuditMode.Normal.ToString();
+    private string professionalStaticGyroXRaw = "0";
+    private string professionalStaticGyroYRaw = "0";
+    private string professionalStaticGyroZRaw = "0";
+    private string professionalHidAuditStatusText = "HID Audit: Normal · final report gyro follows selected_output_ds_raw.";
     private double rumbleMultiplier = 1.0;
     private double ps5GyroScale = 1.0;
+    private bool professionalInvertGyroPitch;
+    private bool professionalInvertGyroYaw = true;
+    private bool professionalInvertGyroRoll = true;
     private ViiperVirtualMode selectedMode = ViiperVirtualMode.DualSenseLike;
     private ViiperVirtualMode? activeMode;
     private const int LostInputTimeoutMilliseconds = 2000;
@@ -67,12 +85,35 @@ public sealed class MainViewModel : INotifyPropertyChanged
         StartDualSenseEdgeCommand = new RelayCommand(_ => RunExclusiveAsync(
             "切换 PS5 Edge / 背键",
             token => SwitchModeAsync(ViiperDeviceProfile.DualSenseEdge, token)));
+        StartDualSenseProfessionalImuCommand = new RelayCommand(_ => RunExclusiveAsync(
+            "切换 PS5 Professional IMU Test",
+            token => SwitchModeAsync(ViiperDeviceProfile.DualSenseProfessionalImuTest, token)));
         StartPro2Command = new RelayCommand(_ => RunExclusiveAsync(
             "切换 Pro2 / Nintendo",
             token => SwitchModeAsync(ViiperDeviceProfile.Pro2, token)));
         StartXboxCommand = new RelayCommand(_ => RunExclusiveAsync(
             "切换 Xbox / XInput",
             token => SwitchModeAsync(ViiperDeviceProfile.Xbox, token)));
+        StartXboxProfessionalImuCommand = new RelayCommand(_ => RunExclusiveAsync(
+            "切换 Xbox Professional IMU Test",
+            token => SwitchModeAsync(ViiperDeviceProfile.XboxProfessionalImuTest, token)));
+        CalibrateGyroBiasCommand = new RelayCommand(_ =>
+            ExecuteProfessionalImuAction("Calibrate Gyro Bias 3s", s => s.StartGyroBiasCalibration()));
+        ResetGyroBiasCommand = new RelayCommand(_ =>
+            ExecuteProfessionalImuAction("Reset Gyro Bias", s => s.ResetGyroBias()));
+        ResetIntegralCommand = new RelayCommand(_ =>
+            ExecuteProfessionalImuAction("Reset Integral", s => s.ResetProfessionalIntegral()));
+        StartPitch90TestCommand = new RelayCommand(_ =>
+            ExecuteProfessionalImuAction("Start Pitch 90° Test", s => s.StartNinetyDegreeTest(ProfessionalImuTestAxis.Pitch)));
+        StartYaw90TestCommand = new RelayCommand(_ =>
+            ExecuteProfessionalImuAction("Start Yaw 90° Test", s => s.StartNinetyDegreeTest(ProfessionalImuTestAxis.Yaw)));
+        StartRoll90TestCommand = new RelayCommand(_ =>
+            ExecuteProfessionalImuAction("Start Roll 90° Test", s => s.StartNinetyDegreeTest(ProfessionalImuTestAxis.Roll)));
+        Stop90TestCommand = new RelayCommand(_ =>
+            ExecuteProfessionalImuAction("Stop 90° Test", s => s.StopNinetyDegreeTest()));
+        PulseGyroXCommand = new RelayCommand(_ => StartProfessionalHidPulse("X"));
+        PulseGyroYCommand = new RelayCommand(_ => StartProfessionalHidPulse("Y"));
+        PulseGyroZCommand = new RelayCommand(_ => StartProfessionalHidPulse("Z"));
         StopCommand = new RelayCommand(_ => RunExclusiveAsync("停止虚拟设备", _ => StopAsync()));
         ClearLogCommand = new RelayCommand(_ => ClearLog());
         rumbleMultiplier =
@@ -81,6 +122,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
         ps5GyroScale =
             V60UserSettings.NormalizePs5GyroScale(
                 userSettings.Ps5GyroScalePitch);
+        professionalInvertGyroPitch = userSettings.ProfessionalInvertGyroPitch;
+        professionalInvertGyroYaw = userSettings.ProfessionalInvertGyroYaw;
+        professionalInvertGyroRoll = userSettings.ProfessionalInvertGyroRoll;
         selectedPushRateLabel =
             ViiperPushRateOption.FromLabel(userSettings.PushRateLabel).Label;
         selectedBackendLabel =
@@ -97,7 +141,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
         {
             AppendLog(StartupProcessGuard.LastSummary);
         }
-        AppendLog("V6.2.18 说明：PS5/DualSense 输出层 IMU 修正已固化；普通 PS5 仍为 054C:0CE6 + HD haptic，PS5 Edge 为 054C:0DF2 + L4/R4 背键。Pro2 / Xbox 路径不受影响。");
+        AppendLog("V6.2.20 正式版说明：新和联胜 PS5 保留 HD 音频震动；PS5 / Edge 陀螺仪采用 R7 验证方向；测试模式、HID Audit 和三轴反向调试入口已从正式界面移除。");
+        AppendLog("[LOG_POLICY] previous v6 logs are cleaned at startup; manager log limit=" +
+                  (SessionLogWriter.MaxLogBytes / 1024 / 1024) + "MB; VIIPER server log level=info.");
         AppendLog("[RUNTIME] " + RuntimeReadinessText);
         AppendLog("[RUMBLE_GAIN] multiplier=" + rumbleMultiplier.ToString("F1"));
         AppendLog("[LINK_TUNING] push_hz=" + SelectedPushRateOption.Hz.ToString("F1") +
@@ -249,6 +295,11 @@ public sealed class MainViewModel : INotifyPropertyChanged
                       " gyro_scale_yaw=" + normalized.ToString("0.##") +
                       " gyro_scale_roll=" + normalized.ToString("0.##") +
                       (Running ? " apply=next_session" : " apply=next_start"));
+            if (session is { HasProfessionalImuRuntime: true })
+            {
+                AppendLog("[PRO_IMU] " + session.ResetProfessionalIntegral() +
+                          " reason=ps5_gyro_scale_changed");
+            }
             OnPropertyChanged();
             OnPropertyChanged(nameof(Ps5GyroScaleText));
             OnPropertyChanged(nameof(LinkTuningSummary));
@@ -257,6 +308,65 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     public string Ps5GyroScaleText =>
         ps5GyroScale.ToString("0.00") + "x";
+
+    public bool ProfessionalInvertGyroPitch
+    {
+        get => professionalInvertGyroPitch;
+        set
+        {
+            if (professionalInvertGyroPitch == value)
+            {
+                return;
+            }
+
+            professionalInvertGyroPitch = value;
+            ApplyProfessionalGyroInversionSettings();
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(ProfessionalGyroInversionSummary));
+            OnPropertyChanged(nameof(LinkTuningSummary));
+        }
+    }
+
+    public bool ProfessionalInvertGyroYaw
+    {
+        get => professionalInvertGyroYaw;
+        set
+        {
+            if (professionalInvertGyroYaw == value)
+            {
+                return;
+            }
+
+            professionalInvertGyroYaw = value;
+            ApplyProfessionalGyroInversionSettings();
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(ProfessionalGyroInversionSummary));
+            OnPropertyChanged(nameof(LinkTuningSummary));
+        }
+    }
+
+    public bool ProfessionalInvertGyroRoll
+    {
+        get => professionalInvertGyroRoll;
+        set
+        {
+            if (professionalInvertGyroRoll == value)
+            {
+                return;
+            }
+
+            professionalInvertGyroRoll = value;
+            ApplyProfessionalGyroInversionSettings();
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(ProfessionalGyroInversionSummary));
+            OnPropertyChanged(nameof(LinkTuningSummary));
+        }
+    }
+
+    public string ProfessionalGyroInversionSummary =>
+        "Pitch=" + (professionalInvertGyroPitch ? "invert" : "normal") +
+        ", Yaw=" + (professionalInvertGyroYaw ? "invert" : "normal") +
+        ", Roll=" + (professionalInvertGyroRoll ? "invert" : "normal");
 
     public IReadOnlyList<string> PushRateChoices =>
         ViiperPushRateOption.All.Select(o => o.Label).ToArray();
@@ -360,7 +470,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     public string LinkTuningSummary =>
         "push=" + SelectedPushRateOption.Hz.ToString("F1") +
-        "Hz · ps5_imu=Accel x2/x2/-2, Gyro -" +
+        "Hz · ps5_imu=R7 fixed accel x2/x2/-2 gyro pitch-/yaw+/roll+ scale=" +
         SelectedPs5OutputImuTuning.GyroScalePitch.ToString("0.##") + "x" +
         " · stick=" + SelectedStickProcessingOption.Label +
         " · audio_guard=" + (AudioEndpointGuardEnabled ? "on" : "off") +
@@ -368,12 +478,16 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     public bool IsDualSenseSelected => selectedMode == ViiperVirtualMode.DualSenseLike;
     public bool IsDualSenseEdgeSelected => selectedMode == ViiperVirtualMode.DualSenseEdge;
+    public bool IsDualSenseProfessionalImuSelected => selectedMode == ViiperVirtualMode.DualSenseProfessionalImuTest;
     public bool IsPro2Selected => selectedMode == ViiperVirtualMode.Pro2;
     public bool IsXboxSelected => selectedMode == ViiperVirtualMode.Xbox;
+    public bool IsXboxProfessionalImuSelected => selectedMode == ViiperVirtualMode.XboxProfessionalImuTest;
     public bool IsDualSenseActive => Running && activeMode == ViiperVirtualMode.DualSenseLike;
     public bool IsDualSenseEdgeActive => Running && activeMode == ViiperVirtualMode.DualSenseEdge;
+    public bool IsDualSenseProfessionalImuActive => Running && activeMode == ViiperVirtualMode.DualSenseProfessionalImuTest;
     public bool IsPro2Active => Running && activeMode == ViiperVirtualMode.Pro2;
     public bool IsXboxActive => Running && activeMode == ViiperVirtualMode.Xbox;
+    public bool IsXboxProfessionalImuActive => Running && activeMode == ViiperVirtualMode.XboxProfessionalImuTest;
     public bool IsInputConnected =>
         inputSource.IsRunning &&
         inputSource.TryGetLatest(out _, out TimeSpan age) &&
@@ -395,21 +509,127 @@ public sealed class MainViewModel : INotifyPropertyChanged
     {
         ViiperVirtualMode.DualSenseLike => "KRATOS",
         ViiperVirtualMode.DualSenseEdge => "KRATOS EDGE",
+        ViiperVirtualMode.DualSenseProfessionalImuTest => "KRATOS · LAB",
         ViiperVirtualMode.Pro2 => "MARIO",
         ViiperVirtualMode.Xbox => "MASTER CHIEF",
+        ViiperVirtualMode.XboxProfessionalImuTest => "MASTER CHIEF · LAB",
         _ => ""
     };
     public string SelectedModeSubtitle => selectedMode switch
     {
         ViiperVirtualMode.DualSenseLike => "新和联胜 · DUALSENSE IDENTITY · 054C:0CE6",
         ViiperVirtualMode.DualSenseEdge => "PS5 EDGE · L4/R4 PADDLES · 054C:0DF2",
+        ViiperVirtualMode.DualSenseProfessionalImuTest => "PROFESSIONAL IMU TEST · RAW→G/DPS→DS RAW · HD HAPTIC",
         ViiperVirtualMode.Pro2 => "NINTENDO PROTOCOL · HD RUMBLE · 057E:2069",
         ViiperVirtualMode.Xbox => "XINPUT PROTOCOL · 045E:028E",
+        ViiperVirtualMode.XboxProfessionalImuTest => "PROFESSIONAL IMU TEST · DIAGNOSTIC ONLY · XINPUT",
         _ => ""
     };
     public string ModeHeadline => Running && activeMode.HasValue
         ? "ACTIVE LOADOUT · " + ActiveProfile.Label
         : "SELECTED LOADOUT · " + SelectedModeLabel;
+
+    public string ProfessionalBiasStatusText
+    {
+        get => professionalBiasStatusText;
+        private set { professionalBiasStatusText = value; OnPropertyChanged(); }
+    }
+
+    public string ProfessionalRawGyroText
+    {
+        get => professionalRawGyroText;
+        private set { professionalRawGyroText = value; OnPropertyChanged(); }
+    }
+
+    public string ProfessionalCorrectedGyroText
+    {
+        get => professionalCorrectedGyroText;
+        private set { professionalCorrectedGyroText = value; OnPropertyChanged(); }
+    }
+
+    public string ProfessionalOutputGyroText
+    {
+        get => professionalOutputGyroText;
+        private set { professionalOutputGyroText = value; OnPropertyChanged(); }
+    }
+
+    public string ProfessionalIntegratedAngleText
+    {
+        get => professionalIntegratedAngleText;
+        private set { professionalIntegratedAngleText = value; OnPropertyChanged(); }
+    }
+
+    public string ProfessionalNinetyDegreeTestText
+    {
+        get => professionalNinetyDegreeTestText;
+        private set { professionalNinetyDegreeTestText = value; OnPropertyChanged(); }
+    }
+
+    public IReadOnlyList<string> ProfessionalHidAuditModeChoices =>
+        Enum.GetNames<ProfessionalHidAuditMode>();
+
+    public string SelectedProfessionalHidAuditMode
+    {
+        get => selectedProfessionalHidAuditMode;
+        set
+        {
+            if (!Enum.TryParse(value, out ProfessionalHidAuditMode mode))
+            {
+                return;
+            }
+
+            string normalized = mode.ToString();
+            if (selectedProfessionalHidAuditMode == normalized)
+            {
+                return;
+            }
+
+            selectedProfessionalHidAuditMode = normalized;
+            string summary = professionalHidAuditController.SetMode(mode);
+            ProfessionalHidAuditStatusText = "HID Audit: " + summary;
+            AppendLog("[PRO_IMU_AUDIT] mode changed " + summary);
+            OnPropertyChanged();
+        }
+    }
+
+    public string ProfessionalStaticGyroXRaw
+    {
+        get => professionalStaticGyroXRaw;
+        set
+        {
+            professionalStaticGyroXRaw = value;
+            ApplyProfessionalStaticGyroRaw();
+            OnPropertyChanged();
+        }
+    }
+
+    public string ProfessionalStaticGyroYRaw
+    {
+        get => professionalStaticGyroYRaw;
+        set
+        {
+            professionalStaticGyroYRaw = value;
+            ApplyProfessionalStaticGyroRaw();
+            OnPropertyChanged();
+        }
+    }
+
+    public string ProfessionalStaticGyroZRaw
+    {
+        get => professionalStaticGyroZRaw;
+        set
+        {
+            professionalStaticGyroZRaw = value;
+            ApplyProfessionalStaticGyroRaw();
+            OnPropertyChanged();
+        }
+    }
+
+    public string ProfessionalHidAuditStatusText
+    {
+        get => professionalHidAuditStatusText;
+        private set { professionalHidAuditStatusText = value; OnPropertyChanged(); }
+    }
 
     public string LogText => log.ToString();
 
@@ -425,10 +645,99 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public ICommand ExportDiagnosticsLogCommand { get; }
     public ICommand StartDualSenseCommand { get; }
     public ICommand StartDualSenseEdgeCommand { get; }
+    public ICommand StartDualSenseProfessionalImuCommand { get; }
     public ICommand StartPro2Command { get; }
     public ICommand StartXboxCommand { get; }
+    public ICommand StartXboxProfessionalImuCommand { get; }
+    public ICommand CalibrateGyroBiasCommand { get; }
+    public ICommand ResetGyroBiasCommand { get; }
+    public ICommand ResetIntegralCommand { get; }
+    public ICommand StartPitch90TestCommand { get; }
+    public ICommand StartYaw90TestCommand { get; }
+    public ICommand StartRoll90TestCommand { get; }
+    public ICommand Stop90TestCommand { get; }
+    public ICommand PulseGyroXCommand { get; }
+    public ICommand PulseGyroYCommand { get; }
+    public ICommand PulseGyroZCommand { get; }
     public ICommand StopCommand { get; }
     public ICommand ClearLogCommand { get; }
+
+    private void ExecuteProfessionalImuAction(
+        string operation,
+        Func<ViiperBridgeSession, string> action)
+    {
+        if (session is not { HasProfessionalImuRuntime: true } activeSession)
+        {
+            string message = "[PRO_IMU] " + operation +
+                             " ignored: start PS5 / Professional IMU Test or Xbox / Professional IMU Test first.";
+            AppendLog(message);
+            Status = "请先进入 Professional IMU Test 模式。";
+            return;
+        }
+
+        string result = action(activeSession);
+        AppendLog("[PRO_IMU_UI] " + operation + ": " + result);
+        Status = result;
+    }
+
+    private void UpdateProfessionalImuSnapshot(ProfessionalImuUiSnapshot snapshot)
+    {
+        ProfessionalBiasStatusText = snapshot.BiasStatusText;
+        ProfessionalRawGyroText = snapshot.RawGyroText;
+        ProfessionalCorrectedGyroText = snapshot.CorrectedGyroText;
+        ProfessionalOutputGyroText = snapshot.OutputGyroText;
+        ProfessionalIntegratedAngleText = snapshot.IntegratedAngleText;
+        ProfessionalNinetyDegreeTestText = snapshot.NinetyDegreeTestText;
+    }
+
+    private void ApplyProfessionalGyroInversionSettings()
+    {
+        userSettings.ProfessionalInvertGyroPitch = professionalInvertGyroPitch;
+        userSettings.ProfessionalInvertGyroYaw = professionalInvertGyroYaw;
+        userSettings.ProfessionalInvertGyroRoll = professionalInvertGyroRoll;
+        SaveUserSettings("[PRO_IMU]");
+        string summary = ProfessionalGyroInversionSummary;
+        AppendLog("[PRO_IMU] gyro_output_inversion " + summary +
+                  (session is { HasProfessionalImuRuntime: true }
+                      ? " apply=immediate"
+                      : " apply=next_professional_session"));
+        if (session is { HasProfessionalImuRuntime: true } activeSession)
+        {
+            AppendLog("[PRO_IMU] " + activeSession.SetProfessionalGyroInversion(
+                professionalInvertGyroPitch,
+                professionalInvertGyroYaw,
+                professionalInvertGyroRoll));
+        }
+    }
+
+    private void ApplyProfessionalStaticGyroRaw()
+    {
+        if (!short.TryParse(professionalStaticGyroXRaw, out short x) ||
+            !short.TryParse(professionalStaticGyroYRaw, out short y) ||
+            !short.TryParse(professionalStaticGyroZRaw, out short z))
+        {
+            ProfessionalHidAuditStatusText = "HID Audit: static raw 输入无效，范围应为 -32768..32767。";
+            return;
+        }
+
+        string summary = professionalHidAuditController.SetStaticRaw(x, y, z);
+        ProfessionalHidAuditStatusText = "HID Audit: " + summary;
+        AppendLog("[PRO_IMU_AUDIT] static raw changed " + summary);
+    }
+
+    private void StartProfessionalHidPulse(string axis)
+    {
+        string summary = professionalHidAuditController.StartPulse(
+            axis,
+            8192,
+            TimeSpan.FromSeconds(2),
+            Stopwatch.GetTimestamp());
+        selectedProfessionalHidAuditMode = ProfessionalHidAuditMode.ForceFinalGyroSyntheticPulse.ToString();
+        OnPropertyChanged(nameof(SelectedProfessionalHidAuditMode));
+        ProfessionalHidAuditStatusText = "HID Audit: synthetic pulse " + axis + " +8192 raw for 2s · " + summary;
+        AppendLog("[PRO_IMU_AUDIT] synthetic pulse start axis=" + axis +
+                  " raw=8192 duration_seconds=2 " + summary);
+    }
 
     private async Task PingAsync(CancellationToken cancellationToken)
     {
@@ -631,7 +940,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
                       " --api.device-handler-connect-timeout=60s" +
                       " --usb.write-batch-flush-interval=0ms" +
                       " --update-notify=none" +
-                      " --log.level=debug" +
+                      " --log.level=info" +
                       " --log.file=\"" + logPath + "\"";
         ProcessStartInfo startInfo = new()
         {
@@ -1292,6 +1601,16 @@ public sealed class MainViewModel : INotifyPropertyChanged
             GyroAxisInversion gyroAxisInversion = default;
             Ps5ImuMappingOption ps5ImuMapping = Ps5ImuMappingOption.Default;
             Ps5OutputImuTuning ps5OutputImuTuning = SelectedPs5OutputImuTuning;
+            ProfessionalImuOptions professionalImuOptions = profile.IsProfessionalImuTest
+                ? ProfessionalImuOptions.ForTestModes(
+                    ps5OutputImuTuning,
+                    professionalInvertGyroPitch,
+                    professionalInvertGyroYaw,
+                    professionalInvertGyroRoll)
+                : ProfessionalImuOptions.Default;
+            string professionalTelemetry = professionalImuOptions.Enabled
+                ? professionalImuOptions.TelemetryValue
+                : "disabled";
             ViiperDeviceProfile runtimeProfile = profile with { SendInterval = pushRate.Interval };
             AppendLog("[START] mode=" + runtimeProfile.Label +
                       " type=" + runtimeProfile.DeviceType +
@@ -1301,15 +1620,54 @@ public sealed class MainViewModel : INotifyPropertyChanged
                       " ps5_imu_map=" + ps5ImuMapping.Mapping.TelemetryValue +
                       " ps5_output_imu=" + ps5OutputImuTuning.TelemetryValue +
                       " gyro_axis_inv=" + gyroAxisInversion.TelemetryValue +
+                      " professional_imu=" + professionalTelemetry +
                       " backend=" + SelectedBackendOption.Label +
                       " flush=immediate");
-            if (runtimeProfile.Mode == ViiperVirtualMode.DualSenseLike)
+            if (runtimeProfile.Mode == ViiperVirtualMode.DualSenseLike ||
+                runtimeProfile.Mode == ViiperVirtualMode.DualSenseProfessionalImuTest)
             {
                 AppendDualSenseAudioEndpointHint();
             }
             else if (runtimeProfile.Mode == ViiperVirtualMode.DualSenseEdge)
             {
-                AppendLog("[EDGE_IDENTITY] type=dualsenseedge vid=0x054c pid=0x0df2 product=\"DualSense Edge Wireless Controller\" paddles=L4/R4 feedback=ordinary_6byte");
+                AppendLog("[EDGE_IDENTITY] type=dualsenseedge vid=0x054c pid=0x0df2 product=\"DualSense Edge Wireless Controller\" paddles=L4/R4 feedback=ordinary_6byte edge_hd_status=blocked_by_viiper_feedback_contract");
+            }
+            if (runtimeProfile.Mode == ViiperVirtualMode.DualSenseProfessionalImuTest)
+            {
+                AppendLog("[PRO_IMU] PS5 test mode uses DualSense haptic identity, so ordinary PS5 HD audio-to-rumble path is reused.");
+            }
+            if (runtimeProfile.Mode == ViiperVirtualMode.XboxProfessionalImuTest)
+            {
+                AppendLog("[PRO_IMU] Xbox test mode does not claim native gyro; XboxOutputMode=Off by default, IMU is diagnostic CSV/log only.");
+            }
+            if (runtimeProfile.IsProfessionalImuTest)
+            {
+                AppendLog("[PRO_IMU] Professional IMU mode entered output_mode=" + runtimeProfile.Label +
+                          " sample_handling=" + professionalImuOptions.OutputSampleMode +
+                          " source_rate=current_ble" +
+                          " virtual_report_rate=" + professionalImuOptions.OutputReportRateMode +
+                          " ProjectAccel=+X,+Y,-Z ProjectGyro=+X,-Z,+Y" +
+                          " GyroScale=" + ps5OutputImuTuning.GyroScalePitch.ToString("0.###") +
+                          "," + ps5OutputImuTuning.GyroScaleYaw.ToString("0.###") +
+                          "," + ps5OutputImuTuning.GyroScaleRoll.ToString("0.###") +
+                          " DualSenseGyroRawPerDps=" + ProfessionalImuConverter.ProfessionalDualSenseGyroRawPerDps.ToString("0.###") +
+                          " output_gyro_invert_pitch=" + professionalInvertGyroPitch.ToString().ToLowerInvariant() +
+                          " output_gyro_invert_yaw=" + professionalInvertGyroYaw.ToString().ToLowerInvariant() +
+                          " output_gyro_invert_roll=" + professionalInvertGyroRoll.ToString().ToLowerInvariant() +
+                          " bias_status=NotCalibrated bias_source=none" +
+                          " professional_gyro_uncalibrated_behavior=" + professionalImuOptions.ProfessionalGyroUncalibratedBehavior +
+                          " output_gyro_muted_until_calibrated=true" +
+                          " integral_state=Disabled integral_running=false" +
+                          " hid_audit_builder=" + DualSenseProfessionalHidLayout.BuilderName +
+                          " hid_audit_report_id=" + DualSenseProfessionalHidLayout.ReportIdLabel +
+                          " hid_audit_report_len=" + DualSenseProfessionalHidLayout.ReportLength +
+                          " hid_audit_gyro_offsets=" + DualSenseProfessionalHidLayout.GyroXOffset +
+                          "," + DualSenseProfessionalHidLayout.GyroYOffset +
+                          "," + DualSenseProfessionalHidLayout.GyroZOffset +
+                          " hid_audit_accel_offsets=" + DualSenseProfessionalHidLayout.AccelXOffset +
+                          "," + DualSenseProfessionalHidLayout.AccelYOffset +
+                          "," + DualSenseProfessionalHidLayout.AccelZOffset +
+                          " legacy_ps5_mapper_after_professional=false");
             }
             ResolveExperimentalBackendSelection(runtimeProfile);
             var progress = new Progress<string>(AppendLog);
@@ -1332,11 +1690,15 @@ public sealed class MainViewModel : INotifyPropertyChanged
                 gyro.Mode,
                 gyroAxisInversion,
                 ps5ImuMapping.Mapping,
-                ps5OutputImuTuning);
+                ps5OutputImuTuning,
+                professionalImuOptions,
+                professionalHidAuditController,
+                new Progress<ProfessionalImuUiSnapshot>(UpdateProfessionalImuSnapshot));
             session = createdSession;
             await createdSession.StartAsync(cancellationToken);
             SetActiveMode(runtimeProfile.Mode);
-            if (runtimeProfile.Mode == ViiperVirtualMode.DualSenseLike &&
+            if ((runtimeProfile.Mode == ViiperVirtualMode.DualSenseLike ||
+                 runtimeProfile.Mode == ViiperVirtualMode.DualSenseProfessionalImuTest) &&
                 AudioEndpointGuardEnabled)
             {
                 await ApplyDualSenseAudioGuardAsync(cancellationToken);
@@ -1465,9 +1827,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
         Directory.CreateDirectory(directory);
         string path = Path.Combine(
             directory,
-            "diagnostics_v6_2_18_" + DateTime.Now.ToString("yyyyMMdd_HHmmss") + ".log");
+            "diagnostics_v6_2_20_" + DateTime.Now.ToString("yyyyMMdd_HHmmss") + ".log");
         var builder = new StringBuilder();
-        builder.AppendLine("# V6.2.18 diagnostics export");
+        builder.AppendLine("# V6.2.20 diagnostics export");
         builder.AppendLine("# session_log=" + sessionLog.FilePath);
         builder.AppendLine();
         foreach (string line in dump)
@@ -1701,7 +2063,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "PRO2WirelessReceiverControlBoard",
             "embedded",
-            "v6.2.18",
+            "v6.2.20",
             "viiper",
             "haptic-v0.8.0");
         Directory.CreateDirectory(root);
@@ -2067,10 +2429,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private StickProcessingOption SelectedStickProcessingOption =>
         StickProcessingOption.FromLabel(selectedStickProcessingLabel);
     private Ps5OutputImuTuning SelectedPs5OutputImuTuning =>
-        new Ps5OutputImuTuning(
-            userSettings.Ps5GyroScalePitch,
-            userSettings.Ps5GyroScaleYaw,
-            userSettings.Ps5GyroScaleRoll).Normalize();
+        Ps5OutputImuTuning.Default;
 
     private static ViiperDeviceProfile ProfileFor(ViiperVirtualMode mode)
     {
@@ -2118,8 +2477,10 @@ public sealed class MainViewModel : INotifyPropertyChanged
         SaveUserSettings("[MODE_SELECT]");
         OnPropertyChanged(nameof(IsDualSenseSelected));
         OnPropertyChanged(nameof(IsDualSenseEdgeSelected));
+        OnPropertyChanged(nameof(IsDualSenseProfessionalImuSelected));
         OnPropertyChanged(nameof(IsPro2Selected));
         OnPropertyChanged(nameof(IsXboxSelected));
+        OnPropertyChanged(nameof(IsXboxProfessionalImuSelected));
         OnPropertyChanged(nameof(SelectedModeLabel));
         OnPropertyChanged(nameof(SelectedHeroName));
         OnPropertyChanged(nameof(SelectedModeSubtitle));
@@ -2131,8 +2492,10 @@ public sealed class MainViewModel : INotifyPropertyChanged
         activeMode = mode;
         OnPropertyChanged(nameof(IsDualSenseActive));
         OnPropertyChanged(nameof(IsDualSenseEdgeActive));
+        OnPropertyChanged(nameof(IsDualSenseProfessionalImuActive));
         OnPropertyChanged(nameof(IsPro2Active));
         OnPropertyChanged(nameof(IsXboxActive));
+        OnPropertyChanged(nameof(IsXboxProfessionalImuActive));
         OnPropertyChanged(nameof(ModeHeadline));
     }
 
@@ -2167,9 +2530,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
             log.Append(prefix).AppendLine(line);
             persisted.Append(prefix).AppendLine(line);
         }
-        if (log.Length > 160000)
+        if (log.Length > MaxUiLogCharacters)
         {
-            log.Remove(0, log.Length - 90000);
+            log.Remove(0, log.Length - TrimmedUiLogCharacters);
             log.Insert(0, "[UI LOG TRIMMED]\r\n");
         }
         sessionLog.Write(persisted.ToString());

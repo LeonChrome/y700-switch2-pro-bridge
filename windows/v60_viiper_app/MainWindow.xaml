@@ -2,7 +2,7 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:automation="clr-namespace:System.Windows.Automation;assembly=PresentationCore"
-        Title="PRO2 手柄无线接收器控制板 V6.2.18 · 角色选择大厅"
+        Title="PRO2 手柄无线接收器控制板 V6.2.20 · 角色选择大厅"
         Width="1440"
         Height="940"
         MinWidth="1160"
@@ -434,7 +434,7 @@
                                         <DropShadowEffect Color="#5EF2A5" BlurRadius="12" ShadowDepth="0"/>
                                     </Ellipse.Effect>
                                 </Ellipse>
-                                <TextBlock FontWeight="Bold" Foreground="#C9FCE0" Text="V6.2.18 EDGE RELEASE"/>
+                                <TextBlock FontWeight="Bold" Foreground="#C9FCE0" Text="V6.2.20 正式版"/>
                             </StackPanel>
                         </Border>
                         <Button Margin="0,9,0,0" HorizontalAlignment="Right"
@@ -853,7 +853,7 @@
                                                Foreground="#D9ECFF" Text="{Binding RumbleMultiplierText}"/>
                                 </Border>
                             </StackPanel>
-                            <StackPanel Margin="0,8,0,0" Orientation="Horizontal" VerticalAlignment="Center">
+                            <StackPanel Margin="0,8,0,0" Orientation="Horizontal" VerticalAlignment="Center" Visibility="Collapsed">
                                 <TextBlock VerticalAlignment="Center" Style="{StaticResource SectionLabel}"
                                            Text="PS5 Gyro倍率"/>
                                 <Slider Width="150" Margin="12,0,10,0"
@@ -898,7 +898,166 @@
                                        MaxWidth="760"
                                        Foreground="#89A7CF"
                                        FontSize="11"
-                                       Text="V6.2.18：PS5/Edge 共用输出层 IMU 修正；普通 PS5 保留 HD haptic，Edge 只启用 L4/R4 背键与普通反馈。"/>
+                                       Text="V6.2.20：PS5 / Edge 陀螺仪已固化 R7 验证方向；测试模式和 HID Audit 不在正式界面显示。"/>
+                            <StackPanel Margin="0,8,0,0"
+                                        Orientation="Horizontal"
+                                        VerticalAlignment="Center"
+                                        Visibility="Collapsed">
+                                <TextBlock VerticalAlignment="Center" Style="{StaticResource SectionLabel}"
+                                           Text="IMU Lab"/>
+                                <Button Margin="12,0,0,0"
+                                        MinWidth="166"
+                                        Padding="10,5"
+                                        Style="{StaticResource ConsoleButton}"
+                                        Content="PS5 专业IMU测试"
+                                        Command="{Binding StartDualSenseProfessionalImuCommand}"
+                                        IsEnabled="{Binding CanOperate}"
+                                        ToolTip="启动 DualSense haptic identity，使用 raw/g/dps/DualSense raw 专业 IMU 管线并导出 CSV。"/>
+                                <Button Margin="10,0,0,0"
+                                        MinWidth="172"
+                                        Padding="10,5"
+                                        Style="{StaticResource ConsoleButton}"
+                                        Content="Xbox 专业IMU诊断"
+                                        Command="{Binding StartXboxProfessionalImuCommand}"
+                                        IsEnabled="{Binding CanOperate}"
+                                        ToolTip="启动 XInput 测试 profile；默认不把 gyro 注入右摇杆，只记录专业 IMU CSV/日志。"/>
+                            </StackPanel>
+                            <Border Margin="0,8,0,0"
+                                    Padding="10,8"
+                                    MaxWidth="760"
+                                    CornerRadius="12"
+                                    Background="#162033"
+                                    BorderBrush="#31415F"
+                                    BorderThickness="1"
+                                    Visibility="Collapsed">
+                                <StackPanel>
+                                    <TextBlock FontSize="11" FontWeight="Bold" Foreground="#FBBF24"
+                                               Text="{Binding ProfessionalBiasStatusText}"/>
+                                    <TextBlock Margin="0,6,0,0" FontSize="10" FontWeight="Bold" Foreground="#94A3B8"
+                                               Text="原始陀螺仪 raw"/>
+                                    <TextBlock Margin="0,4,0,0" FontSize="11" Foreground="#C7D2FE"
+                                               Text="{Binding ProfessionalRawGyroText}"/>
+                                    <TextBlock Margin="0,6,0,0" FontSize="10" FontWeight="Bold" Foreground="#94A3B8"
+                                               Text="校正后角速度 °/s · Preview"/>
+                                    <TextBlock Margin="0,2,0,0" FontSize="11" Foreground="#BAE6FD"
+                                               Text="{Binding ProfessionalCorrectedGyroText}"/>
+                                    <TextBlock Margin="0,6,0,0" FontSize="10" FontWeight="Bold" Foreground="#94A3B8"
+                                               Text="输出陀螺仪 °/s"/>
+                                    <TextBlock Margin="0,2,0,0" FontSize="11" Foreground="#FDE68A"
+                                               Text="{Binding ProfessionalOutputGyroText}"/>
+                                    <StackPanel Margin="0,6,0,0" Orientation="Horizontal">
+                                        <TextBlock VerticalAlignment="Center" FontSize="10" FontWeight="Bold" Foreground="#94A3B8"
+                                                   Text="输出方向反向"/>
+                                        <CheckBox Margin="10,0,0,0"
+                                                  Style="{StaticResource AxisCheckBox}"
+                                                  Content="Pitch / 俯仰"
+                                                  IsChecked="{Binding ProfessionalInvertGyroPitch, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                  ToolTip="只影响 Professional IMU 输出层；不改底层 ProjectGyro。"/>
+                                        <CheckBox Style="{StaticResource AxisCheckBox}"
+                                                  Content="Yaw / 偏航"
+                                                  IsChecked="{Binding ProfessionalInvertGyroYaw, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                  ToolTip="r7 默认开启：偏航方向反向输出。"/>
+                                        <CheckBox Style="{StaticResource AxisCheckBox}"
+                                                  Content="Roll / 横滚"
+                                                  IsChecked="{Binding ProfessionalInvertGyroRoll, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                  ToolTip="r7 默认开启：横滚方向反向输出。"/>
+                                    </StackPanel>
+                                    <TextBlock Margin="0,2,0,0" FontSize="10" Foreground="#9CA3AF"
+                                               Text="{Binding ProfessionalGyroInversionSummary}"/>
+                                    <TextBlock Margin="0,6,0,0" FontSize="10" FontWeight="Bold" Foreground="#94A3B8"
+                                               Text="90°测试积分角度 °"/>
+                                    <TextBlock Margin="0,2,0,0" FontSize="11" Foreground="#C4B5FD"
+                                               Text="{Binding ProfessionalIntegratedAngleText}"/>
+                                    <TextBlock Margin="0,2,0,0" FontSize="11" Foreground="#A7F3D0"
+                                               Text="{Binding ProfessionalNinetyDegreeTestText}"/>
+                                    <StackPanel Margin="0,8,0,0" Orientation="Horizontal">
+                                        <Button MinWidth="154"
+                                                Padding="8,5"
+                                                Style="{StaticResource ConsoleButton}"
+                                                Content="Calibrate Gyro Bias 3s"
+                                                Command="{Binding CalibrateGyroBiasCommand}"
+                                                ToolTip="手柄静止 3 秒后提交固定 gyro raw bias；失败不会覆盖旧 bias。"/>
+                                        <Button Margin="8,0,0,0"
+                                                MinWidth="112"
+                                                Padding="8,5"
+                                                Style="{StaticResource ConsoleButton}"
+                                                Content="Reset Bias"
+                                                Command="{Binding ResetGyroBiasCommand}"/>
+                                        <Button Margin="8,0,0,0"
+                                                MinWidth="112"
+                                                Padding="8,5"
+                                                Style="{StaticResource ConsoleButton}"
+                                                Content="Reset Integral"
+                                                Command="{Binding ResetIntegralCommand}"/>
+                                    </StackPanel>
+                                    <StackPanel Margin="0,7,0,0" Orientation="Horizontal">
+                                        <Button MinWidth="128"
+                                                Padding="8,5"
+                                                Style="{StaticResource ConsoleButton}"
+                                                Content="Start Pitch 90°"
+                                                Command="{Binding StartPitch90TestCommand}"/>
+                                        <Button Margin="8,0,0,0"
+                                                MinWidth="128"
+                                                Padding="8,5"
+                                                Style="{StaticResource ConsoleButton}"
+                                                Content="Start Yaw 90°"
+                                                Command="{Binding StartYaw90TestCommand}"/>
+                                        <Button Margin="8,0,0,0"
+                                                MinWidth="128"
+                                                Padding="8,5"
+                                                Style="{StaticResource ConsoleButton}"
+                                                Content="Start Roll 90°"
+                                                Command="{Binding StartRoll90TestCommand}"/>
+                                        <Button Margin="8,0,0,0"
+                                                MinWidth="112"
+                                                Padding="8,5"
+                                                Style="{StaticResource ConsoleButton}"
+                                                Content="Stop 90° Test"
+                                                Command="{Binding Stop90TestCommand}"/>
+                                    </StackPanel>
+                                    <TextBlock Margin="0,10,0,0" FontSize="10" FontWeight="Bold" Foreground="#94A3B8"
+                                               Text="Final HID Report Audit"/>
+                                    <StackPanel Margin="0,5,0,0" Orientation="Horizontal" VerticalAlignment="Center">
+                                        <ComboBox Width="214"
+                                                  ItemsSource="{Binding ProfessionalHidAuditModeChoices}"
+                                                  SelectedItem="{Binding SelectedProfessionalHidAuditMode, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
+                                        <Button Margin="8,0,0,0"
+                                                MinWidth="136"
+                                                Padding="8,5"
+                                                Style="{StaticResource ConsoleButton}"
+                                                Content="Pulse Gyro X +8192"
+                                                Command="{Binding PulseGyroXCommand}"/>
+                                        <Button Margin="8,0,0,0"
+                                                MinWidth="136"
+                                                Padding="8,5"
+                                                Style="{StaticResource ConsoleButton}"
+                                                Content="Pulse Gyro Y +8192"
+                                                Command="{Binding PulseGyroYCommand}"/>
+                                        <Button Margin="8,0,0,0"
+                                                MinWidth="136"
+                                                Padding="8,5"
+                                                Style="{StaticResource ConsoleButton}"
+                                                Content="Pulse Gyro Z +8192"
+                                                Command="{Binding PulseGyroZCommand}"/>
+                                    </StackPanel>
+                                    <StackPanel Margin="0,6,0,0" Orientation="Horizontal" VerticalAlignment="Center">
+                                        <TextBlock VerticalAlignment="Center" FontSize="11" Foreground="#CBD5E1"
+                                                   Text="Static raw X"/>
+                                        <TextBox Margin="6,0,0,0" Width="70"
+                                                 Text="{Binding ProfessionalStaticGyroXRaw, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
+                                        <TextBlock Margin="10,0,0,0" VerticalAlignment="Center" FontSize="11" Foreground="#CBD5E1"
+                                                   Text="Y"/>
+                                        <TextBox Margin="6,0,0,0" Width="70"
+                                                 Text="{Binding ProfessionalStaticGyroYRaw, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
+                                        <TextBlock Margin="10,0,0,0" VerticalAlignment="Center" FontSize="11" Foreground="#CBD5E1"
+                                                   Text="Z"/>
+                                        <TextBox Margin="6,0,0,0" Width="70"
+                                                 Text="{Binding ProfessionalStaticGyroZRaw, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
+                                    </StackPanel>
+                                    <TextBlock Margin="0,4,0,0" FontSize="11" Foreground="#F9A8D4"
+                                               Text="{Binding ProfessionalHidAuditStatusText}"/>
+                                </StackPanel>
+                            </Border>
                             <Grid Margin="0,8,0,0" MaxWidth="560">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="Auto"/>

@@ -118,10 +118,12 @@ public sealed class Pro2HidReportParser
 
         if (report.Length >= 49)
         {
+            AttachRawImuSamples(state, report, 13, 3);
             ApplyMotionSample(state, report.Slice(37, 12));
         }
         else if (report.Length >= 25)
         {
+            AttachRawImuSamples(state, report, 13, 1);
             ApplyMotionSample(state, report.Slice(13, 12));
         }
     }
@@ -139,6 +141,7 @@ public sealed class Pro2HidReportParser
 
         if (payload.Length >= 60)
         {
+            AttachRawImuSamples(state, payload, 48, 3);
             ApplyMotionSample(state, payload.Slice(48, 12));
         }
     }
@@ -274,6 +277,19 @@ public sealed class Pro2HidReportParser
         state.GyroY = BinaryPrimitives.ReadInt16LittleEndian(sample.Slice(8, 2));
         state.GyroZ = BinaryPrimitives.ReadInt16LittleEndian(sample.Slice(10, 2));
         motion.Apply(state);
+    }
+
+    private static void AttachRawImuSamples(
+        GamepadState state,
+        ReadOnlySpan<byte> payload,
+        int offset,
+        int maxSamples)
+    {
+        SwitchImuRawBlock block =
+            ProfessionalImuConverter.DecodeSwitchImuSamples(payload, offset, maxSamples);
+        state.SwitchRawImuSamples = block.Samples;
+        state.SwitchRawImuOffset = block.Offset;
+        state.SwitchRawImuBytesHex = block.RawBytesHex;
     }
 
     private sealed class AxisCalibration

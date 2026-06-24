@@ -51,6 +51,11 @@ public sealed class GamepadState
     public short GyroX { get; set; }
     public short GyroY { get; set; }
     public short GyroZ { get; set; }
+    public SwitchImuRawSample[] SwitchRawImuSamples { get; set; } = [];
+    public int SwitchRawImuOffset { get; set; } = -1;
+    public string SwitchRawImuBytesHex { get; set; } = "";
+    public long SourceTimestampTicks { get; set; }
+    public ulong RawNotificationSequence { get; set; }
     public byte BatteryPercent { get; set; } = BatteryUnknown;
     public bool BatteryCharging { get; set; }
     public uint Updates { get; set; }
@@ -78,6 +83,11 @@ public interface IGamepadInputSource : IAsyncDisposable
 public interface IGamepadInputMetricsSource
 {
     string MetricsSummary { get; }
+}
+
+public interface IGamepadInputRateSource
+{
+    double CurrentParsedRateHz { get; }
 }
 
 public interface IGamepadRuntimeTelemetrySink

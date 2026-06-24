@@ -17,6 +17,7 @@ namespace Y700Switch2V60Viiper;
 public sealed class Pro2BleInputSource :
     IGamepadInputSource,
     IGamepadInputMetricsSource,
+    IGamepadInputRateSource,
     IGamepadRuntimeTelemetrySink,
     IGamepadOutputSink
 {
@@ -29,7 +30,8 @@ public sealed class Pro2BleInputSource :
     private const ushort FastestLegacyConnectionIntervalUnits = 6;
     private const ushort MinimumAcceptedConnectionIntervalUnits = 12;
     private const double MinimumTargetNotifyRateHz = 62.0;
-    private const double MinimumUsableNotifyRateHz = 40.0;
+    private const double MinimumUsableNotifyRateHz = 10.0;
+    private const uint MinimumUsableNotifications = 8;
     private const double FastNotifyRateHz = 115.0;
     private const double LinkHealthReassertGapMs = 55.0;
     private const double LinkHealthReassertCooldownMs = 8000.0;
@@ -164,6 +166,17 @@ public sealed class Pro2BleInputSource :
             lock (gate)
             {
                 return BuildMetricsSummaryNoLock();
+            }
+        }
+    }
+
+    public double CurrentParsedRateHz
+    {
+        get
+        {
+            lock (gate)
+            {
+                return SampleRate(updates, firstParsedNotifyTicks, lastParsedNotifyTicks);
             }
         }
     }
@@ -1189,6 +1202,21 @@ public sealed class Pro2BleInputSource :
             return;
         }
 
+        state.SourceTimestampTicks = nowTicks;
+        state.RawNotificationSequence = parseSeq;
+        if (state.SwitchRawImuSamples.Length > 0)
+        {
+            SwitchImuRawSample[] stamped = new SwitchImuRawSample[state.SwitchRawImuSamples.Length];
+            for (int i = 0; i < stamped.Length; i++)
+            {
+                stamped[i] = ProfessionalImuConverter.Stamp(
+                    state.SwitchRawImuSamples[i],
+                    nowTicks,
+                    parseSeq);
+            }
+            state.SwitchRawImuSamples = stamped;
+        }
+
         Pro2InputFilterResult filterResult;
         GamepadState stableState;
         GamepadState rawStateSnapshot;
@@ -1444,7 +1472,7 @@ public sealed class Pro2BleInputSource :
         BlePerformanceSnapshot failed = GetPerformanceSnapshot();
         if (HasUsableLivePerformance(failed))
         {
-            string warning = "BLE 输入保持 live，但没有达到 66.7 Hz 目标：" +
+            string warning = "BLE 输入保持 live，但没有达到 66.7 Hz 目标；V6.2.20 将自动降低虚拟 USB 输出刷新率：" +
                              FormatPerformanceSnapshot(failed);
             lock (gate)
             {
@@ -1458,8 +1486,8 @@ public sealed class Pro2BleInputSource :
         lock (gate)
         {
             linkRateClass = "below_minimum";
-            lastPerformanceFailure = "BLE 链路未达到最低 66.7 Hz 等级：" +
-                                     FormatPerformanceSnapshot(failed);
+            lastPerformanceFailure = "BLE 链路未达到最低 10 Hz live 等级：" +
+                                      FormatPerformanceSnapshot(failed);
             status = lastPerformanceFailure;
         }
         progress.Report("[PRO2_BLE_LINK] REJECTED " + lastPerformanceFailure);
@@ -1998,8 +2026,8 @@ public sealed class Pro2BleInputSource :
         uint rawNotifications,
         uint parsedNotifications)
     {
-        return rawNotifications >= 40 &&
-               parsedNotifications >= 40 &&
+        return rawNotifications >= MinimumUsableNotifications &&
+               parsedNotifications >= MinimumUsableNotifications &&
                rawNotifyRateHz >= MinimumUsableNotifyRateHz &&
                parsedNotifyRateHz >= MinimumUsableNotifyRateHz &&
                parsedNotifications >= rawNotifications * 0.9;
@@ -2016,7 +2044,11 @@ public sealed class Pro2BleInputSource :
         }
         else if (degraded)
         {
-            rateClass = snapshot.ConnectionIntervalUnits <= MinimumAcceptedConnectionIntervalUnits
+            rateClass = snapshot.ParsedRateHz < 15.0
+                ? "10hz_link_degraded"
+                : snapshot.ParsedRateHz < 25.0
+                    ? "20hz_link_degraded"
+                    : snapshot.ConnectionIntervalUnits <= MinimumAcceptedConnectionIntervalUnits
                 ? "66.7hz_link_degraded"
                 : "live_degraded";
         }

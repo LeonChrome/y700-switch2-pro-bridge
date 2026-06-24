@@ -1,5 +1,6 @@
 using System;
 using System.Buffers.Binary;
+using System.Diagnostics;
 using Y700Switch2V60Viiper;
 
 static void Expect(bool condition, string message)
@@ -7,6 +8,16 @@ static void Expect(bool condition, string message)
     if (!condition)
     {
         throw new InvalidOperationException(message);
+    }
+}
+
+static void ExpectNear(double actual, double expected, double tolerance, string message)
+{
+    if (Math.Abs(actual - expected) > tolerance)
+    {
+        throw new InvalidOperationException(
+            message + " actual=" + actual.ToString("0.######") +
+            " expected=" + expected.ToString("0.######"));
     }
 }
 
@@ -172,8 +183,8 @@ motionState.AccelY = 8192;
 motionState.AccelZ = 20;
 byte[] dsMotion = VirtualPadPackets.FromGamepad(ViiperDeviceProfile.DualSenseLike, motionState);
 Expect(BinaryPrimitives.ReadInt16LittleEndian(dsMotion.AsSpan(21, 2)) == 100, "DualSense PS5 gyro X is inverted after existing mapping");
-Expect(BinaryPrimitives.ReadInt16LittleEndian(dsMotion.AsSpan(23, 2)) == 300, "DualSense PS5 gyro Y is inverted after existing mapping");
-Expect(BinaryPrimitives.ReadInt16LittleEndian(dsMotion.AsSpan(25, 2)) == 200, "DualSense PS5 gyro Z is inverted after existing mapping");
+Expect(BinaryPrimitives.ReadInt16LittleEndian(dsMotion.AsSpan(23, 2)) == -300, "DualSense PS5 gyro Y follows R7 yaw direction");
+Expect(BinaryPrimitives.ReadInt16LittleEndian(dsMotion.AsSpan(25, 2)) == -200, "DualSense PS5 gyro Z follows R7 roll direction");
 Expect(BinaryPrimitives.ReadInt16LittleEndian(dsMotion.AsSpan(27, 2)) == -20, "DualSense PS5 accel X is doubled without sign change");
 Expect(BinaryPrimitives.ReadInt16LittleEndian(dsMotion.AsSpan(29, 2)) == 40, "DualSense PS5 accel Y is doubled without sign change");
 Expect(BinaryPrimitives.ReadInt16LittleEndian(dsMotion.AsSpan(31, 2)) == 16384, "DualSense PS5 accel Z is doubled and sign-flipped");
@@ -184,24 +195,24 @@ byte[] dsMotionScaled = VirtualPadPackets.FromGamepad(
     motionState,
     ps5OutputImuTuning: new Ps5OutputImuTuning(2.0, 0.5, 1.5));
 Expect(BinaryPrimitives.ReadInt16LittleEndian(dsMotionScaled.AsSpan(21, 2)) == 200, "DualSense PS5 gyro pitch scale is configurable");
-Expect(BinaryPrimitives.ReadInt16LittleEndian(dsMotionScaled.AsSpan(23, 2)) == 150, "DualSense PS5 gyro yaw scale is configurable");
-Expect(BinaryPrimitives.ReadInt16LittleEndian(dsMotionScaled.AsSpan(25, 2)) == 300, "DualSense PS5 gyro roll scale is configurable");
+Expect(BinaryPrimitives.ReadInt16LittleEndian(dsMotionScaled.AsSpan(23, 2)) == -150, "DualSense PS5 gyro yaw scale follows R7 direction");
+Expect(BinaryPrimitives.ReadInt16LittleEndian(dsMotionScaled.AsSpan(25, 2)) == -300, "DualSense PS5 gyro roll scale follows R7 direction");
 Expect(BinaryPrimitives.ReadInt16LittleEndian(dsMotionScaled.AsSpan(31, 2)) == 16384, "DualSense PS5 gyro scale does not affect accel");
 byte[] dsMotionInverted = VirtualPadPackets.FromGamepad(
     ViiperDeviceProfile.DualSenseLike,
     motionState,
     new GyroAxisInversion(false, true, false));
 Expect(BinaryPrimitives.ReadInt16LittleEndian(dsMotionInverted.AsSpan(21, 2)) == 100, "DualSense inverted keeps final gyro X correction");
-Expect(BinaryPrimitives.ReadInt16LittleEndian(dsMotionInverted.AsSpan(23, 2)) == -300, "DualSense inverted Y is still followed by final PS5 sign correction");
-Expect(BinaryPrimitives.ReadInt16LittleEndian(dsMotionInverted.AsSpan(25, 2)) == 200, "DualSense inverted keeps final gyro Z correction");
+Expect(BinaryPrimitives.ReadInt16LittleEndian(dsMotionInverted.AsSpan(23, 2)) == 300, "DualSense inverted Y is followed by R7 yaw correction");
+Expect(BinaryPrimitives.ReadInt16LittleEndian(dsMotionInverted.AsSpan(25, 2)) == -200, "DualSense inverted keeps R7 gyro Z correction");
 Expect(BinaryPrimitives.ReadInt16LittleEndian(dsMotionInverted.AsSpan(31, 2)) == 16384, "DualSense inverted leaves accel output correction unchanged");
 byte[] dsMotionXzInverted = VirtualPadPackets.FromGamepad(
     ViiperDeviceProfile.DualSenseLike,
     motionState,
     new GyroAxisInversion(true, false, true));
 Expect(BinaryPrimitives.ReadInt16LittleEndian(dsMotionXzInverted.AsSpan(21, 2)) == -100, "DualSense X switch is followed by final PS5 sign correction");
-Expect(BinaryPrimitives.ReadInt16LittleEndian(dsMotionXzInverted.AsSpan(23, 2)) == 300, "DualSense X/Z switch keeps final gyro Y correction");
-Expect(BinaryPrimitives.ReadInt16LittleEndian(dsMotionXzInverted.AsSpan(25, 2)) == -200, "DualSense Z switch is followed by final PS5 sign correction");
+Expect(BinaryPrimitives.ReadInt16LittleEndian(dsMotionXzInverted.AsSpan(23, 2)) == -300, "DualSense X/Z switch keeps R7 gyro Y correction");
+Expect(BinaryPrimitives.ReadInt16LittleEndian(dsMotionXzInverted.AsSpan(25, 2)) == 200, "DualSense Z switch is followed by R7 gyro Z correction");
 Expect(BinaryPrimitives.ReadInt16LittleEndian(dsMotionXzInverted.AsSpan(31, 2)) == 16384, "DualSense X/Z switches leave accel output correction unchanged");
 Expect(
     Ps5ImuMappingOption.FromLabel("SDL/Nintendo 基线  G=-Y,+Z,-X  A=-Y,+Z,-X").Label ==
@@ -260,6 +271,10 @@ Expect(parsed.IsPressed(GamepadButtons.R2), "parsed R2");
 Expect(parsed.Lx == GamepadState.AxisCenter && parsed.Ry == GamepadState.AxisCenter, "parsed centered axes");
 Expect(parsed.AccelValid && parsed.GyroValid, "parsed motion");
 Expect(parsed.AccelX == 1 && parsed.GyroZ == 6, "parsed motion values");
+Expect(parsed.SwitchRawImuSamples.Length == 3, "standard Pro2 HID exposes three raw IMU samples when present");
+Expect(parsed.SwitchRawImuOffset == 13, "standard raw IMU block offset is recorded");
+Expect(parsed.SwitchRawImuSamples[2].AccelX == 1 && parsed.SwitchRawImuSamples[2].GyroZ == 6, "third standard raw IMU sample carries the legacy motion sample");
+Expect(parsed.SwitchRawImuBytesHex.Length == 72, "standard raw IMU hex captures 36 bytes");
 
 byte[] fd2 = new byte[60];
 BinaryPrimitives.WriteUInt32LittleEndian(
@@ -279,6 +294,360 @@ Expect(fd2Parsed.IsPressed(GamepadButtons.DPadUp), "FD2 parsed dpad up");
 Expect(fd2Parsed.R2 == GamepadState.TriggerMax, "FD2 parsed analog R2");
 Expect(fd2Parsed.AccelValid && fd2Parsed.GyroValid, "FD2 parsed motion");
 Expect(fd2Parsed.AccelX == -7 && fd2Parsed.GyroZ == 77, "FD2 parsed motion values");
+Expect(fd2Parsed.SwitchRawImuSamples.Length == 1, "FD2 60-byte payload exposes one raw IMU sample");
+Expect(fd2Parsed.SwitchRawImuOffset == 48, "FD2 raw IMU block offset is recorded");
+Expect(fd2Parsed.SwitchRawImuSamples[0].AccelX == -7 && fd2Parsed.SwitchRawImuSamples[0].GyroZ == 77, "FD2 raw IMU sample carries signed values");
+
+var proCalibration = new ImuCalibrationState();
+var rawFormula = new SwitchImuRawSample(
+    AccelX: 4096,
+    AccelY: -4096,
+    AccelZ: 2048,
+    GyroX: 142,
+    GyroY: -284,
+    GyroZ: 14,
+    SampleIndex: 0,
+    Offset: 48,
+    SourceTimestampTicks: Stopwatch.GetTimestamp(),
+    SourceSequence: 1);
+ImuPhysicalSample physicalFormula =
+    ProfessionalImuConverter.ToPhysical(rawFormula, proCalibration);
+ExpectNear(physicalFormula.AccelXG, 1.0, 0.0001, "professional accel X raw->g");
+ExpectNear(physicalFormula.AccelYG, -1.0, 0.0001, "professional accel Y raw->g");
+ExpectNear(physicalFormula.AccelZG, -0.5, 0.0001, "professional project accel Z flips source Z");
+ExpectNear(physicalFormula.GyroXDps, 142 / 14.247, 0.0001, "professional project gyro pitch maps source X");
+ExpectNear(physicalFormula.GyroYDps, -14 / 14.247, 0.0001, "professional project gyro yaw maps negative source Z");
+ExpectNear(physicalFormula.GyroZDps, -284 / 14.247, 0.0001, "professional project gyro roll maps source Y");
+DualSenseImuRawSample dsProfessionalRaw =
+    ProfessionalImuConverter.ToDualSenseRaw(
+        physicalFormula,
+        ProfessionalImuOptions.ForTestModes(Ps5OutputImuTuning.Default));
+Expect(dsProfessionalRaw.AccelX == 8192, "professional DualSense accel X raw scale");
+Expect(dsProfessionalRaw.AccelY == -8192, "professional DualSense accel Y raw scale");
+Expect(dsProfessionalRaw.AccelZ == -4096, "professional DualSense accel Z raw scale/sign");
+Expect(dsProfessionalRaw.GyroX == 100, "professional DualSense gyro X raw scale is dps*10");
+Expect(dsProfessionalRaw.GyroY == -10, "professional DualSense gyro Y raw scale is dps*10");
+Expect(dsProfessionalRaw.GyroZ == -199, "professional DualSense gyro Z raw scale is dps*10");
+Expect(
+    ProfessionalImuConverter.ToDualSenseRaw(
+        new ImuPhysicalSample(0, 0, 0, 1.0, 10.0, 819.2, 0, 0, 0),
+        ProfessionalImuOptions.ForTestModes(Ps5OutputImuTuning.Default)) is
+    { GyroX: 10, GyroY: 100, GyroZ: 8192 },
+    "professional DualSense gyro raw scale examples: 1dps=10, 10dps=100, 819.2dps=8192");
+
+var biasCalibration = new ImuCalibrationState();
+long biasT0 = Stopwatch.GetTimestamp();
+biasCalibration.BeginManual3s();
+GyroBiasCalibrationEvent? biasEvent = null;
+for (int i = 0; i <= 180; i++)
+{
+    biasEvent = biasCalibration.ObserveManualCalibration(
+        [rawFormula with
+        {
+            AccelX = 0,
+            AccelY = 4096,
+            AccelZ = 0,
+            GyroX = 100,
+            GyroY = -50,
+            GyroZ = 25,
+            SourceTimestampTicks = biasT0 + (Stopwatch.Frequency * i / 60),
+            SourceSequence = (ulong)i
+        }],
+        sampleAgeMs: 12);
+}
+Expect(
+    biasEvent is { Committed: true } &&
+    biasCalibration.Calibrated &&
+    biasCalibration.BiasStatus == GyroBiasStatus.CalibratedAndApplied &&
+    biasCalibration.BiasUpdateCount == 1,
+    "professional gyro raw bias commits only through manual 3s stationary calibration");
+ImuPhysicalSample biasCorrected =
+    ProfessionalImuConverter.ToPhysical(rawFormula with
+    {
+        GyroX = 100,
+        GyroY = -50,
+        GyroZ = 25
+    }, biasCalibration);
+ExpectNear(biasCorrected.GyroXDps, 0, 0.001, "professional gyro X subtracts raw bias");
+ExpectNear(biasCorrected.GyroYDps, 0, 0.001, "professional gyro Y subtracts raw bias");
+ExpectNear(biasCorrected.GyroZDps, 0, 0.001, "professional gyro Z subtracts raw bias");
+
+var rejectedCalibration = new ImuCalibrationState();
+rejectedCalibration.BeginManual3s();
+GyroBiasCalibrationEvent? rejectedBias = rejectedCalibration.ObserveManualCalibration(
+    [rawFormula with
+    {
+        AccelX = 0,
+        AccelY = 9000,
+        AccelZ = 0,
+        SourceTimestampTicks = biasT0,
+        SourceSequence = 1
+    }],
+    sampleAgeMs: 12);
+Expect(
+    rejectedBias is { Committed: false } &&
+    !rejectedCalibration.Calibrated &&
+    rejectedCalibration.BiasStatus == GyroBiasStatus.CalibrationRejectedMoving,
+    "professional manual gyro bias rejects moving/out-of-range calibration without updating bias");
+
+var runtimeMessages = new List<string>();
+using (var professionalRuntime = new ProfessionalImuRuntime(
+           ProfessionalImuOptions.ForTestModes(Ps5OutputImuTuning.Default),
+           "unit_test_professional_imu",
+           new ImmediateProgress<string>(runtimeMessages.Add)))
+{
+    long rt0 = Stopwatch.GetTimestamp();
+    var uncalibratedState = GamepadState.Neutral();
+    uncalibratedState.SwitchRawImuSamples =
+    [
+        rawFormula with
+        {
+            AccelX = 0,
+            AccelY = 4096,
+            AccelZ = 0,
+            GyroX = 120,
+            GyroY = -80,
+            GyroZ = 40,
+            SourceTimestampTicks = rt0,
+            SourceSequence = 100
+        }
+    ];
+    uncalibratedState.SourceTimestampTicks = rt0;
+    uncalibratedState.RawNotificationSequence = 100;
+    ProfessionalImuFrame uncalibratedFrame = professionalRuntime.Process(uncalibratedState, 8);
+    Expect(
+        uncalibratedFrame.DualSenseRaw is { GyroX: 0, GyroY: 0, GyroZ: 0 },
+        "professional runtime zeros DualSense gyro output before manual bias calibration");
+    Expect(
+        uncalibratedFrame.Telemetry.Contains("professional_gyro_uncalibrated_behavior=ZeroOutput", StringComparison.Ordinal) &&
+        uncalibratedFrame.Telemetry.Contains("output_gyro_muted_until_calibrated=true", StringComparison.Ordinal) &&
+        uncalibratedFrame.Telemetry.Contains("selected_output_gyro_x_dps=0", StringComparison.Ordinal) &&
+        uncalibratedFrame.Telemetry.Contains("integral_state=Disabled", StringComparison.Ordinal) &&
+        uncalibratedFrame.Telemetry.Contains("integral_running=false", StringComparison.Ordinal),
+        "professional telemetry proves uncalibrated gyro is muted and integral is disabled");
+
+    string startBias = professionalRuntime.StartGyroBiasCalibration();
+    Expect(startBias.Contains("started", StringComparison.OrdinalIgnoreCase), "calibrate gyro bias command returns started");
+    Expect(
+        runtimeMessages.Any(m => m.Contains("Gyro bias calibration started duration=3s", StringComparison.Ordinal)),
+        "calibrate gyro bias command reaches runtime backend log");
+
+    ProfessionalImuFrame calibratedFrame = default;
+    for (int i = 0; i <= 180; i++)
+    {
+        long ticks = rt0 + Stopwatch.Frequency + (Stopwatch.Frequency * i / 60);
+        var calibrationState = GamepadState.Neutral();
+        calibrationState.SwitchRawImuSamples =
+        [
+            rawFormula with
+            {
+                AccelX = 0,
+                AccelY = 4096,
+                AccelZ = 0,
+                GyroX = 120,
+                GyroY = -80,
+                GyroZ = 40,
+                SourceTimestampTicks = ticks,
+                SourceSequence = (ulong)(200 + i)
+            }
+        ];
+        calibrationState.SourceTimestampTicks = ticks;
+        calibrationState.RawNotificationSequence = (ulong)(200 + i);
+        calibratedFrame = professionalRuntime.Process(calibrationState, 8);
+    }
+
+    Expect(
+        runtimeMessages.Any(m =>
+            m.Contains("Gyro bias committed", StringComparison.Ordinal) &&
+            m.Contains("is_bias_applied_to_output=true", StringComparison.Ordinal)),
+        "manual 3s calibration commits bias and marks output as bias-applied");
+    Expect(
+        calibratedFrame.DualSenseRaw is { GyroX: 0, GyroY: 0, GyroZ: 0 } &&
+        calibratedFrame.Telemetry.Contains("output_gyro_muted_until_calibrated=false", StringComparison.Ordinal) &&
+        calibratedFrame.Telemetry.Contains("is_bias_applied_to_output=true", StringComparison.OrdinalIgnoreCase),
+        "calibrated stationary gyro output is unmuted and corrected to zero");
+
+    var directionState = GamepadState.Neutral();
+    long directionTicks = rt0 + 4 * Stopwatch.Frequency;
+    directionState.SwitchRawImuSamples =
+    [
+        rawFormula with
+        {
+            AccelX = 0,
+            AccelY = 4096,
+            AccelZ = 0,
+            GyroX = 262,
+            GyroY = 62,
+            GyroZ = 182,
+            SourceTimestampTicks = directionTicks,
+            SourceSequence = 450
+        }
+    ];
+    directionState.SourceTimestampTicks = directionTicks;
+    directionState.RawNotificationSequence = 450;
+    ProfessionalImuFrame directionFrame = professionalRuntime.Process(directionState, 8);
+    Expect(
+        directionFrame.DualSenseRaw is { GyroX: 100, GyroY: 100, GyroZ: -100 },
+        "professional r7 default output keeps Pitch normal and inverts Yaw/Roll");
+    string inversionResult = professionalRuntime.SetOutputGyroInversion(false, false, false);
+    Expect(inversionResult.Contains("yaw=false", StringComparison.Ordinal), "professional gyro inversion can be changed at runtime");
+    directionState.RawNotificationSequence = 451;
+    directionState.SwitchRawImuSamples =
+    [
+        directionState.SwitchRawImuSamples[0] with
+        {
+            SourceSequence = 451,
+            SourceTimestampTicks = directionTicks + Stopwatch.Frequency / 60
+        }
+    ];
+    ProfessionalImuFrame normalDirectionFrame = professionalRuntime.Process(directionState, 8);
+    Expect(
+        normalDirectionFrame.DualSenseRaw is { GyroX: 100, GyroY: -100, GyroZ: 100 },
+        "professional gyro inversion switches apply immediately to output layer");
+
+    string startPitch = professionalRuntime.StartNinetyDegreeTest(ProfessionalImuTestAxis.Pitch);
+    Expect(startPitch.Contains("Pitch", StringComparison.Ordinal), "90 degree pitch test starts after calibration");
+    short pitchRaw = (short)Math.Round(120 + ProfessionalImuConverter.SwitchGyroRawPerDps * 360.0);
+    for (int i = 0; i < 2; i++)
+    {
+        long ticks = rt0 + 5 * Stopwatch.Frequency + i * Stopwatch.Frequency / 4;
+        var pitchState = GamepadState.Neutral();
+        pitchState.SwitchRawImuSamples =
+        [
+            rawFormula with
+            {
+                AccelX = 0,
+                AccelY = 4096,
+                AccelZ = 0,
+                GyroX = pitchRaw,
+                GyroY = -80,
+                GyroZ = 40,
+                SourceTimestampTicks = ticks,
+                SourceSequence = (ulong)(500 + i)
+            }
+        ];
+        pitchState.SourceTimestampTicks = ticks;
+        pitchState.RawNotificationSequence = (ulong)(500 + i);
+        professionalRuntime.Process(pitchState, 8);
+    }
+
+    string stopPitch = professionalRuntime.StopNinetyDegreeTest();
+    Expect(
+        stopPitch.Contains("pass", StringComparison.Ordinal) &&
+        runtimeMessages.Any(m => m.Contains("90deg test result", StringComparison.Ordinal)),
+        "90 degree pitch test integrates only during test state and reports result");
+}
+
+var professionalIntegrator = new ImuIntegrator();
+long t0 = Stopwatch.GetTimestamp();
+professionalIntegrator.Integrate(
+    [new ImuPhysicalSample(0, 0, 1, 360, 0, 0, 0, t0, 1)],
+    1,
+    t0);
+professionalIntegrator.Integrate(
+    [new ImuPhysicalSample(0, 0, 1, 360, 0, 0, 0, t0 + Stopwatch.Frequency / 4, 2)],
+    2,
+    t0 + Stopwatch.Frequency / 4);
+ExpectNear(professionalIntegrator.PitchDegrees, 90, 0.001, "professional integrator uses source timestamp dt");
+professionalIntegrator.Integrate(
+    [new ImuPhysicalSample(0, 0, 1, 360, 0, 0, 0, t0 + Stopwatch.Frequency / 2, 2)],
+    2,
+    t0 + Stopwatch.Frequency / 2);
+ExpectNear(professionalIntegrator.PitchDegrees, 90, 0.001, "professional integrator ignores duplicate source sequence");
+
+byte[] dsProfessionalPacket = VirtualPadPackets.FromGamepad(
+    ViiperDeviceProfile.DualSenseProfessionalImuTest,
+    GamepadState.Neutral(),
+    professionalDualSenseImu: new DualSenseImuRawSample(1, 2, 3, 4, 5, 6, true));
+Expect(BinaryPrimitives.ReadInt16LittleEndian(dsProfessionalPacket.AsSpan(21, 2)) == 4, "professional PS5 packet writes gyro X raw directly");
+Expect(BinaryPrimitives.ReadInt16LittleEndian(dsProfessionalPacket.AsSpan(31, 2)) == 3, "professional PS5 packet writes accel Z raw directly");
+var normalAudit = ProfessionalHidReportAuditor.ApplyAndAudit(
+    dsProfessionalPacket,
+    new DualSenseImuRawSample(1, 2, 3, 4, 5, 6, true),
+    new ImuPhysicalSample(0, 0, 0, 0.25, 0.5, 0.75, 0, 0, 0),
+    new ProfessionalHidAuditControlState(
+        ProfessionalHidAuditMode.Normal,
+        0,
+        0,
+        0,
+        false,
+        0,
+        0,
+        0,
+        "none"));
+Expect(normalAudit.Result == ProfessionalHidAuditResult.OK, "professional HID audit normal result OK");
+Expect(normalAudit.FinalReportDecodedGyroXRaw == 4 &&
+       normalAudit.FinalReportDecodedGyroYRaw == 5 &&
+       normalAudit.FinalReportDecodedGyroZRaw == 6,
+    "professional HID audit decodes gyro from final report offsets");
+Expect(normalAudit.LegacyPs5MapperAppliedAfterProfessionalOutput == false, "professional HID audit bypasses legacy PS5 mapper");
+var zeroAudit = ProfessionalHidReportAuditor.ApplyAndAudit(
+    dsProfessionalPacket,
+    new DualSenseImuRawSample(1, 2, 3, 4, 5, 6, true),
+    null,
+    new ProfessionalHidAuditControlState(
+        ProfessionalHidAuditMode.ForceFinalGyroZero,
+        0,
+        0,
+        0,
+        false,
+        0,
+        0,
+        0,
+        "none"));
+Expect(zeroAudit.Result == ProfessionalHidAuditResult.FORCED_ZERO, "professional HID audit force-zero result");
+Expect(BinaryPrimitives.ReadInt16LittleEndian(dsProfessionalPacket.AsSpan(21, 2)) == 0 &&
+       BinaryPrimitives.ReadInt16LittleEndian(dsProfessionalPacket.AsSpan(23, 2)) == 0 &&
+       BinaryPrimitives.ReadInt16LittleEndian(dsProfessionalPacket.AsSpan(25, 2)) == 0,
+    "professional HID audit force-zero mutates only final gyro fields");
+Expect(BinaryPrimitives.ReadInt16LittleEndian(dsProfessionalPacket.AsSpan(27, 2)) == 1 &&
+       BinaryPrimitives.ReadInt16LittleEndian(dsProfessionalPacket.AsSpan(29, 2)) == 2 &&
+       BinaryPrimitives.ReadInt16LittleEndian(dsProfessionalPacket.AsSpan(31, 2)) == 3,
+    "professional HID audit force-zero keeps accel fields");
+var pulseAudit = ProfessionalHidReportAuditor.ApplyAndAudit(
+    dsProfessionalPacket,
+    new DualSenseImuRawSample(1, 2, 3, 4, 5, 6, true),
+    null,
+    new ProfessionalHidAuditControlState(
+        ProfessionalHidAuditMode.ForceFinalGyroSyntheticPulse,
+        0,
+        0,
+        0,
+        true,
+        0,
+        8192,
+        0,
+        "Y"));
+Expect(pulseAudit.Result == ProfessionalHidAuditResult.SYNTHETIC_PULSE &&
+       pulseAudit.FinalReportDecodedGyroXRaw == 0 &&
+       pulseAudit.FinalReportDecodedGyroYRaw == 8192 &&
+       pulseAudit.FinalReportDecodedGyroZRaw == 0,
+    "professional HID audit synthetic pulse writes final report gyro axis");
+var staticAuditPacket = VirtualPadPackets.FromGamepad(
+    ViiperDeviceProfile.DualSenseProfessionalImuTest,
+    GamepadState.Neutral(),
+    professionalDualSenseImu: new DualSenseImuRawSample(1, 2, 3, 4, 5, 6, true));
+var staticAudit = ProfessionalHidReportAuditor.ApplyAndAudit(
+    staticAuditPacket,
+    new DualSenseImuRawSample(1, 2, 3, 4, 5, 6, true),
+    null,
+    new ProfessionalHidAuditControlState(
+        ProfessionalHidAuditMode.ForceFinalGyroStaticRaw,
+        8192,
+        0,
+        0,
+        false,
+        0,
+        0,
+        0,
+        "none"));
+Expect(staticAudit.FinalPackGyroXRaw == 8192 &&
+       staticAudit.FinalReportDecodedGyroXRaw == 8192,
+    "professional HID audit static raw writes final report gyro directly");
+byte[] xboxProfessionalPacket = VirtualPadPackets.FromGamepad(
+    ViiperDeviceProfile.XboxProfessionalImuTest,
+    motionState);
+Expect(xboxProfessionalPacket.AsSpan().SequenceEqual(VirtualPadPackets.FromGamepad(ViiperDeviceProfile.Xbox, motionState)), "professional Xbox defaults to diagnostic-only output");
 
 var motionParser = new Pro2HidReportParser();
 byte[] flatFd2 = new byte[60];
@@ -357,6 +726,10 @@ Expect(ordinaryPacket.Report[2] != 0 || ordinaryPacket.Report[18] != 0, "ordinar
 byte[] edgeFeedback = [44, 180, 0, 0, 64, 1];
 Expect(Pro2OutputPacketMapper.TryMapFeedback(ViiperDeviceProfile.DualSenseEdge, edgeFeedback, out Pro2OutputPacket edgeRumble, out _), "map DualSense Edge ordinary feedback");
 Expect(edgeRumble.Source == "dualsense-edge-ordinary" && edgeRumble.Active, "DualSense Edge feedback uses ordinary rumble path");
+Expect(
+    ViiperDeviceProfile.DualSenseProfessionalImuTest.UsesDualSenseHaptics &&
+    ViiperDeviceProfile.DualSenseProfessionalImuTest.FeedbackSize == DualSenseHapticFrame.WireSize,
+    "DualSense Professional IMU test reuses the ordinary PS5 HD haptic feedback contract");
 
 byte[] stopFeedback = [0, 0];
 Expect(Pro2OutputPacketMapper.TryMapFeedback(ViiperDeviceProfile.Xbox, stopFeedback, out Pro2OutputPacket stopPacket, out _), "map xinput stop feedback");
@@ -537,11 +910,22 @@ Expect(
     Pro2BleInputSource.ShouldKeepLiveInput(58.5, 58.5, 173, 173),
     "real 15 ms / 58.5 Hz Pro2 session remains live instead of being rejected");
 Expect(
-    !Pro2BleInputSource.ShouldKeepLiveInput(20.0, 20.0, 80, 80),
-    "unusable low-rate BLE input is rejected");
+    Pro2BleInputSource.ShouldKeepLiveInput(20.0, 20.0, 80, 80),
+    "V6.2.20 keeps 20 Hz BLE live and lets virtual report rate auto-reduce");
+Expect(
+    !Pro2BleInputSource.ShouldKeepLiveInput(9.0, 9.0, 80, 80),
+    "sub-10 Hz BLE input is rejected");
 Expect(
     !Pro2BleInputSource.ShouldKeepLiveInput(65.0, 5.0, 200, 15),
     "mostly unparsed BLE notifications are rejected");
+Expect(
+    VirtualReportRateGovernor.SelectAutoRateHz(11.0, 125) == 10 &&
+    VirtualReportRateGovernor.SelectAutoRateHz(18.0, 125) == 20 &&
+    VirtualReportRateGovernor.SelectAutoRateHz(35.0, 125) == 30 &&
+    VirtualReportRateGovernor.SelectAutoRateHz(66.0, 125) == 60 &&
+    VirtualReportRateGovernor.SelectAutoRateHz(133.0, 125) == 125 &&
+    VirtualReportRateGovernor.SelectAutoRateHz(160.0, 250) == 250,
+    "auto report governor maps BLE source rate to safe virtual output buckets");
 
 var heldState = new GamepadState
 {
@@ -767,3 +1151,8 @@ using (WindowsTimerResolutionScope timerResolution = WindowsTimerResolutionScope
 }
 
 Console.WriteLine("v60_packet_mapper_test: passed");
+
+internal sealed class ImmediateProgress<T>(Action<T> report) : IProgress<T>
+{
+    public void Report(T value) => report(value);
+}

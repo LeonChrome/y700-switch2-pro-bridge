@@ -30,6 +30,7 @@ public static class Pro2OutputPacketMapper
             case ViiperVirtualMode.Pro2:
                 return TryMapNs2Pro(feedback, out packet, out reason);
             case ViiperVirtualMode.Xbox:
+            case ViiperVirtualMode.XboxProfessionalImuTest:
                 if (feedback.Length < 2)
                 {
                     reason = "xinput feedback too short";
@@ -38,6 +39,7 @@ public static class Pro2OutputPacketMapper
                 packet = BuildOrdinaryPacket(feedback[1], feedback[0], "xinput");
                 return true;
             case ViiperVirtualMode.DualSenseLike:
+            case ViiperVirtualMode.DualSenseProfessionalImuTest:
                 if (feedback.Length < 2)
                 {
                     reason = "dualsense feedback too short";

@@ -16,15 +16,19 @@ public sealed class ViiperBridgeSession : IAsyncDisposable
     private readonly IProgress<Exception>? faultProgress;
     private readonly IGamepadInputSource? inputSource;
     private readonly IGamepadOutputSink? outputSink;
+    private readonly IProgress<ProfessionalImuUiSnapshot>? professionalImuUiProgress;
     private readonly CancellationTokenSource cts = new();
     private readonly SemaphoreSlim streamRecoveryGate = new(1, 1);
     private readonly ViiperGyroMode gyroMode;
     private readonly GyroAxisInversion gyroAxisInversion;
     private readonly Ps5ImuMapping ps5ImuMapping;
     private readonly Ps5OutputImuTuning ps5OutputImuTuning;
+    private readonly ProfessionalImuOptions professionalImuOptions;
+    private readonly ProfessionalHidAuditController professionalHidAuditController;
     private readonly object streamSync = new();
     private ViiperDeviceStream? stream;
     private ViiperDevice? device;
+    private ProfessionalImuRuntime? professionalImuRuntime;
     private uint busId;
     private bool createdBus;
     private Task? inputTask;
@@ -50,7 +54,10 @@ public sealed class ViiperBridgeSession : IAsyncDisposable
         ViiperGyroMode gyroMode = ViiperGyroMode.Hold250Hz,
         GyroAxisInversion gyroAxisInversion = default,
         Ps5ImuMapping? ps5ImuMapping = null,
-        Ps5OutputImuTuning? ps5OutputImuTuning = null)
+        Ps5OutputImuTuning? ps5OutputImuTuning = null,
+        ProfessionalImuOptions? professionalImuOptions = null,
+        ProfessionalHidAuditController? professionalHidAuditController = null,
+        IProgress<ProfessionalImuUiSnapshot>? professionalImuUiProgress = null)
     {
         this.client = client;
         this.profile = profile;
@@ -62,9 +69,62 @@ public sealed class ViiperBridgeSession : IAsyncDisposable
         this.gyroAxisInversion = gyroAxisInversion;
         this.ps5ImuMapping = ps5ImuMapping ?? Ps5ImuMappingOption.Default.Mapping;
         this.ps5OutputImuTuning = (ps5OutputImuTuning ?? Ps5OutputImuTuning.Default).Normalize();
+        this.professionalImuOptions = professionalImuOptions ?? ProfessionalImuOptions.Default;
+        this.professionalHidAuditController = professionalHidAuditController ?? new ProfessionalHidAuditController();
+        this.professionalImuUiProgress = professionalImuUiProgress;
     }
 
     public ViiperDeviceProfile Profile => profile;
+
+    public bool HasProfessionalImuRuntime => professionalImuRuntime != null;
+
+    public string StartGyroBiasCalibration()
+    {
+        string result = professionalImuRuntime?.StartGyroBiasCalibration() ??
+                        "Professional IMU runtime is not active.";
+        ReportProfessionalSnapshot();
+        return result;
+    }
+
+    public string ResetGyroBias()
+    {
+        string result = professionalImuRuntime?.ResetGyroBias() ??
+                        "Professional IMU runtime is not active.";
+        ReportProfessionalSnapshot();
+        return result;
+    }
+
+    public string ResetProfessionalIntegral()
+    {
+        string result = professionalImuRuntime?.ResetIntegral() ??
+                        "Professional IMU runtime is not active.";
+        ReportProfessionalSnapshot();
+        return result;
+    }
+
+    public string SetProfessionalGyroInversion(bool pitch, bool yaw, bool roll)
+    {
+        string result = professionalImuRuntime?.SetOutputGyroInversion(pitch, yaw, roll) ??
+                        "Professional IMU runtime is not active; inversion will apply on next Professional IMU session.";
+        ReportProfessionalSnapshot();
+        return result;
+    }
+
+    public string StartNinetyDegreeTest(ProfessionalImuTestAxis axis)
+    {
+        string result = professionalImuRuntime?.StartNinetyDegreeTest(axis) ??
+                        "Professional IMU runtime is not active.";
+        ReportProfessionalSnapshot();
+        return result;
+    }
+
+    public string StopNinetyDegreeTest()
+    {
+        string result = professionalImuRuntime?.StopNinetyDegreeTest() ??
+                        "Professional IMU runtime is not active.";
+        ReportProfessionalSnapshot();
+        return result;
+    }
 
     public async Task StartAsync(CancellationToken cancellationToken)
     {
@@ -86,9 +146,24 @@ public sealed class ViiperBridgeSession : IAsyncDisposable
         progress.Report(outputSink is { IsOutputReady: true }
             ? "[VIIPER] Pro2 output writeback is enabled for rumble."
             : "[VIIPER] Pro2 output writeback is not ready; host rumble will be logged only.");
+        if (profile.IsProfessionalImuTest && professionalImuOptions.Enabled)
+        {
+            professionalImuRuntime = new ProfessionalImuRuntime(professionalImuOptions, profile.Mode.ToString(), progress);
+            progress.Report("[PRO_IMU] enabled " + professionalImuOptions.TelemetryValue +
+                            " csv=\"" + professionalImuRuntime.CsvPath + "\"");
+            professionalImuUiProgress?.Report(professionalImuRuntime.GetSnapshot());
+        }
 
         inputTask = Task.Run(() => RunLoopAsync("input", InputLoopAsync, cts.Token));
         feedbackTask = Task.Run(() => RunLoopAsync("feedback", FeedbackLoopAsync, cts.Token));
+    }
+
+    private void ReportProfessionalSnapshot()
+    {
+        if (professionalImuRuntime != null)
+        {
+            professionalImuUiProgress?.Report(professionalImuRuntime.GetSnapshot());
+        }
     }
 
     public async Task StopAsync()
@@ -102,6 +177,8 @@ public sealed class ViiperBridgeSession : IAsyncDisposable
 
         await DrainTaskAsync(inputTask);
         await DrainTaskAsync(feedbackTask);
+        professionalImuRuntime?.Dispose();
+        professionalImuRuntime = null;
 
         using var cleanup = new CancellationTokenSource(TimeSpan.FromSeconds(3));
         if (device != null)
@@ -139,6 +216,8 @@ public sealed class ViiperBridgeSession : IAsyncDisposable
         using var timer = new HighResolutionPeriodicTimer(profile.SendInterval);
         var rateWatch = Stopwatch.StartNew();
         double pushTargetHz = 1.0 / profile.SendInterval.TotalSeconds;
+        double effectivePushTargetHz = pushTargetHz;
+        long lastVirtualWriteTicks = 0;
         ulong frames = 0;
         ulong lastRateFrames = 0;
         uint lastRateUpdates = 0;
@@ -170,11 +249,15 @@ public sealed class ViiperBridgeSession : IAsyncDisposable
         ulong intervalLoopGapOver16Ms = 0;
         double intervalSourceAgeMaxMs = 0;
         string lastSource = "";
+        string lastProfessionalImuTelemetry = "";
+        string lastProfessionalHidAuditTelemetry = "";
+        long lastProfessionalHidAuditLogTicks = 0;
         string timerLine =
             "[VIIPER_TIMER] requested_ms=1 active=" + timerResolution.IsActive +
             " result=" + timerResolution.Result +
             " backend=" + timer.Backend +
             " push_target_hz=" + pushTargetHz.ToString("F1") +
+            " report_rate_mode=" + professionalImuOptions.OutputReportRateMode +
             " gyro_mode=" + GyroModeLabel(gyroMode) +
             " gyro_axis_inv=" + gyroAxisInversion.TelemetryValue;
         if (profile.IsPs5Family)
@@ -203,6 +286,15 @@ public sealed class ViiperBridgeSession : IAsyncDisposable
             }
             lastLoopTicks = loopTicks;
 
+            double sourceRateHz = inputSource is IGamepadInputRateSource rateSource
+                ? rateSource.CurrentParsedRateHz
+                : 0;
+            effectivePushTargetHz =
+                professionalImuOptions.AutoReduceVirtualReportRate &&
+                professionalImuOptions.OutputReportRateMode == OutputReportRateMode.AutoByBleSourceRate
+                    ? VirtualReportRateGovernor.SelectAutoRateHz(sourceRateHz, pushTargetHz)
+                    : pushTargetHz;
+
             ViiperDeviceStream? current = GetStream();
             if (current == null)
             {
@@ -211,6 +303,7 @@ public sealed class ViiperBridgeSession : IAsyncDisposable
 
             byte[] packet;
             string source;
+            ProfessionalImuFrame professionalFrame = default;
             if (inputSource != null &&
                 inputSource.TryGetLatest(out GamepadState state, out TimeSpan age))
             {
@@ -245,10 +338,19 @@ public sealed class ViiperBridgeSession : IAsyncDisposable
                 }
                 GamepadState continuous =
                     InputContinuityPolicy.Resolve(state, age, out source);
+                if (profile.IsProfessionalImuTest && professionalImuRuntime != null)
+                {
+                    professionalFrame = professionalImuRuntime.Process(state, age.TotalMilliseconds);
+                    lastProfessionalImuTelemetry = professionalFrame.Telemetry;
+                    if (professionalFrame.UiSnapshot != null)
+                    {
+                        professionalImuUiProgress?.Report(professionalFrame.UiSnapshot);
+                    }
+                }
                 continuous = ApplyGyroMode(
                     continuous,
                     state.Updates,
-                    pushTargetHz,
+                    effectivePushTargetHz,
                     ref lastMotionUpdate,
                     ref filteredMotionState);
                 packet = VirtualPadPackets.FromGamepad(
@@ -256,7 +358,9 @@ public sealed class ViiperBridgeSession : IAsyncDisposable
                     continuous,
                     gyroAxisInversion,
                     ps5ImuMapping,
-                    ps5OutputImuTuning);
+                    ps5OutputImuTuning,
+                    professionalFrame.DualSenseRaw,
+                    professionalFrame.XboxState);
             }
             else
             {
@@ -265,11 +369,63 @@ public sealed class ViiperBridgeSession : IAsyncDisposable
                 source = "neutral";
             }
 
+            if (ShouldSkipVirtualWrite(loopTicks, lastVirtualWriteTicks, effectivePushTargetHz, pushTargetHz))
+            {
+                continue;
+            }
+
+            if (profile.Mode == ViiperVirtualMode.DualSenseProfessionalImuTest &&
+                professionalImuRuntime != null &&
+                professionalFrame.DualSenseRaw is { } professionalDualSenseRaw)
+            {
+                ProfessionalHidAuditControlState auditControl =
+                    professionalHidAuditController.Snapshot(loopTicks, out string? auditEvent);
+                if (!string.IsNullOrWhiteSpace(auditEvent))
+                {
+                    progress.Report(auditEvent);
+                }
+
+                ProfessionalHidAuditSnapshot audit =
+                    ProfessionalHidReportAuditor.ApplyAndAudit(
+                        packet,
+                        professionalDualSenseRaw,
+                        professionalFrame.OutputPhysical,
+                        auditControl);
+                professionalImuRuntime.CommitFinalHidAudit(audit);
+                lastProfessionalHidAuditTelemetry = audit.Summary;
+
+                bool auditMismatch = audit.Result is
+                    ProfessionalHidAuditResult.MISMATCH_GYRO or
+                    ProfessionalHidAuditResult.MISMATCH_ACCEL or
+                    ProfessionalHidAuditResult.REPORT_TOO_SHORT or
+                    ProfessionalHidAuditResult.OFFSET_UNKNOWN or
+                    ProfessionalHidAuditResult.WRONG_BUILDER;
+                long auditElapsedTicks = rateWatch.ElapsedTicks;
+                bool auditDue =
+                    auditMismatch ||
+                    frames % PerformanceLogIntervalFrames == 0 ||
+                    auditElapsedTicks - lastProfessionalHidAuditLogTicks >= Stopwatch.Frequency * 5L;
+                if (auditDue)
+                {
+                    lastProfessionalHidAuditLogTicks = auditElapsedTicks;
+                    progress.Report("[PRO_IMU_AUDIT] " + audit.Summary);
+                    if (auditMismatch)
+                    {
+                        progress.Report("[PRO_IMU_AUDIT_ERROR] final HID gyro mismatch " + audit.Detail);
+                    }
+                    else if (audit.Result == ProfessionalHidAuditResult.OK)
+                    {
+                        progress.Report("[PRO_IMU_AUDIT_OK] final HID gyro matches selected output. " + audit.Summary);
+                    }
+                }
+            }
+
             try
             {
                 long writeStartTicks = Stopwatch.GetTimestamp();
                 await current.WriteAsync(packet, cancellationToken).ConfigureAwait(false);
-                double writeMs = TicksToMilliseconds(Stopwatch.GetTimestamp() - writeStartTicks);
+                lastVirtualWriteTicks = Stopwatch.GetTimestamp();
+                double writeMs = TicksToMilliseconds(lastVirtualWriteTicks - writeStartTicks);
                 intervalWriteSamples++;
                 intervalWriteMsSum += writeMs;
                 intervalWriteSamplesMs.Add(writeMs);
@@ -293,13 +449,21 @@ public sealed class ViiperBridgeSession : IAsyncDisposable
                 throw;
             }
             frames++;
-            bool rateDue = frames % PerformanceLogIntervalFrames == 0;
+            long elapsedRateTicks = rateWatch.ElapsedTicks;
+            bool rateDue =
+                frames % PerformanceLogIntervalFrames == 0 ||
+                (frames > lastRateFrames &&
+                 elapsedRateTicks - lastRateTicks >= Stopwatch.Frequency * 10L);
             string sourceFamily = SourceFamily(source);
             bool sourceChanged = sourceFamily != lastSource;
             if (rateDue || sourceChanged)
             {
                 lastSource = sourceFamily;
-                string rateSummary = "target_hz=" + pushTargetHz.ToString("F1");
+                string rateSummary =
+                    "target_hz=" + effectivePushTargetHz.ToString("F1") +
+                    " configured_target_hz=" + pushTargetHz.ToString("F1") +
+                    " source_rate_hz=" + sourceRateHz.ToString("F1") +
+                    " report_rate_mode=" + professionalImuOptions.OutputReportRateMode;
                 if (rateDue)
                 {
                     long nowTicks = rateWatch.ElapsedTicks;
@@ -370,6 +534,14 @@ public sealed class ViiperBridgeSession : IAsyncDisposable
                     if (profile.IsPs5Family)
                     {
                         rateSummary += " ps5_imu_map=" + ps5ImuMapping.TelemetryValue;
+                    }
+                    if (profile.IsProfessionalImuTest)
+                    {
+                        rateSummary += " " + SanitizeLogValue(lastProfessionalImuTelemetry);
+                        if (!string.IsNullOrWhiteSpace(lastProfessionalHidAuditTelemetry))
+                        {
+                            rateSummary += " hid_audit=\"" + SanitizeLogValue(lastProfessionalHidAuditTelemetry) + "\"";
+                        }
                     }
                     intervalWriteMsSum = 0;
                     intervalWriteMaxMs = 0;
@@ -454,6 +626,24 @@ public sealed class ViiperBridgeSession : IAsyncDisposable
                 ageOver100++;
                 break;
         }
+    }
+
+    private static bool ShouldSkipVirtualWrite(
+        long nowTicks,
+        long lastWriteTicks,
+        double effectivePushTargetHz,
+        double configuredPushTargetHz)
+    {
+        if (lastWriteTicks == 0 ||
+            effectivePushTargetHz <= 0 ||
+            effectivePushTargetHz >= configuredPushTargetHz - 0.1)
+        {
+            return false;
+        }
+
+        double minimumGapMs = 1000.0 / effectivePushTargetHz;
+        double elapsedMs = TicksToMilliseconds(nowTicks - lastWriteTicks);
+        return elapsedMs < minimumGapMs * 0.92;
     }
 
     private GamepadState ApplyGyroMode(
@@ -602,7 +792,7 @@ public sealed class ViiperBridgeSession : IAsyncDisposable
     private async Task FeedbackLoopAsync(CancellationToken cancellationToken)
     {
         DualSenseHapticRumbleScheduler? dualSenseScheduler =
-            profile.Mode == ViiperVirtualMode.DualSenseLike
+            profile.UsesDualSenseHaptics
                 ? new DualSenseHapticRumbleScheduler()
                 : null;
         ulong frames = 0;
