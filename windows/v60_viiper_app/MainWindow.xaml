@@ -898,7 +898,7 @@
                                        MaxWidth="760"
                                        Foreground="#89A7CF"
                                        FontSize="11"
-                                       Text="V6.2.20：PS5 / Edge 陀螺仪已固化 R7 验证方向；测试模式和 HID Audit 不在正式界面显示。"/>
+                                       Text="V6.2.21：PS5 / Edge IMU 使用 G=+X,+Z,-Y / A=+X,+Z,-Y；Pro2 4096/g 转 DualSense 8192/g，gyro 转 16.384 raw/dps。"/>
                             <StackPanel Margin="0,8,0,0"
                                         Orientation="Horizontal"
                                         VerticalAlignment="Center"
@@ -952,7 +952,7 @@
                                                   Style="{StaticResource AxisCheckBox}"
                                                   Content="Pitch / 俯仰"
                                                   IsChecked="{Binding ProfessionalInvertGyroPitch, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                                                  ToolTip="只影响 Professional IMU 输出层；不改底层 ProjectGyro。"/>
+                                                  ToolTip="只影响 Professional IMU 输出层的临时反向；默认底层 ProjectGyro=+X,+Z,-Y。"/>
                                         <CheckBox Style="{StaticResource AxisCheckBox}"
                                                   Content="Yaw / 偏航"
                                                   IsChecked="{Binding ProfessionalInvertGyroYaw, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"

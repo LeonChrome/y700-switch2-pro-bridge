@@ -1,4 +1,5 @@
 using System;
+using System.Buffers.Binary;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
@@ -252,6 +253,7 @@ public sealed class ViiperBridgeSession : IAsyncDisposable
         string lastProfessionalImuTelemetry = "";
         string lastProfessionalHidAuditTelemetry = "";
         long lastProfessionalHidAuditLogTicks = 0;
+        var imuTelemetry = new VirtualImuTelemetryStats();
         string timerLine =
             "[VIIPER_TIMER] requested_ms=1 active=" + timerResolution.IsActive +
             " result=" + timerResolution.Result +
@@ -303,6 +305,7 @@ public sealed class ViiperBridgeSession : IAsyncDisposable
 
             byte[] packet;
             string source;
+            GamepadState? packetSourceState = null;
             ProfessionalImuFrame professionalFrame = default;
             if (inputSource != null &&
                 inputSource.TryGetLatest(out GamepadState state, out TimeSpan age))
@@ -353,6 +356,7 @@ public sealed class ViiperBridgeSession : IAsyncDisposable
                     effectivePushTargetHz,
                     ref lastMotionUpdate,
                     ref filteredMotionState);
+                packetSourceState = continuous;
                 packet = VirtualPadPackets.FromGamepad(
                     profile,
                     continuous,
@@ -425,6 +429,7 @@ public sealed class ViiperBridgeSession : IAsyncDisposable
                 long writeStartTicks = Stopwatch.GetTimestamp();
                 await current.WriteAsync(packet, cancellationToken).ConfigureAwait(false);
                 lastVirtualWriteTicks = Stopwatch.GetTimestamp();
+                imuTelemetry.Record(profile, packet, packetSourceState);
                 double writeMs = TicksToMilliseconds(lastVirtualWriteTicks - writeStartTicks);
                 intervalWriteSamples++;
                 intervalWriteMsSum += writeMs;
@@ -533,7 +538,17 @@ public sealed class ViiperBridgeSession : IAsyncDisposable
                         " gyro_axis_inv=" + gyroAxisInversion.TelemetryValue;
                     if (profile.IsPs5Family)
                     {
+                        string ps5ImuPipe = imuTelemetry.Ps5PipelineSummary();
                         rateSummary += " ps5_imu_map=" + ps5ImuMapping.TelemetryValue;
+                        rateSummary += " " + imuTelemetry.SummaryAndMaybeReset(rateDue);
+                        if (rateDue && !string.IsNullOrWhiteSpace(ps5ImuPipe))
+                        {
+                            progress.Report("[PS5_IMU_PIPE] " + ps5ImuPipe);
+                        }
+                    }
+                    else if (profile.Mode == ViiperVirtualMode.Pro2)
+                    {
+                        rateSummary += " " + imuTelemetry.SummaryAndMaybeReset(rateDue);
                     }
                     if (profile.IsProfessionalImuTest)
                     {
@@ -1104,5 +1119,175 @@ public sealed class ViiperBridgeSession : IAsyncDisposable
         await StopAsync();
         streamRecoveryGate.Dispose();
         cts.Dispose();
+    }
+
+    private sealed class VirtualImuTelemetryStats
+    {
+        private ulong samples;
+        private MotionSample lastOutput;
+        private MotionSample lastSource;
+        private MotionSample maxAbsOutput;
+        private MotionSample maxAbsSource;
+
+        public void Record(ViiperDeviceProfile profile, byte[] packet, GamepadState? source)
+        {
+            if (!TryDecodeOutput(profile.Mode, packet, out MotionSample output))
+            {
+                return;
+            }
+
+            samples++;
+            lastOutput = output;
+            maxAbsOutput = MaxAbs(maxAbsOutput, output);
+
+            if (source != null)
+            {
+                lastSource = new MotionSample(
+                    source.GyroX,
+                    source.GyroY,
+                    source.GyroZ,
+                    source.AccelX,
+                    source.AccelY,
+                    source.AccelZ);
+                maxAbsSource = MaxAbs(maxAbsSource, lastSource);
+            }
+        }
+
+        public string SummaryAndMaybeReset(bool reset)
+        {
+            string summary =
+                " imu_samples=" + samples +
+                " imu_out_gyro_last=" + lastOutput.GyroX + "," + lastOutput.GyroY + "," + lastOutput.GyroZ +
+                " imu_out_gyro_max_abs=" + maxAbsOutput.GyroX + "," + maxAbsOutput.GyroY + "," + maxAbsOutput.GyroZ +
+                " imu_out_accel_last=" + lastOutput.AccelX + "," + lastOutput.AccelY + "," + lastOutput.AccelZ +
+                " imu_out_accel_max_abs=" + maxAbsOutput.AccelX + "," + maxAbsOutput.AccelY + "," + maxAbsOutput.AccelZ +
+                " imu_src_gyro_last=" + lastSource.GyroX + "," + lastSource.GyroY + "," + lastSource.GyroZ +
+                " imu_src_gyro_max_abs=" + maxAbsSource.GyroX + "," + maxAbsSource.GyroY + "," + maxAbsSource.GyroZ +
+                " imu_src_accel_last=" + lastSource.AccelX + "," + lastSource.AccelY + "," + lastSource.AccelZ +
+                " imu_src_accel_max_abs=" + maxAbsSource.AccelX + "," + maxAbsSource.AccelY + "," + maxAbsSource.AccelZ;
+            if (reset)
+            {
+                samples = 0;
+                lastOutput = default;
+                lastSource = default;
+                maxAbsOutput = default;
+                maxAbsSource = default;
+            }
+            return summary;
+        }
+
+        public string Ps5PipelineSummary()
+        {
+            if (samples == 0)
+            {
+                return "";
+            }
+
+            double pro2GyroRawPerDps = ProfessionalImuConverter.SwitchGyroRawPerDps;
+            double pro2AccelRawPerG = ProfessionalImuConverter.SwitchAccelRawPerG;
+            double dsGyroRawPerDps = ProfessionalImuConverter.DualSenseGyroRawPerDps;
+            double dsAccelRawPerG = ProfessionalImuConverter.DualSenseAccelRawPerG;
+            string rawPro2 =
+                "gyro:" + lastSource.GyroX + "," + lastSource.GyroY + "," + lastSource.GyroZ +
+                ";accel:" + lastSource.AccelX + "," + lastSource.AccelY + "," + lastSource.AccelZ;
+            string physicalPro2 =
+                "gyro_dps:" + Format(lastSource.GyroX / pro2GyroRawPerDps) + "," +
+                Format(lastSource.GyroY / pro2GyroRawPerDps) + "," +
+                Format(lastSource.GyroZ / pro2GyroRawPerDps) +
+                ";accel_g:" + Format(lastSource.AccelX / pro2AccelRawPerG) + "," +
+                Format(lastSource.AccelY / pro2AccelRawPerG) + "," +
+                Format(lastSource.AccelZ / pro2AccelRawPerG);
+            string mappedDs =
+                "gyro_dps:" + Format(lastOutput.GyroX / dsGyroRawPerDps) + "," +
+                Format(lastOutput.GyroY / dsGyroRawPerDps) + "," +
+                Format(lastOutput.GyroZ / dsGyroRawPerDps) +
+                ";accel_g:" + Format(lastOutput.AccelX / dsAccelRawPerG) + "," +
+                Format(lastOutput.AccelY / dsAccelRawPerG) + "," +
+                Format(lastOutput.AccelZ / dsAccelRawPerG);
+            string dsRaw =
+                "gyro:" + lastOutput.GyroX + "," + lastOutput.GyroY + "," + lastOutput.GyroZ +
+                ";accel:" + lastOutput.AccelX + "," + lastOutput.AccelY + "," + lastOutput.AccelZ;
+            return
+                "raw_pro2=" + rawPro2 +
+                " physical_pro2=" + physicalPro2 +
+                " mapped_ds=" + mappedDs +
+                " ds_raw=" + dsRaw +
+                " neutral_accel=0,0,-8192" +
+                " gyro_raw_per_dps=" + Format(dsGyroRawPerDps) +
+                " pro2_accel_raw_per_g=" + Format(pro2AccelRawPerG) +
+                " ds_accel_raw_per_g=" + Format(dsAccelRawPerG);
+        }
+
+        private static bool TryDecodeOutput(
+            ViiperVirtualMode mode,
+            byte[] packet,
+            out MotionSample sample)
+        {
+            sample = default;
+            if (mode is ViiperVirtualMode.DualSenseLike or ViiperVirtualMode.DualSenseEdge or ViiperVirtualMode.DualSenseProfessionalImuTest)
+            {
+                if (packet.Length < 33)
+                {
+                    return false;
+                }
+
+                sample = new MotionSample(
+                    ReadI16(packet, 21),
+                    ReadI16(packet, 23),
+                    ReadI16(packet, 25),
+                    ReadI16(packet, 27),
+                    ReadI16(packet, 29),
+                    ReadI16(packet, 31));
+                return true;
+            }
+
+            if (mode == ViiperVirtualMode.Pro2)
+            {
+                if (packet.Length < 24)
+                {
+                    return false;
+                }
+
+                sample = new MotionSample(
+                    ReadI16(packet, 18),
+                    ReadI16(packet, 20),
+                    ReadI16(packet, 22),
+                    ReadI16(packet, 12),
+                    ReadI16(packet, 14),
+                    ReadI16(packet, 16));
+                return true;
+            }
+
+            return false;
+        }
+
+        private static short ReadI16(byte[] packet, int offset) =>
+            BinaryPrimitives.ReadInt16LittleEndian(packet.AsSpan(offset, 2));
+
+        private static MotionSample MaxAbs(MotionSample current, MotionSample next) =>
+            new(
+                MaxAbs(current.GyroX, next.GyroX),
+                MaxAbs(current.GyroY, next.GyroY),
+                MaxAbs(current.GyroZ, next.GyroZ),
+                MaxAbs(current.AccelX, next.AccelX),
+                MaxAbs(current.AccelY, next.AccelY),
+                MaxAbs(current.AccelZ, next.AccelZ));
+
+        private static short MaxAbs(short currentAbs, short value)
+        {
+            int abs = Math.Abs((int)value);
+            return abs > currentAbs ? (short)Math.Min(abs, short.MaxValue) : currentAbs;
+        }
+
+        private static string Format(double value) =>
+            value.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture);
+
+        private readonly record struct MotionSample(
+            short GyroX,
+            short GyroY,
+            short GyroZ,
+            short AccelX,
+            short AccelY,
+            short AccelZ);
     }
 }

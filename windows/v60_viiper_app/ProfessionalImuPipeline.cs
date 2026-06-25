@@ -97,8 +97,8 @@ public sealed record ProfessionalImuOptions(
         Ps5GyroScaleYaw: 1.0,
         Ps5GyroScaleRoll: 1.0,
         InvertOutputGyroPitch: false,
-        InvertOutputGyroYaw: true,
-        InvertOutputGyroRoll: true,
+        InvertOutputGyroYaw: false,
+        InvertOutputGyroRoll: false,
         XboxOutputMode: XboxProfessionalImuOutputMode.Off,
         AllowLowBleRate: true,
         MinimumAllowedBleRateHz: 10.0,
@@ -110,8 +110,8 @@ public sealed record ProfessionalImuOptions(
     public static ProfessionalImuOptions ForTestModes(
         Ps5OutputImuTuning tuning,
         bool invertOutputGyroPitch = false,
-        bool invertOutputGyroYaw = true,
-        bool invertOutputGyroRoll = true) => Default with
+        bool invertOutputGyroYaw = false,
+        bool invertOutputGyroRoll = false) => Default with
     {
         Enabled = true,
         Ps5GyroScalePitch = tuning.GyroScalePitch,
@@ -1131,10 +1131,10 @@ public sealed class ProfessionalImuRuntime : IDisposable
             invertOutputGyroYaw.ToString().ToLowerInvariant() + "/" +
             invertOutputGyroRoll.ToString().ToLowerInvariant() +
             " · DualSense raw≈" +
-            (output.GyroXDps * ProfessionalImuConverter.ProfessionalDualSenseGyroRawPerDps).ToString("0.#", CultureInfo.InvariantCulture) + "," +
-            (output.GyroYDps * ProfessionalImuConverter.ProfessionalDualSenseGyroRawPerDps).ToString("0.#", CultureInfo.InvariantCulture) + "," +
-            (output.GyroZDps * ProfessionalImuConverter.ProfessionalDualSenseGyroRawPerDps).ToString("0.#", CultureInfo.InvariantCulture) +
-            " · External≈raw/10" +
+            (output.GyroXDps * ProfessionalImuConverter.DualSenseGyroRawPerDps).ToString("0.#", CultureInfo.InvariantCulture) + "," +
+            (output.GyroYDps * ProfessionalImuConverter.DualSenseGyroRawPerDps).ToString("0.#", CultureInfo.InvariantCulture) + "," +
+            (output.GyroZDps * ProfessionalImuConverter.DualSenseGyroRawPerDps).ToString("0.#", CultureInfo.InvariantCulture) +
+            " · External≈raw/" + ProfessionalImuConverter.DualSenseGyroRawPerDps.ToString("0.###", CultureInfo.InvariantCulture) +
             (lastOutputGyroMuted ? " · Professional Gyro muted until calibration." : "");
         string integral =
             "Integrated Angle (°): Pitch Angle=" + integrator.PitchDegrees.ToString("0.###", CultureInfo.InvariantCulture) +
@@ -1292,7 +1292,7 @@ public static class ProfessionalImuConverter
     public const double SwitchAccelRawPerG = 4096.0;
     public const double SwitchGyroRawPerDps = 14.247;
     public const double DualSenseAccelRawPerG = 8192.0;
-    public const double ProfessionalDualSenseGyroRawPerDps = 10.0;
+    public const double DualSenseGyroRawPerDps = 16.384;
 
     public static SwitchImuRawBlock DecodeSwitchImuSamples(
         ReadOnlySpan<byte> payload,
@@ -1360,11 +1360,11 @@ public static class ProfessionalImuConverter
         ImuPhysicalSample source = ToSourcePhysical(raw, calibration);
         return new ImuPhysicalSample(
             source.AccelXG,
-            source.AccelYG,
-            -source.AccelZG,
+            source.AccelZG,
+            -source.AccelYG,
             source.GyroXDps,
-            -source.GyroZDps,
-            source.GyroYDps,
+            source.GyroZDps,
+            -source.GyroYDps,
             raw.SampleIndex,
             raw.SourceTimestampTicks,
             raw.SourceSequence);
@@ -1383,9 +1383,9 @@ public static class ProfessionalImuConverter
             ClampToInt16(projectPhysical.AccelXG * DualSenseAccelRawPerG),
             ClampToInt16(projectPhysical.AccelYG * DualSenseAccelRawPerG),
             ClampToInt16(projectPhysical.AccelZG * DualSenseAccelRawPerG),
-            ClampToInt16(projectPhysical.GyroXDps * ProfessionalDualSenseGyroRawPerDps * options.Ps5GyroScalePitch),
-            ClampToInt16(projectPhysical.GyroYDps * ProfessionalDualSenseGyroRawPerDps * options.Ps5GyroScaleYaw),
-            ClampToInt16(projectPhysical.GyroZDps * ProfessionalDualSenseGyroRawPerDps * options.Ps5GyroScaleRoll),
+            ClampToInt16(projectPhysical.GyroXDps * DualSenseGyroRawPerDps * options.Ps5GyroScalePitch),
+            ClampToInt16(projectPhysical.GyroYDps * DualSenseGyroRawPerDps * options.Ps5GyroScaleYaw),
+            ClampToInt16(projectPhysical.GyroZDps * DualSenseGyroRawPerDps * options.Ps5GyroScaleRoll),
             Valid: true);
     }
 

@@ -18,8 +18,8 @@ public sealed class V60UserSettings
     public double Ps5GyroScaleYaw { get; set; } = 1.0;
     public double Ps5GyroScaleRoll { get; set; } = 1.0;
     public bool ProfessionalInvertGyroPitch { get; set; }
-    public bool ProfessionalInvertGyroYaw { get; set; } = true;
-    public bool ProfessionalInvertGyroRoll { get; set; } = true;
+    public bool ProfessionalInvertGyroYaw { get; set; }
+    public bool ProfessionalInvertGyroRoll { get; set; }
 
     public static V60UserSettings Load()
     {

@@ -88,8 +88,9 @@ public static class VirtualPadPackets
     private const ushort AxisCenter = GamepadState.AxisCenter;
     private const ushort AxisMax = GamepadState.AxisMax;
     private const ushort TriggerMax = GamepadState.TriggerMax;
-    private static readonly MotionVector Ps5NeutralAccel =
-        ApplyPs5AccelOutputTuning(new MotionVector(0, 0, -8192));
+    private const double Pro2AccelRawPerG = ProfessionalImuConverter.SwitchAccelRawPerG;
+    private const double Pro2GyroRawPerDps = ProfessionalImuConverter.SwitchGyroRawPerDps;
+    private static readonly MotionVector Ps5NeutralAccel = new(0, 0, -8192);
 
     public static byte[] NeutralInput(ViiperDeviceProfile profile)
     {
@@ -170,9 +171,9 @@ public static class VirtualPadPackets
     private static byte[] DualSenseNeutral()
     {
         byte[] b = new byte[33];
-        BinaryPrimitives.WriteInt16LittleEndian(
-            b.AsSpan(31, 2),
-            Ps5NeutralAccel.Z);
+        WriteI16(b, 27, Ps5NeutralAccel.X);
+        WriteI16(b, 29, Ps5NeutralAccel.Y);
+        WriteI16(b, 31, Ps5NeutralAccel.Z);
         return b;
     }
 
@@ -215,21 +216,16 @@ public static class VirtualPadPackets
         }
         else
         {
-            MotionVector dualSenseGyro = MapDualSenseGyro(
+            DualSenseImuRawSample dualSenseImu = ConvertPs5FamilyImuToDualSenseRaw(
                 state,
                 gyroAxisInversion,
-                ps5ImuMapping);
-            MotionVector dualSenseAccel = MapDualSenseAccel(state, ps5ImuMapping);
-            dualSenseGyro = ApplyPs5GyroOutputTuning(
-                dualSenseGyro,
                 ps5OutputImuTuning.Normalize());
-            dualSenseAccel = ApplyPs5AccelOutputTuning(dualSenseAccel);
-            WriteI16(b, 21, state.GyroValid ? dualSenseGyro.X : (short)0);
-            WriteI16(b, 23, state.GyroValid ? dualSenseGyro.Y : (short)0);
-            WriteI16(b, 25, state.GyroValid ? dualSenseGyro.Z : (short)0);
-            WriteI16(b, 27, state.AccelValid ? dualSenseAccel.X : (short)0);
-            WriteI16(b, 29, state.AccelValid ? dualSenseAccel.Y : (short)0);
-            WriteI16(b, 31, state.AccelValid ? dualSenseAccel.Z : Ps5NeutralAccel.Z);
+            WriteI16(b, 21, state.GyroValid ? dualSenseImu.GyroX : (short)0);
+            WriteI16(b, 23, state.GyroValid ? dualSenseImu.GyroY : (short)0);
+            WriteI16(b, 25, state.GyroValid ? dualSenseImu.GyroZ : (short)0);
+            WriteI16(b, 27, state.AccelValid ? dualSenseImu.AccelX : Ps5NeutralAccel.X);
+            WriteI16(b, 29, state.AccelValid ? dualSenseImu.AccelY : Ps5NeutralAccel.Y);
+            WriteI16(b, 31, state.AccelValid ? dualSenseImu.AccelZ : Ps5NeutralAccel.Z);
         }
         return b;
     }
@@ -356,21 +352,6 @@ public static class VirtualPadPackets
         return delta <= 64 ? AxisCenter : value;
     }
 
-    private static MotionVector MapDualSenseGyro(
-        GamepadState state,
-        GyroAxisInversion gyroAxisInversion,
-        Ps5ImuMapping ps5ImuMapping)
-    {
-        return ApplyGyroAxisInversion(
-            MapMotionVector(state, ps5ImuMapping.GyroX, ps5ImuMapping.GyroY, ps5ImuMapping.GyroZ, gyro: true),
-            gyroAxisInversion);
-    }
-
-    private static MotionVector MapDualSenseAccel(GamepadState state, Ps5ImuMapping ps5ImuMapping)
-    {
-        return MapMotionVector(state, ps5ImuMapping.AccelX, ps5ImuMapping.AccelY, ps5ImuMapping.AccelZ, gyro: false);
-    }
-
     private static MotionVector MapNs2ProGyro(
         GamepadState state,
         GyroAxisInversion gyroAxisInversion)
@@ -399,52 +380,51 @@ public static class VirtualPadPackets
             gyroAxisInversion.InvertZ ? NegateI16(vector.Z) : vector.Z);
     }
 
-    private static MotionVector MapMotionVector(
-        GamepadState state,
-        ImuAxisMap x,
-        ImuAxisMap y,
-        ImuAxisMap z,
-        bool gyro)
-    {
-        return new MotionVector(
-            MapMotionAxis(state, x, gyro),
-            MapMotionAxis(state, y, gyro),
-            MapMotionAxis(state, z, gyro));
-    }
-
-    private static short MapMotionAxis(GamepadState state, ImuAxisMap axis, bool gyro)
-    {
-        short value = axis.Source switch
-        {
-            ImuAxisSource.X => gyro ? state.GyroX : state.AccelX,
-            ImuAxisSource.Y => gyro ? state.GyroY : state.AccelY,
-            ImuAxisSource.Z => gyro ? state.GyroZ : state.AccelZ,
-            _ => 0
-        };
-        return axis.Invert ? NegateI16(value) : value;
-    }
-
-    private static MotionVector ApplyPs5GyroOutputTuning(
-        MotionVector mappedGyro,
-        Ps5OutputImuTuning tuning)
-    {
-        // V6.2.20: R7 verification kept pitch inverted after the existing
-        // baseline map, while yaw/roll are correct without the old blanket
-        // inversion.
-        return new MotionVector(
-            ScaleI16(mappedGyro.X, -tuning.GyroScalePitch),
-            ScaleI16(mappedGyro.Y, tuning.GyroScaleYaw),
-            ScaleI16(mappedGyro.Z, tuning.GyroScaleRoll));
-    }
-
     private static MotionVector ApplyPs5AccelOutputTuning(MotionVector mappedAccel)
     {
-        // Six-face static test showed the current DualSense output is about
-        // 0.5g and only Z has the wrong sign: X*2, Y*2, Z*-2.
+        // Switch raw accel is 4096/g in the Professional path; DualSense final
+        // HID raw is 8192/g. Axis sign is carried by the mapping itself.
         return new MotionVector(
             ScaleI16(mappedAccel.X, 2.0),
             ScaleI16(mappedAccel.Y, 2.0),
-            ScaleI16(mappedAccel.Z, -2.0));
+            ScaleI16(mappedAccel.Z, 2.0));
+    }
+
+    private static DualSenseImuRawSample ConvertPs5FamilyImuToDualSenseRaw(
+        GamepadState state,
+        GyroAxisInversion gyroAxisInversion,
+        Ps5OutputImuTuning tuning)
+    {
+        // Formal PS5/Edge uses the parser-calibrated GamepadState, matching
+        // the Pro2 output path. Raw sample diagnostics stay in Professional IMU.
+        double accelXG = state.AccelX / Pro2AccelRawPerG;
+        double accelYG = state.AccelZ / Pro2AccelRawPerG;
+        double accelZG = -state.AccelY / Pro2AccelRawPerG;
+
+        // DualSense target axes: +source X, +source Z, -source Y.
+        double gyroX = state.GyroX / Pro2GyroRawPerDps;
+        double gyroY = state.GyroZ / Pro2GyroRawPerDps;
+        double gyroZ = -state.GyroY / Pro2GyroRawPerDps;
+        if (gyroAxisInversion.InvertX) gyroX = -gyroX;
+        if (gyroAxisInversion.InvertY) gyroY = -gyroY;
+        if (gyroAxisInversion.InvertZ) gyroZ = -gyroZ;
+
+        return new DualSenseImuRawSample(
+            ClampRoundToInt16(accelXG * ProfessionalImuConverter.DualSenseAccelRawPerG),
+            ClampRoundToInt16(accelYG * ProfessionalImuConverter.DualSenseAccelRawPerG),
+            ClampRoundToInt16(accelZG * ProfessionalImuConverter.DualSenseAccelRawPerG),
+            ClampRoundToInt16(gyroX * ProfessionalImuConverter.DualSenseGyroRawPerDps * tuning.GyroScalePitch),
+            ClampRoundToInt16(gyroY * ProfessionalImuConverter.DualSenseGyroRawPerDps * tuning.GyroScaleYaw),
+            ClampRoundToInt16(gyroZ * ProfessionalImuConverter.DualSenseGyroRawPerDps * tuning.GyroScaleRoll),
+            Valid: true);
+    }
+
+    private static short ClampRoundToInt16(double value)
+    {
+        double rounded = Math.Round(value, MidpointRounding.AwayFromZero);
+        if (rounded < short.MinValue) return short.MinValue;
+        if (rounded > short.MaxValue) return short.MaxValue;
+        return (short)rounded;
     }
 
     private static short ScaleI16(short value, double scale)

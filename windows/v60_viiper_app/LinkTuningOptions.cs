@@ -83,11 +83,11 @@ public sealed record Ps5ImuMappingOption(
     public static IReadOnlyList<Ps5ImuMappingOption> All { get; } =
     [
         new(
-            "PS5 基线映射  G=-X,+Z,-Y  A=-X,+Z,-Y",
+            "PS5 标准物理映射 G=+X,+Z,-Y A=+X,+Z,-Y / Pro2 4096g -> DS 8192g",
             new Ps5ImuMapping(
-                N(ImuAxisSource.X), P(ImuAxisSource.Z), N(ImuAxisSource.Y),
-                N(ImuAxisSource.X), P(ImuAxisSource.Z), N(ImuAxisSource.Y)),
-            "V6.2.15 实测确认的 PS5 轴顺序基线；V6.2.18 在输出层固化 accel 倍率/方向和 gyro 方向修正。")
+                P(ImuAxisSource.X), P(ImuAxisSource.Z), N(ImuAxisSource.Y),
+                P(ImuAxisSource.X), P(ImuAxisSource.Z), N(ImuAxisSource.Y)),
+            "PS5 / Edge 使用 parser 校准后的 Pro2 输入，按 G=+X,+Z,-Y / A=+X,+Z,-Y 换算为 DualSense HID raw。")
     ];
 
     public static Ps5ImuMappingOption Default => All[0];
@@ -106,7 +106,7 @@ public readonly record struct Ps5OutputImuTuning(
     public static Ps5OutputImuTuning Default { get; } = new(1.0, 1.0, 1.0);
 
     public string TelemetryValue =>
-        "accel=x2,y2,z-2;gyro=r7_pitch_neg_yaw_roll_normal;scale_pitch=" + GyroScalePitch.ToString("0.###") +
+        "accel=pro2_4096g_to_ds8192_+x+z-y;gyro=calibrated_state_to_ds16.384_+x+z-y;scale_pitch=" + GyroScalePitch.ToString("0.###") +
         ",scale_yaw=" + GyroScaleYaw.ToString("0.###") +
         ",scale_roll=" + GyroScaleRoll.ToString("0.###");
 

@@ -35,7 +35,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private ViiperBridgeSession? session;
     private string host = "127.0.0.1";
     private string port = "3242";
-    private string status = "V6.2.20 正式版已就绪。PS5 / Edge 陀螺仪已固化 R7 成果，测试模式不在正式界面显示。";
+    private string status = "V6.2.21 IMU 测试版已就绪。PS5 / Edge IMU 使用 +X,+Z,-Y 标准坐标映射。";
     private string inputStatus = "真实 Pro2 BLE 输入未连接。";
     private string selectedPushRateLabel = ViiperPushRateOption.Default.Label;
     private string selectedBackendLabel = VirtualBackendOption.Default.Label;
@@ -61,8 +61,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private double rumbleMultiplier = 1.0;
     private double ps5GyroScale = 1.0;
     private bool professionalInvertGyroPitch;
-    private bool professionalInvertGyroYaw = true;
-    private bool professionalInvertGyroRoll = true;
+    private bool professionalInvertGyroYaw;
+    private bool professionalInvertGyroRoll;
     private ViiperVirtualMode selectedMode = ViiperVirtualMode.DualSenseLike;
     private ViiperVirtualMode? activeMode;
     private const int LostInputTimeoutMilliseconds = 2000;
@@ -141,7 +141,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         {
             AppendLog(StartupProcessGuard.LastSummary);
         }
-        AppendLog("V6.2.20 正式版说明：新和联胜 PS5 保留 HD 音频震动；PS5 / Edge 陀螺仪采用 R7 验证方向；测试模式、HID Audit 和三轴反向调试入口已从正式界面移除。");
+        AppendLog("V6.2.21 IMU 测试版说明：新和联胜 PS5 保留 HD 音频震动；PS5 / Edge IMU 采用 G=+X,+Z,-Y / A=+X,+Z,-Y；Pro2 accel 4096/g -> DualSense 8192/g，gyro -> DualSense 16.384 raw/dps。");
         AppendLog("[LOG_POLICY] previous v6 logs are cleaned at startup; manager log limit=" +
                   (SessionLogWriter.MaxLogBytes / 1024 / 1024) + "MB; VIIPER server log level=info.");
         AppendLog("[RUNTIME] " + RuntimeReadinessText);
@@ -470,7 +470,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     public string LinkTuningSummary =>
         "push=" + SelectedPushRateOption.Hz.ToString("F1") +
-        "Hz · ps5_imu=R7 fixed accel x2/x2/-2 gyro pitch-/yaw+/roll+ scale=" +
+        "Hz · ps5_imu=+x+z-y calibrated_state->dsraw scale=" +
         SelectedPs5OutputImuTuning.GyroScalePitch.ToString("0.##") + "x" +
         " · stick=" + SelectedStickProcessingOption.Label +
         " · audio_guard=" + (AudioEndpointGuardEnabled ? "on" : "off") +
@@ -1646,11 +1646,11 @@ public sealed class MainViewModel : INotifyPropertyChanged
                           " sample_handling=" + professionalImuOptions.OutputSampleMode +
                           " source_rate=current_ble" +
                           " virtual_report_rate=" + professionalImuOptions.OutputReportRateMode +
-                          " ProjectAccel=+X,+Y,-Z ProjectGyro=+X,-Z,+Y" +
+                          " ProjectAccel=+X,+Z,-Y ProjectGyro=+X,+Z,-Y" +
                           " GyroScale=" + ps5OutputImuTuning.GyroScalePitch.ToString("0.###") +
                           "," + ps5OutputImuTuning.GyroScaleYaw.ToString("0.###") +
                           "," + ps5OutputImuTuning.GyroScaleRoll.ToString("0.###") +
-                          " DualSenseGyroRawPerDps=" + ProfessionalImuConverter.ProfessionalDualSenseGyroRawPerDps.ToString("0.###") +
+                          " DualSenseGyroRawPerDps=" + ProfessionalImuConverter.DualSenseGyroRawPerDps.ToString("0.###") +
                           " output_gyro_invert_pitch=" + professionalInvertGyroPitch.ToString().ToLowerInvariant() +
                           " output_gyro_invert_yaw=" + professionalInvertGyroYaw.ToString().ToLowerInvariant() +
                           " output_gyro_invert_roll=" + professionalInvertGyroRoll.ToString().ToLowerInvariant() +
