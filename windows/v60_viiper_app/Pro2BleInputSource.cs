@@ -108,6 +108,7 @@ public sealed class Pro2BleInputSource :
     private string status = "未连接真实 Pro2 BLE。";
     private string lastScanDiagnostic = "";
     private string connectedLabel = "";
+    private string connectedAddress = "";
     private string lastNotifySummary = "";
     private string connectionPreferenceStatus = "not_requested";
     private ushort connectionIntervalUnits;
@@ -157,6 +158,11 @@ public sealed class Pro2BleInputSource :
     {
         get { lock (gate) return lastScanDiagnostic; }
         private set { lock (gate) lastScanDiagnostic = value; }
+    }
+
+    public string ConnectedAddress
+    {
+        get { lock (gate) return connectedAddress; }
     }
 
     public string MetricsSummary
@@ -243,7 +249,15 @@ public sealed class Pro2BleInputSource :
         return found.Select(DescribeCandidate).ToList();
     }
 
-    public async Task StartAsync(IProgress<string> progress, CancellationToken cancellationToken)
+    public Task StartAsync(IProgress<string> progress, CancellationToken cancellationToken)
+    {
+        return StartAsync(progress, new HashSet<string>(StringComparer.OrdinalIgnoreCase), cancellationToken);
+    }
+
+    public async Task StartAsync(
+        IProgress<string> progress,
+        IReadOnlySet<string> excludedAddresses,
+        CancellationToken cancellationToken)
     {
         if (IsRunning)
         {
@@ -279,12 +293,23 @@ public sealed class Pro2BleInputSource :
         foreach (BleCandidate candidate in candidates.OrderByDescending(c => c.Score).ThenByDescending(c => c.Rssi))
         {
             cancellationToken.ThrowIfCancellationRequested();
+            string candidateAddress = FormatAddress(candidate.Address);
+            if (excludedAddresses.Contains(candidateAddress))
+            {
+                progress.Report("[PRO2_BLE] skip occupied candidate " + DescribeCandidate(candidate));
+                continue;
+            }
+
             progress.Report("[PRO2_BLE] trying " + DescribeCandidate(candidate));
             try
             {
                 if (await ConnectCandidateAsync(candidate, progress, cancellationToken))
                 {
                     connectedLabel = DescribeCandidate(candidate);
+                    lock (gate)
+                    {
+                        connectedAddress = candidateAddress;
+                    }
                     Status = "真实 Pro2 BLE 已连接并 live：" + connectedLabel +
                              " / " + MetricsSummary +
                              (string.IsNullOrWhiteSpace(lastPerformanceWarning)
@@ -1472,7 +1497,7 @@ public sealed class Pro2BleInputSource :
         BlePerformanceSnapshot failed = GetPerformanceSnapshot();
         if (HasUsableLivePerformance(failed))
         {
-            string warning = "BLE 输入保持 live，但没有达到 66.7 Hz 目标；V6.2.20 将自动降低虚拟 USB 输出刷新率：" +
+            string warning = "BLE 输入保持 live，但没有达到 66.7 Hz 目标；V6.2.22 将自动降低虚拟 USB 输出刷新率：" +
                              FormatPerformanceSnapshot(failed);
             lock (gate)
             {
@@ -1830,6 +1855,10 @@ public sealed class Pro2BleInputSource :
         rumbleCharacteristic = null;
         ackTcs = null;
         connectedLabel = "";
+        lock (gate)
+        {
+            connectedAddress = "";
+        }
         if (device != null && OperatingSystem.IsWindowsVersionAtLeast(10, 0, 22000))
         {
             UnsubscribeWindows11ConnectionEvents(device);

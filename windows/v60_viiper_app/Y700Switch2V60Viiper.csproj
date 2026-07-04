@@ -8,13 +8,13 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>Y700Switch2V60Viiper</AssemblyName>
-    <AssemblyTitle>PRO2 手柄无线接收器控制板 V6.2.20</AssemblyTitle>
+    <AssemblyTitle>PRO2 手柄无线接收器控制板 V6.2.22</AssemblyTitle>
     <Product>PRO2 手柄无线接收器控制板</Product>
-    <Description>V6.2.20 formal VIIPER release with R7 PS5 gyro tuning, Edge paddles, Xbox back mapping, and bounded logs.</Description>
-    <Version>6.2.20</Version>
-    <AssemblyVersion>6.2.20.0</AssemblyVersion>
-    <FileVersion>6.2.20.0</FileVersion>
-    <InformationalVersion>6.2.20</InformationalVersion>
+    <Description>V6.2.22 VIIPER release with four independent Pro2 BLE slots for PS5, Edge, Pro2 and Xbox modes.</Description>
+    <Version>6.2.22</Version>
+    <AssemblyVersion>6.2.22.0</AssemblyVersion>
+    <FileVersion>6.2.22.0</FileVersion>
+    <InformationalVersion>6.2.22</InformationalVersion>
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <PublishSingleFile>true</PublishSingleFile>
@@ -22,8 +22,10 @@
     <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
     <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
     <DefaultItemExcludes>$(DefaultItemExcludes);obj\**;artifacts\**</DefaultItemExcludes>
+    <ApplicationIcon>Assets\AppIcon.ico</ApplicationIcon>
   </PropertyGroup>
   <ItemGroup>
+    <Resource Include="Assets\AppIcon.ico" />
     <Resource Include="Assets\Characters\kratos.png" />
     <Resource Include="Assets\Characters\mario.png" />
     <Resource Include="Assets\Characters\master-chief.png" />

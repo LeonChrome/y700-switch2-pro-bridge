@@ -21,7 +21,14 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private const int MaxUiLogCharacters = 120000;
     private const int TrimmedUiLogCharacters = 70000;
     private readonly StringBuilder log = new();
-    private readonly Pro2BleInputSource inputSource = new();
+    private readonly Pro2ControllerSlot[] pro2Slots =
+    [
+        new(1, true),
+        new(2, false),
+        new(3, false),
+        new(4, false)
+    ];
+    private readonly Pro2BleInputSource inputSource;
     private readonly ProfessionalHidAuditController professionalHidAuditController = new();
     private readonly SessionLogWriter sessionLog = new();
     private readonly V60UserSettings userSettings = V60UserSettings.Load();
@@ -35,7 +42,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private ViiperBridgeSession? session;
     private string host = "127.0.0.1";
     private string port = "3242";
-    private string status = "V6.2.21 IMU 测试版已就绪。PS5 / Edge IMU 使用 +X,+Z,-Y 标准坐标映射。";
+    private string status = "V6.2.22 四人三模版已就绪。PS5 / Edge / Pro2 / Xbox 均支持 1-4 个独立 Pro2 BLE Slot。";
     private string inputStatus = "真实 Pro2 BLE 输入未连接。";
     private string selectedPushRateLabel = ViiperPushRateOption.Default.Label;
     private string selectedBackendLabel = VirtualBackendOption.Default.Label;
@@ -69,6 +76,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     public MainViewModel()
     {
+        inputSource = pro2Slots[0].InputSource;
         PingCommand = new RelayCommand(_ => RunExclusiveAsync("Ping VIIPER", PingAsync));
         InstallUsbipCommand = new RelayCommand(_ => RunExclusiveAsync("安装/修复 usbip-win2", InstallUsbipAsync));
         StartViiperServerCommand = new RelayCommand(_ => RunExclusiveAsync("启动本地 VIIPER", StartLocalViiperServerAsync));
@@ -79,6 +87,15 @@ public sealed class MainViewModel : INotifyPropertyChanged
         DumpControllerEnumerationCommand = new RelayCommand(_ => RunExclusiveAsync("设备枚举诊断", DumpControllerEnumerationAsync));
         CleanupStaleVirtualDevicesCommand = new RelayCommand(_ => RunExclusiveAsync("清理残留虚拟设备", CleanupStaleVirtualDevicesAsync));
         ExportDiagnosticsLogCommand = new RelayCommand(_ => RunExclusiveAsync("导出诊断包", ExportDiagnosticsLogAsync));
+        ScanPro2SlotCommand = new RelayCommand(parameter => RunExclusiveAsync(
+            "扫描 Pro2 Slot",
+            token => ScanPro2SlotAsync(SlotFromParameter(parameter), token)));
+        ConnectPro2SlotCommand = new RelayCommand(parameter => RunExclusiveAsync(
+            "连接 Pro2 Slot",
+            token => StartPro2SlotAutoReconnectAsync(SlotFromParameter(parameter), token)));
+        DisconnectPro2SlotCommand = new RelayCommand(parameter => RunExclusiveAsync(
+            "断开 Pro2 Slot",
+            token => DisconnectPro2SlotAsync(SlotFromParameter(parameter), token)));
         StartDualSenseCommand = new RelayCommand(_ => RunExclusiveAsync(
             "切换 新和联胜 / PS5",
             token => SwitchModeAsync(ViiperDeviceProfile.DualSenseLike, token)));
@@ -135,13 +152,14 @@ public sealed class MainViewModel : INotifyPropertyChanged
         selectedMode = ModeFromKey(userSettings.SelectedModeKey);
         inputSource.SetRumbleGain(rumbleMultiplier);
         inputSource.SetStickProcessingMode(SelectedStickProcessingOption.Mode);
+        ApplyPro2SlotRuntimeOptions();
         RefreshRuntimeReadiness();
         AppendLog("[SESSION_LOG] " + sessionLog.FilePath);
         if (!string.IsNullOrWhiteSpace(StartupProcessGuard.LastSummary))
         {
             AppendLog(StartupProcessGuard.LastSummary);
         }
-        AppendLog("V6.2.21 IMU 测试版说明：新和联胜 PS5 保留 HD 音频震动；PS5 / Edge IMU 采用 G=+X,+Z,-Y / A=+X,+Z,-Y；Pro2 accel 4096/g -> DualSense 8192/g，gyro -> DualSense 16.384 raw/dps。");
+        AppendLog("V6.2.22 四人三模版说明：新和联胜 PS5 保留 HD 音频震动；PS5 / Edge / Pro2 / Xbox 均支持 1-4 个独立 Pro2 BLE Slot；PS5 / Edge IMU 采用 G=+X,+Z,-Y / A=+X,+Z,-Y；切模式/停止/异常恢复会自动清理 USBIP 残留端口。");
         AppendLog("[LOG_POLICY] previous v6 logs are cleaned at startup; manager log limit=" +
                   (SessionLogWriter.MaxLogBytes / 1024 / 1024) + "MB; VIIPER server log level=info.");
         AppendLog("[RUNTIME] " + RuntimeReadinessText);
@@ -213,7 +231,10 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public bool CanStop => Running && !Busy;
     public bool CanOperate => !Busy;
     public bool CanManageRuntime => !Running && !Busy;
-    public bool CanManualBleControl => !Busy && !AutoReconnectEnabled;
+    public bool CanManualBleControl =>
+        !Busy &&
+        !AutoReconnectEnabled &&
+        pro2Slots.All(slot => !slot.AutoReconnectEnabled);
 
     public bool AutoReconnectEnabled
     {
@@ -255,7 +276,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             }
 
             rumbleMultiplier = normalized;
-            inputSource.SetRumbleGain(normalized);
+            ApplyPro2SlotRuntimeOptions();
             userSettings.RumbleMultiplier = normalized;
             try
             {
@@ -434,7 +455,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
             selectedStickProcessingLabel = normalized;
             userSettings.StickProcessingLabel = normalized;
-            inputSource.SetStickProcessingMode(SelectedStickProcessingOption.Mode);
+            ApplyPro2SlotRuntimeOptions();
             SaveUserSettings("[STICK_MODE]");
             AppendLog("[STICK_MODE] selected=" + SelectedStickProcessingOption.Label +
                       " mode=" + SelectedStickProcessingOption.Mode +
@@ -475,6 +496,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
         " · stick=" + SelectedStickProcessingOption.Label +
         " · audio_guard=" + (AudioEndpointGuardEnabled ? "on" : "off") +
         " · backend=" + SelectedBackendOption.Label;
+
+    public IReadOnlyList<Pro2ControllerSlot> Pro2Slots => pro2Slots;
 
     public bool IsDualSenseSelected => selectedMode == ViiperVirtualMode.DualSenseLike;
     public bool IsDualSenseEdgeSelected => selectedMode == ViiperVirtualMode.DualSenseEdge;
@@ -643,6 +666,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public ICommand DumpControllerEnumerationCommand { get; }
     public ICommand CleanupStaleVirtualDevicesCommand { get; }
     public ICommand ExportDiagnosticsLogCommand { get; }
+    public ICommand ScanPro2SlotCommand { get; }
+    public ICommand ConnectPro2SlotCommand { get; }
+    public ICommand DisconnectPro2SlotCommand { get; }
     public ICommand StartDualSenseCommand { get; }
     public ICommand StartDualSenseEdgeCommand { get; }
     public ICommand StartDualSenseProfessionalImuCommand { get; }
@@ -707,6 +733,16 @@ public sealed class MainViewModel : INotifyPropertyChanged
                 professionalInvertGyroPitch,
                 professionalInvertGyroYaw,
                 professionalInvertGyroRoll));
+        }
+    }
+
+    private void ApplyPro2SlotRuntimeOptions()
+    {
+        foreach (Pro2ControllerSlot slot in pro2Slots)
+        {
+            slot.InputSource.SetRumbleGain(rumbleMultiplier);
+            slot.InputSource.SetStickProcessingMode(SelectedStickProcessingOption.Mode);
+            slot.RefreshFromSource();
         }
     }
 
@@ -821,7 +857,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             cancellationToken);
         if (!usbipProbe.Ready)
         {
-            Status = "已找到 usbip.exe，但内核驱动尚未就绪。请点击“安装/修复 USBIP”，完成后重试。";
+            Status = "已找到 usbip.exe，但 USBIP 内核驱动尚未就绪。若刚安装完成，通常需要重启 Windows；重启后仍失败再点击“安装/修复 USBIP”。";
             AppendLog("[USBIP] driver probe failed: " + usbipProbe.Detail);
             throw new InvalidOperationException(Status);
         }
@@ -1217,8 +1253,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
             }
             else
             {
-                Status = "安装器已结束，但 USBIP 内核驱动检测未通过。若安装器要求重启，请重启 Windows 后再试。";
+                Status = "安装器已结束，但 USBIP 内核驱动检测未通过。大概率是安装后尚未重启；请重启 Windows 后再打开本 EXE，避免反复安装。";
                 AppendLog("[USBIP] driver probe failed after installer: " + probe.Detail);
+                AppendLog("[USBIP] reboot_required_suspected=1 reason=probe_failed_after_installer");
             }
         }
         else
@@ -1325,7 +1362,14 @@ public sealed class MainViewModel : INotifyPropertyChanged
             return;
         }
 
-        StartAutoReconnect();
+        if (activeMode.HasValue && IsMultiSlotMode(activeMode.Value))
+        {
+            await StartEnabledSlotsAutoReconnectAsync(cancellationToken);
+        }
+        else
+        {
+            StartAutoReconnect();
+        }
     }
 
     private async Task SwitchModeAsync(
@@ -1339,6 +1383,16 @@ public sealed class MainViewModel : INotifyPropertyChanged
             return;
         }
 
+        bool resumePrimaryAutoReconnect = AutoReconnectEnabled && !IsMultiSlotMode(profile.Mode);
+        bool resumeSlotAutoReconnect =
+            IsMultiSlotMode(profile.Mode) &&
+            (AutoReconnectEnabled || pro2Slots.Any(slot => slot.AutoReconnectEnabled));
+        if (AutoReconnectEnabled || pro2Slots.Any(slot => slot.AutoReconnectEnabled))
+        {
+            AppendLog("[MODE_SWITCH] pausing Pro2 auto reconnect before virtual USB rebuild.");
+            await StopAutoReconnectAsync();
+        }
+
         await EnsureViiperReadyAsync(cancellationToken);
         if (Running)
         {
@@ -1347,7 +1401,22 @@ public sealed class MainViewModel : INotifyPropertyChanged
             await Task.Delay(650, cancellationToken);
         }
 
+        await CleanupVirtualDeviceResidueAsync(
+            "before_start_" + profile.Mode,
+            cancellationToken,
+            includePnpDump: false);
+
         await StartAsync(profile, cancellationToken);
+        if (resumeSlotAutoReconnect && Running && activeMode == profile.Mode)
+        {
+            AppendLog("[MODE_SWITCH] resuming multi-slot auto reconnect after virtual USB rebuild.");
+            await StartEnabledSlotsAutoReconnectAsync(cancellationToken);
+        }
+        else if (resumePrimaryAutoReconnect && Running && activeMode == profile.Mode)
+        {
+            AppendLog("[MODE_SWITCH] resuming Pro2 auto reconnect after virtual USB rebuild.");
+            StartAutoReconnect();
+        }
     }
 
     private async Task EnsureViiperReadyAsync(CancellationToken cancellationToken)
@@ -1358,13 +1427,10 @@ public sealed class MainViewModel : INotifyPropertyChanged
             UsbipProbeResult? probe = runtime == null
                 ? null
                 : await UsbipRuntimeLocator.ProbeAsync(runtime, cancellationToken);
-            if (runtime == null || probe is not { Ready: true })
+            if (runtime == null)
             {
-                Status = runtime == null
-                    ? "首次运行需要安装 USBIP 内核驱动，正在打开内置安装向导。完成后将继续启动所选角色。"
-                    : "USBIP 程序存在但内核驱动未就绪，正在打开内置修复向导。";
-                AppendLog("[FIRST_RUN] usbip preflight failed: " +
-                          (probe?.Detail ?? "usbip.exe not found") +
+                Status = "首次运行需要安装 USBIP 内核驱动，正在打开内置安装向导。完成后将继续启动所选角色。";
+                AppendLog("[FIRST_RUN] usbip preflight failed: usbip.exe not found" +
                           "; launching embedded installer.");
                 await InstallUsbipAsync(cancellationToken);
                 runtime = UsbipRuntimeLocator.Find();
@@ -1381,6 +1447,15 @@ public sealed class MainViewModel : INotifyPropertyChanged
                         "USBIP 内核驱动检测未通过：" + probe.Detail +
                         "。若刚完成安装，请重启 Windows 后再次选择角色。");
                 }
+            }
+            else if (probe is not { Ready: true })
+            {
+                Status = "USBIP 程序已安装，但内核驱动未就绪。若刚安装/修复过，请重启 Windows；重启后仍失败再点“安装/修复 USBIP”。";
+                AppendLog("[FIRST_RUN] usbip.exe found but driver probe failed; not relaunching installer automatically. detail=" +
+                          (probe?.Detail ?? "unknown"));
+                throw new InvalidOperationException(
+                    "USBIP 已安装但驱动未就绪：" + (probe?.Detail ?? "unknown") +
+                    "。通常是刚安装后尚未重启 Windows；请重启后再打开本 EXE。");
             }
         }
 
@@ -1540,6 +1615,289 @@ public sealed class MainViewModel : INotifyPropertyChanged
         }
     }
 
+    private async Task StartEnabledSlotsAutoReconnectAsync(CancellationToken cancellationToken)
+    {
+        Pro2ControllerSlot[] enabledSlots = pro2Slots.Where(slot => slot.Enabled).ToArray();
+        if (enabledSlots.Length == 0)
+        {
+            pro2Slots[0].Enabled = true;
+            enabledSlots = [pro2Slots[0]];
+        }
+
+        foreach (Pro2ControllerSlot slot in enabledSlots)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            await StartPro2SlotAutoReconnectAsync(slot, cancellationToken);
+        }
+
+        UpdateMultiSlotInputStatus();
+    }
+
+    private async Task StartPro2SlotAutoReconnectAsync(
+        Pro2ControllerSlot? slot,
+        CancellationToken cancellationToken)
+    {
+        if (slot == null)
+        {
+            return;
+        }
+
+        slot.Enabled = true;
+        if (!Running || !activeMode.HasValue || !IsMultiSlotMode(activeMode.Value))
+        {
+            ViiperDeviceProfile targetProfile = IsMultiSlotMode(selectedMode)
+                ? SelectedProfile
+                : ViiperDeviceProfile.Pro2;
+            await SwitchModeAsync(targetProfile, cancellationToken);
+        }
+
+        if (!slot.VirtualDeviceRunning)
+        {
+            slot.Status = "Slot 已启用，但虚拟手柄尚未创建。请重新部署当前模式。";
+            UpdateMultiSlotInputStatus();
+            return;
+        }
+
+        if (slot.AutoReconnectTask is { IsCompleted: false })
+        {
+            slot.Status = slot.InputSource.IsRunning
+                ? "已连接，自动守护正在运行。"
+                : "自动连接已在持续寻找 Pro2。";
+            UpdateMultiSlotInputStatus();
+            return;
+        }
+
+        slot.AutoReconnectCts?.Dispose();
+        slot.AutoReconnectCts = CancellationTokenSource.CreateLinkedTokenSource(lifetimeCts.Token);
+        slot.AutoReconnectEnabled = true;
+        slot.Status = "自动连接已启动，正在寻找未被其他 Slot 占用的 Pro2。";
+        AppendLog("[SLOT_MULTI] slot=" + slot.Index + " auto enabled mode=" + activeMode);
+        slot.AutoReconnectTask = Pro2SlotAutoReconnectLoopAsync(slot, slot.AutoReconnectCts.Token);
+        UpdateMultiSlotInputStatus();
+    }
+
+    private async Task Pro2SlotAutoReconnectLoopAsync(
+        Pro2ControllerSlot slot,
+        CancellationToken cancellationToken)
+    {
+        int attempt = 0;
+        int failedAttemptStreak = 0;
+        bool previouslyLive = false;
+        try
+        {
+            while (!cancellationToken.IsCancellationRequested)
+            {
+                bool live = slot.InputSource.IsRunning &&
+                            slot.InputSource.TryGetLatest(out _, out TimeSpan age) &&
+                            age <= TimeSpan.FromMilliseconds(LostInputTimeoutMilliseconds);
+                if (live)
+                {
+                    failedAttemptStreak = 0;
+                    slot.RefreshFromSource();
+                    if (!previouslyLive)
+                    {
+                        previouslyLive = true;
+                        AppendLog("[SLOT_MULTI] slot=" + slot.Index +
+                                  " live address=" + slot.ConnectedAddress);
+                        UpdateMultiSlotInputStatus();
+                    }
+
+                    await Task.Delay(750, cancellationToken);
+                    continue;
+                }
+
+                if (slot.InputSource.IsRunning)
+                {
+                    previouslyLive = false;
+                    TimeSpan staleAge = slot.InputSource.TryGetLatest(out _, out TimeSpan measuredAge)
+                        ? measuredAge
+                        : TimeSpan.MaxValue;
+                    AppendLog("[SLOT_MULTI] slot=" + slot.Index +
+                              " input stale age_ms=" +
+                              (staleAge == TimeSpan.MaxValue ? "unknown" : staleAge.TotalMilliseconds.ToString("F0")) +
+                              "; recycling BLE session.");
+                    slot.Status = "输入中断，正在清理旧 BLE 连接并自动重连。";
+                    await bleOperationGate.WaitAsync(cancellationToken);
+                    try
+                    {
+                        await slot.InputSource.StopAsync();
+                    }
+                    finally
+                    {
+                        bleOperationGate.Release();
+                    }
+                    slot.RefreshFromSource();
+                    UpdateMultiSlotInputStatus();
+                }
+
+                attempt++;
+                previouslyLive = false;
+                slot.Status = "自动连接第 " + attempt + " 次：扫描未被占用的 Pro2。";
+                AppendLog("[SLOT_MULTI] slot=" + slot.Index + " attempt=" + attempt + " begin.");
+                try
+                {
+                    await TryConnectPro2SlotOnceAsync(slot, cancellationToken);
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    failedAttemptStreak++;
+                    TimeSpan retryDelay = Pro2ReconnectDelayForAttempt(failedAttemptStreak);
+                    slot.Status = "连接异常：" + FirstLine(ex.Message) +
+                                  "，" + retryDelay.TotalSeconds.ToString("F1") + " 秒后重试。";
+                    AppendLog("[SLOT_MULTI] slot=" + slot.Index +
+                              " attempt=" + attempt +
+                              " failed retry_delay_ms=" + retryDelay.TotalMilliseconds.ToString("F0") +
+                              " error=" + ex);
+                    UpdateMultiSlotInputStatus();
+                    await Task.Delay(retryDelay, cancellationToken);
+                    continue;
+                }
+
+                slot.RefreshFromSource();
+                UpdateMultiSlotInputStatus();
+                if (!slot.InputSource.IsRunning)
+                {
+                    failedAttemptStreak++;
+                    TimeSpan retryDelay = Pro2ReconnectDelayForAttempt(failedAttemptStreak);
+                    string diagnostic = slot.InputSource.LastScanDiagnostic;
+                    slot.Status = string.IsNullOrWhiteSpace(diagnostic)
+                        ? "未找到未占用 Pro2，" + retryDelay.TotalSeconds.ToString("F1") + " 秒后继续。"
+                        : "未连接：" + diagnostic + " " + retryDelay.TotalSeconds.ToString("F1") + " 秒后继续。";
+                    AppendLog("[SLOT_MULTI] slot=" + slot.Index +
+                              " attempt=" + attempt +
+                              " no_live retry_delay_ms=" + retryDelay.TotalMilliseconds.ToString("F0") +
+                              " failed_streak=" + failedAttemptStreak);
+                    await Task.Delay(retryDelay, cancellationToken);
+                }
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            AppendLog("[SLOT_MULTI] slot=" + slot.Index + " auto cancelled.");
+        }
+        catch (Exception ex)
+        {
+            slot.Status = "自动重连异常停止：" + FirstLine(ex.Message);
+            AppendLog("[SLOT_MULTI] slot=" + slot.Index + " auto failed: " + ex);
+        }
+        finally
+        {
+            if (!shuttingDown && !cancellationToken.IsCancellationRequested)
+            {
+                slot.AutoReconnectEnabled = false;
+            }
+            slot.RefreshFromSource();
+            UpdateMultiSlotInputStatus();
+        }
+    }
+
+    private async Task TryConnectPro2SlotOnceAsync(
+        Pro2ControllerSlot slot,
+        CancellationToken cancellationToken)
+    {
+        var excluded = ConnectedPro2AddressesExcept(slot);
+        var progress = new Progress<string>(
+            line => AppendLog("[PRO2_SLOT " + slot.Index + "] " + line));
+        await bleOperationGate.WaitAsync(cancellationToken);
+        try
+        {
+            await slot.InputSource.StartAsync(progress, excluded, cancellationToken);
+        }
+        finally
+        {
+            bleOperationGate.Release();
+        }
+
+        slot.RefreshFromSource();
+    }
+
+    private HashSet<string> ConnectedPro2AddressesExcept(Pro2ControllerSlot slot)
+    {
+        var addresses = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (Pro2ControllerSlot other in pro2Slots)
+        {
+            if (ReferenceEquals(other, slot))
+            {
+                continue;
+            }
+
+            string address = other.InputSource.ConnectedAddress;
+            if (!string.IsNullOrWhiteSpace(address) &&
+                other.InputSource.IsRunning)
+            {
+                addresses.Add(address);
+            }
+        }
+
+        return addresses;
+    }
+
+    private async Task ScanPro2SlotAsync(
+        Pro2ControllerSlot? slot,
+        CancellationToken cancellationToken)
+    {
+        if (slot == null)
+        {
+            return;
+        }
+
+        var progress = new Progress<string>(
+            line => AppendLog("[PRO2_SLOT " + slot.Index + "] " + line));
+        IReadOnlyList<string> found =
+            await slot.InputSource.ScanAsync(progress, TimeSpan.FromSeconds(8), cancellationToken);
+        slot.Status = found.Count == 0
+            ? "扫描完成：未发现 Pro2。"
+            : "扫描完成：候选 " + found.Count + " 个，点击连接会自动避开已占用地址。";
+        slot.RefreshFromSource();
+        UpdateMultiSlotInputStatus();
+    }
+
+    private async Task DisconnectPro2SlotAsync(
+        Pro2ControllerSlot? slot,
+        CancellationToken cancellationToken)
+    {
+        if (slot == null)
+        {
+            return;
+        }
+
+        await slot.StopAutoReconnectAsync();
+        await bleOperationGate.WaitAsync(cancellationToken);
+        try
+        {
+            await slot.InputSource.StopAsync();
+        }
+        finally
+        {
+            bleOperationGate.Release();
+        }
+
+        slot.Status = "已断开真实 Pro2；虚拟设备仍保持在线。";
+        slot.RefreshFromSource();
+        UpdateMultiSlotInputStatus();
+    }
+
+    private void UpdateMultiSlotInputStatus()
+    {
+        if (!activeMode.HasValue || !IsMultiSlotMode(activeMode.Value))
+        {
+            RaiseConnectionStateChanged();
+            return;
+        }
+
+        int virtualCount = pro2Slots.Count(slot => slot.VirtualDeviceRunning);
+        int liveCount = pro2Slots.Count(slot => slot.InputSource.IsRunning);
+        InputStatus = ActiveProfile.Label + " 多手柄：虚拟实例 " + virtualCount +
+                      " 个，真实 Pro2 BLE live " + liveCount +
+                      " 个。启用的 Slot 会独立扫描、独立回传震动。";
+        Status = InputStatus;
+        RaiseConnectionStateChanged();
+    }
+
     private static TimeSpan Pro2ReconnectDelayForAttempt(int failedAttemptStreak)
     {
         if (failedAttemptStreak <= 3)
@@ -1580,6 +1938,12 @@ public sealed class MainViewModel : INotifyPropertyChanged
             }
         }
         reconnectCts?.Dispose();
+
+        foreach (Pro2ControllerSlot slot in pro2Slots)
+        {
+            await slot.StopAutoReconnectAsync();
+            slot.RefreshFromSource();
+        }
     }
 
     private async Task StartAsync(ViiperDeviceProfile profile, CancellationToken cancellationToken)
@@ -1670,6 +2034,21 @@ public sealed class MainViewModel : INotifyPropertyChanged
                           " legacy_ps5_mapper_after_professional=false");
             }
             ResolveExperimentalBackendSelection(runtimeProfile);
+            if (IsMultiSlotMode(runtimeProfile.Mode))
+            {
+                await StartMultiSlotSessionsAsync(runtimeProfile, cancellationToken);
+                SetActiveMode(runtimeProfile.Mode);
+                int runningSlots = pro2Slots.Count(slot => slot.VirtualDeviceRunning);
+                if (runtimeProfile.Mode == ViiperVirtualMode.DualSenseLike &&
+                    AudioEndpointGuardEnabled)
+                {
+                    await ApplyDualSenseAudioGuardAsync(cancellationToken);
+                }
+                Status = runtimeProfile.Label + " 多手柄模式已部署 " + runningSlots +
+                         " 个独立 VIIPER 实例。点击“连接 Pro2 · 进入游戏”后，每个启用 Slot 会独立寻找真实手柄。";
+                return;
+            }
+
             var progress = new Progress<string>(AppendLog);
             ViiperBridgeSession? createdSession = null;
             var faultProgress = new Progress<Exception>(
@@ -1713,6 +2092,10 @@ public sealed class MainViewModel : INotifyPropertyChanged
             string failure = "启动失败：" + ExplainStartFailure(ex);
             AppendLog("ERROR start: " + ex);
             await StopSessionAsync(updateStatus: false);
+            await CleanupVirtualDeviceResidueAsync(
+                "start_failed_" + profile.Mode,
+                cancellationToken,
+                includePnpDump: false);
             Status = failure;
         }
     }
@@ -1741,6 +2124,92 @@ public sealed class MainViewModel : INotifyPropertyChanged
                   " mode=" + backend.Mode +
                   " profile=" + profile.DeviceType +
                   " active=viiper_server fallback_reason=\"" + reason + "\"");
+    }
+
+    private async Task StartMultiSlotSessionsAsync(
+        ViiperDeviceProfile runtimeProfile,
+        CancellationToken cancellationToken)
+    {
+        Pro2ControllerSlot[] enabledSlots = pro2Slots.Where(slot => slot.Enabled).ToArray();
+        if (enabledSlots.Length == 0)
+        {
+            pro2Slots[0].Enabled = true;
+            enabledSlots = [pro2Slots[0]];
+            AppendLog("[SLOT_MULTI] no enabled slot; slot=1 enabled automatically.");
+        }
+
+        int started = 0;
+        foreach (Pro2ControllerSlot slot in enabledSlots)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            slot.Session = null;
+            slot.VirtualDeviceRunning = false;
+            slot.Status = "正在创建独立 " + runtimeProfile.Label + " 虚拟设备...";
+
+            ViiperDeviceProfile slotProfile = runtimeProfile with
+            {
+                Label = runtimeProfile.Label + " Slot " + slot.Index
+            };
+            var progress = new Progress<string>(
+                line => AppendLog("[SLOT " + slot.Index + "] " + line));
+            var faultProgress = new Progress<Exception>(
+                ex =>
+                {
+                    slot.Status = "VIIPER 数据流异常：" + FirstLine(ex.Message);
+                    AppendLog("[SLOT " + slot.Index + "] ERROR stream: " + ex);
+                });
+            var createdSession = new ViiperBridgeSession(
+                new ViiperProtocolClient(Host, ParsePort()),
+                slotProfile,
+                progress,
+                slot.InputSource,
+                slot.InputSource,
+                faultProgress,
+                ViiperGyroModeOption.Default.Mode,
+                default,
+                Ps5ImuMappingOption.Default.Mapping,
+                SelectedPs5OutputImuTuning,
+                ProfessionalImuOptions.Default,
+                professionalHidAuditController,
+                new Progress<ProfessionalImuUiSnapshot>(UpdateProfessionalImuSnapshot));
+
+            try
+            {
+                await createdSession.StartAsync(cancellationToken);
+                slot.Session = createdSession;
+                slot.VirtualDeviceRunning = true;
+                slot.Status = "虚拟 " + runtimeProfile.Label + " 已创建，等待真实手柄连接。";
+                slot.RefreshFromSource();
+                started++;
+                AppendLog("[SLOT_MULTI] slot=" + slot.Index +
+                          " virtual_ready=1 device_type=" + slotProfile.DeviceType);
+            }
+            catch (Exception ex)
+            {
+                await createdSession.DisposeAsync();
+                slot.Session = null;
+                slot.VirtualDeviceRunning = false;
+                slot.Status = "虚拟设备创建失败：" + FirstLine(ex.Message);
+                AppendLog("[SLOT_MULTI] slot=" + slot.Index + " virtual_failed: " + ex);
+            }
+        }
+
+        foreach (Pro2ControllerSlot slot in pro2Slots.Where(slot => !slot.Enabled))
+        {
+            slot.VirtualDeviceRunning = false;
+            slot.Status = "未启用，不创建 Steam 控制器实例。";
+            slot.RefreshFromSource();
+        }
+
+        if (started == 0)
+        {
+            throw new InvalidOperationException(runtimeProfile.Label + " 多手柄模式没有任何 Slot 成功创建虚拟设备。");
+        }
+
+        AppendLog("[SLOT_MULTI] mode=" + runtimeProfile.Mode +
+                  " virtual_instances=" + started +
+                  " enabled_slots=" + string.Join(",", enabledSlots.Select(slot => slot.Index)) +
+                  " isolation=per_slot_ble_source_and_rumble_sink");
     }
 
     private void AppendDualSenseAudioEndpointHint()
@@ -1812,6 +2281,45 @@ public sealed class MainViewModel : INotifyPropertyChanged
         Status = "残留虚拟设备清理已完成。若 [PNP_HID] 仍有 If_Hid，请根据 MI/usage 判断是否是描述符命名问题。";
     }
 
+    private async Task CleanupVirtualDeviceResidueAsync(
+        string reason,
+        CancellationToken cancellationToken,
+        bool includePnpDump)
+    {
+        if (!IsLoopbackHost(Host))
+        {
+            AppendLog("[VIRTUAL_DEVICE_GUARD] skipped reason=" + reason + " host=" + Host);
+            return;
+        }
+
+        try
+        {
+            AppendLog("[VIRTUAL_DEVICE_GUARD] begin reason=" + reason);
+            var client = new ViiperProtocolClient(Host, ParsePort());
+            IReadOnlyList<string> lines =
+                await ControllerEnumerationDiagnostics.CleanupStaleVirtualDevicesAsync(
+                    client,
+                    cancellationToken,
+                    includePnpDump);
+            foreach (string line in lines)
+            {
+                AppendLog(line);
+            }
+
+            await Task.Delay(900, cancellationToken);
+            AppendLog("[VIRTUAL_DEVICE_GUARD] complete reason=" + reason + " settle_ms=900");
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            AppendLog("[VIRTUAL_DEVICE_GUARD] warning reason=" + reason + " " +
+                      ex.GetType().Name + ": " + FirstLine(ex.Message));
+        }
+    }
+
     private async Task ExportDiagnosticsLogAsync(CancellationToken cancellationToken)
     {
         var client = new ViiperProtocolClient(Host, ParsePort());
@@ -1829,7 +2337,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             directory,
             "diagnostics_v6_2_20_" + DateTime.Now.ToString("yyyyMMdd_HHmmss") + ".log");
         var builder = new StringBuilder();
-        builder.AppendLine("# V6.2.20 diagnostics export");
+        builder.AppendLine("# V6.2.22 diagnostics export");
         builder.AppendLine("# session_log=" + sessionLog.FilePath);
         builder.AppendLine();
         foreach (string line in dump)
@@ -1872,11 +2380,18 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     public async Task StopAsync()
     {
+        await StopAutoReconnectAsync();
         await StopSessionAsync(updateStatus: true);
+        using var cleanup = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        await CleanupVirtualDeviceResidueAsync(
+            "manual_stop",
+            cleanup.Token,
+            includePnpDump: false);
     }
 
     private async Task StopSessionAsync(bool updateStatus)
     {
+        await StopMultiSlotSessionsAsync();
         ViiperBridgeSession? active = session;
         session = null;
         if (active != null)
@@ -1888,6 +2403,29 @@ public sealed class MainViewModel : INotifyPropertyChanged
         if (updateStatus)
         {
             Status = "已停止虚拟设备。当前角色仍保持选中，可随时重新部署。";
+        }
+    }
+
+    private async Task StopMultiSlotSessionsAsync()
+    {
+        foreach (Pro2ControllerSlot slot in pro2Slots)
+        {
+            ViiperBridgeSession? active = slot.Session;
+            slot.Session = null;
+            if (active != null)
+            {
+                try
+                {
+                    await active.DisposeAsync();
+                }
+                catch (Exception ex)
+                {
+                    AppendLog("[PRO2_SLOT " + slot.Index + "] session cleanup warning: " + ex.Message);
+                }
+            }
+
+            slot.VirtualDeviceRunning = false;
+            slot.RefreshFromSource();
         }
     }
 
@@ -1909,6 +2447,10 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
             ViiperDeviceProfile restartProfile = failedSession.Profile;
             bool keepAutoReconnect = AutoReconnectEnabled;
+            if (keepAutoReconnect)
+            {
+                await StopAutoReconnectAsync();
+            }
             session = null;
             await failedSession.DisposeAsync();
             Running = false;
@@ -1919,6 +2461,10 @@ public sealed class MainViewModel : INotifyPropertyChanged
             try
             {
                 await EnsureViiperReadyAsync(lifetimeCts.Token);
+                await CleanupVirtualDeviceResidueAsync(
+                    "session_recovery_" + restartProfile.Mode,
+                    lifetimeCts.Token,
+                    includePnpDump: false);
                 await StartAsync(restartProfile, lifetimeCts.Token);
                 if (Running && activeMode == restartProfile.Mode)
                 {
@@ -1988,7 +2534,12 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
             try
             {
-                await inputSource.DisposeAsync();
+                foreach (Pro2BleInputSource source in pro2Slots
+                             .Select(slot => slot.InputSource)
+                             .Distinct())
+                {
+                    await source.DisposeAsync();
+                }
             }
             catch (Exception ex)
             {
@@ -2063,7 +2614,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "PRO2WirelessReceiverControlBoard",
             "embedded",
-            "v6.2.20",
+            "v6.2.22",
             "viiper",
             "haptic-v0.8.0");
         Directory.CreateDirectory(root);
@@ -2431,6 +2982,35 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private Ps5OutputImuTuning SelectedPs5OutputImuTuning =>
         Ps5OutputImuTuning.Default;
 
+    private static bool IsMultiSlotMode(ViiperVirtualMode mode)
+    {
+        return mode is ViiperVirtualMode.DualSenseLike
+            or ViiperVirtualMode.DualSenseEdge
+            or ViiperVirtualMode.Pro2
+            or ViiperVirtualMode.Xbox;
+    }
+
+    private Pro2ControllerSlot? SlotFromParameter(object? parameter)
+    {
+        if (parameter is Pro2ControllerSlot slot)
+        {
+            return slot;
+        }
+
+        if (parameter is int index)
+        {
+            return pro2Slots.FirstOrDefault(candidate => candidate.Index == index);
+        }
+
+        if (parameter is string text &&
+            int.TryParse(text, out int parsed))
+        {
+            return pro2Slots.FirstOrDefault(candidate => candidate.Index == parsed);
+        }
+
+        return null;
+    }
+
     private static ViiperDeviceProfile ProfileFor(ViiperVirtualMode mode)
     {
         return mode switch
@@ -2504,6 +3084,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         OnPropertyChanged(nameof(IsInputConnected));
         OnPropertyChanged(nameof(BleButtonText));
         OnPropertyChanged(nameof(BleStateText));
+        OnPropertyChanged(nameof(CanManualBleControl));
     }
 
     private void ClearLog()
@@ -2568,7 +3149,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         if (first.Contains("attach", StringComparison.OrdinalIgnoreCase) ||
             first.Contains("device handler", StringComparison.OrdinalIgnoreCase))
         {
-            return "USBIP 虚拟设备挂载失败。请点击“安装/修复 USBIP”，完成后重启本地 VIIPER；若驱动刚安装，可能需要重启 Windows。原始错误：" + first;
+            return "USBIP 虚拟设备挂载失败。若刚安装/修复 USBIP，请先重启 Windows；重启后仍失败再点击“安装/修复 USBIP”。原始错误：" + first;
         }
 
         if (first.Contains("actively refused", StringComparison.OrdinalIgnoreCase) ||

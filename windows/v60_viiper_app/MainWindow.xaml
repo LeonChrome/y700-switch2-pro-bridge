@@ -2,7 +2,8 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:automation="clr-namespace:System.Windows.Automation;assembly=PresentationCore"
-        Title="PRO2 手柄无线接收器控制板 V6.2.20 · 角色选择大厅"
+        Title="PRO2 手柄无线接收器控制板 V6.2.22 · 四人三模大厅"
+        Icon="Assets/AppIcon.ico"
         Width="1440"
         Height="940"
         MinWidth="1160"
@@ -434,7 +435,7 @@
                                         <DropShadowEffect Color="#5EF2A5" BlurRadius="12" ShadowDepth="0"/>
                                     </Ellipse.Effect>
                                 </Ellipse>
-                                <TextBlock FontWeight="Bold" Foreground="#C9FCE0" Text="V6.2.20 正式版"/>
+                                <TextBlock FontWeight="Bold" Foreground="#C9FCE0" Text="V6.2.22 四人三模版"/>
                             </StackPanel>
                         </Border>
                         <Button Margin="0,9,0,0" HorizontalAlignment="Right"
@@ -898,7 +899,7 @@
                                        MaxWidth="760"
                                        Foreground="#89A7CF"
                                        FontSize="11"
-                                       Text="V6.2.21：PS5 / Edge IMU 使用 G=+X,+Z,-Y / A=+X,+Z,-Y；Pro2 4096/g 转 DualSense 8192/g，gyro 转 16.384 raw/dps。"/>
+                                       Text="V6.2.22：PS5 / Edge / Pro2 / Xbox 全模式支持 1-4 个独立 Pro2 BLE Slot；切模式会自动清理 USBIP 残留端口。"/>
                             <StackPanel Margin="0,8,0,0"
                                         Orientation="Horizontal"
                                         VerticalAlignment="Center"
@@ -1192,6 +1193,60 @@
                                             Command="{Binding DisconnectPro2InputCommand}"
                                             IsEnabled="{Binding CanOperate}"/>
                                 </WrapPanel>
+                                <Border Margin="0,12,0,0" Padding="12" CornerRadius="10" Background="#111A2E" BorderBrush="#263655" BorderThickness="1">
+                                    <StackPanel>
+                                        <TextBlock Style="{StaticResource SectionLabel}" Text="4 PLAYER SLOT"/>
+                                        <TextBlock Margin="0,6,0,9"
+                                                   Foreground="#7D8DAD"
+                                                   FontSize="10"
+                                                   TextWrapping="Wrap"
+                                                   Text="四个正式模式均生效：新和联胜 PS5、PS5 Edge、Pro2 / Nintendo、Xbox。启用几个 Slot，就创建几个独立 VIIPER 实例；每个 Slot 独立扫描真实 Pro2、独立输入、独立震动回传。"/>
+                                        <ItemsControl ItemsSource="{Binding Pro2Slots}">
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate>
+                                                    <Border Margin="0,0,0,8" Padding="10" CornerRadius="9" Background="#17213A">
+                                                        <StackPanel>
+                                                            <DockPanel>
+                                                                <CheckBox DockPanel.Dock="Left"
+                                                                          Foreground="#E4EAFE"
+                                                                          IsChecked="{Binding Enabled, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                                          Content="{Binding Headline}"/>
+                                                            </DockPanel>
+                                                            <TextBlock Margin="0,6,0,8"
+                                                                       Foreground="#8EA0C0"
+                                                                       FontSize="10"
+                                                                       TextWrapping="Wrap"
+                                                                       Text="{Binding Status}"/>
+                                                            <WrapPanel>
+                                                                <Button Style="{StaticResource ConsoleButton}"
+                                                                        MinWidth="58"
+                                                                        Padding="7,3"
+                                                                        Content="扫描"
+                                                                        Command="{Binding DataContext.ScanPro2SlotCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                                        CommandParameter="{Binding}"
+                                                                        IsEnabled="{Binding DataContext.CanOperate, RelativeSource={RelativeSource AncestorType=Window}}"/>
+                                                                <Button Style="{StaticResource ConsoleButton}"
+                                                                        MinWidth="58"
+                                                                        Padding="7,3"
+                                                                        Content="连接"
+                                                                        Command="{Binding DataContext.ConnectPro2SlotCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                                        CommandParameter="{Binding}"
+                                                                        IsEnabled="{Binding DataContext.CanOperate, RelativeSource={RelativeSource AncestorType=Window}}"/>
+                                                                <Button Style="{StaticResource ConsoleButton}"
+                                                                        MinWidth="58"
+                                                                        Padding="7,3"
+                                                                        Content="断开"
+                                                                        Command="{Binding DataContext.DisconnectPro2SlotCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                                        CommandParameter="{Binding}"
+                                                                        IsEnabled="{Binding DataContext.CanOperate, RelativeSource={RelativeSource AncestorType=Window}}"/>
+                                                            </WrapPanel>
+                                                        </StackPanel>
+                                                    </Border>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                    </StackPanel>
+                                </Border>
                                 <Border Margin="0,12,0,0" Padding="12" CornerRadius="10" Background="#171F35">
                                     <StackPanel>
                                         <TextBlock Foreground="#93A1BF" Text="{Binding Status}" TextWrapping="Wrap"/>

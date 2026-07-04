@@ -1,5 +1,6 @@
 using System;
 using System.ComponentModel;
+using System.Diagnostics;
 using System.Drawing;
 using System.Runtime.InteropServices;
 using System.Windows;
@@ -60,12 +61,33 @@ public partial class MainWindow : Window
 
         trayIcon = new Forms.NotifyIcon
         {
-            Icon = SystemIcons.Application,
-            Text = "PRO2 控制板 V6.2.20",
+            Icon = LoadTrayIcon(),
+            Text = "PRO2 控制板 V6.2.22",
             ContextMenuStrip = trayMenu,
             Visible = true
         };
         trayIcon.DoubleClick += (_, _) => Dispatcher.BeginInvoke(new Action(ShowFromTray));
+    }
+
+    private static System.Drawing.Icon LoadTrayIcon()
+    {
+        try
+        {
+            string? exe = Process.GetCurrentProcess().MainModule?.FileName;
+            if (!string.IsNullOrWhiteSpace(exe))
+            {
+                System.Drawing.Icon? icon = System.Drawing.Icon.ExtractAssociatedIcon(exe);
+                if (icon != null)
+                {
+                    return icon;
+                }
+            }
+        }
+        catch
+        {
+        }
+
+        return SystemIcons.Application;
     }
 
     private void MainWindow_StateChanged(object? sender, EventArgs e)

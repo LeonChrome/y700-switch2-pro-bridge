@@ -934,7 +934,7 @@ Expect(
     "real 15 ms / 58.5 Hz Pro2 session remains live instead of being rejected");
 Expect(
     Pro2BleInputSource.ShouldKeepLiveInput(20.0, 20.0, 80, 80),
-    "V6.2.20 keeps 20 Hz BLE live and lets virtual report rate auto-reduce");
+    "V6.2.22 keeps 20 Hz BLE live and lets virtual report rate auto-reduce");
 Expect(
     !Pro2BleInputSource.ShouldKeepLiveInput(9.0, 9.0, 80, 80),
     "sub-10 Hz BLE input is rejected");

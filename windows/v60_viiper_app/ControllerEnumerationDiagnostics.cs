@@ -35,7 +35,7 @@ public static class ControllerEnumerationDiagnostics
     {
         var lines = new List<string>
         {
-            "[DIAG] kind=controller_enumeration version=6.2.20 session_log=\"" + sessionLogPath + "\""
+            "[DIAG] kind=controller_enumeration version=6.2.22 session_log=\"" + sessionLogPath + "\""
         };
         await AppendViiperDumpAsync(client, lines, cancellationToken);
         await AppendUsbipPortDumpAsync(lines, cancellationToken);
@@ -45,7 +45,8 @@ public static class ControllerEnumerationDiagnostics
 
     public static async Task<IReadOnlyList<string>> CleanupStaleVirtualDevicesAsync(
         ViiperProtocolClient client,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool includePnpDump = true)
     {
         var lines = new List<string>
         {
@@ -92,7 +93,14 @@ public static class ControllerEnumerationDiagnostics
 
         await AppendUsbipDetachAsync(lines, cancellationToken);
         await AppendUsbipPortDumpAsync(lines, cancellationToken);
-        await AppendPnpDumpAsync(lines, cancellationToken);
+        if (includePnpDump)
+        {
+            await AppendPnpDumpAsync(lines, cancellationToken);
+        }
+        else
+        {
+            lines.Add("[PNP_DUMP] skipped=automatic_virtual_device_guard");
+        }
         lines.Add("[CLEANUP] complete");
         return lines;
     }
