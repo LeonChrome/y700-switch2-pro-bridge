@@ -91,12 +91,19 @@ public sealed class ViiperProtocolClient
     public async Task<ViiperDevice> AddDeviceAsync(
         uint busId,
         string deviceType,
+        IReadOnlyDictionary<string, object?>? deviceSpecific,
         CancellationToken cancellationToken)
     {
-        string payload = JsonSerializer.Serialize(new Dictionary<string, object?>
+        var request = new Dictionary<string, object?>
         {
             ["type"] = deviceType
-        });
+        };
+        if (deviceSpecific is { Count: > 0 })
+        {
+            request["deviceSpecific"] = deviceSpecific;
+        }
+
+        string payload = JsonSerializer.Serialize(request);
         string response = await RequestAsync(
             "bus/" + busId + "/add",
             payload,

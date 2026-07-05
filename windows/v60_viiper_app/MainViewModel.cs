@@ -42,7 +42,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private ViiperBridgeSession? session;
     private string host = "127.0.0.1";
     private string port = "3242";
-    private string status = "V6.2.22 四人三模版已就绪。PS5 / Edge / Pro2 / Xbox 均支持 1-4 个独立 Pro2 BLE Slot。";
+    private string status = "V6.2.25 四人三模版已就绪。PS5 / Edge / Pro2 / Xbox 均支持 1-4 个独立 Pro2 BLE Slot。";
     private string inputStatus = "真实 Pro2 BLE 输入未连接。";
     private string selectedPushRateLabel = ViiperPushRateOption.Default.Label;
     private string selectedBackendLabel = VirtualBackendOption.Default.Label;
@@ -52,6 +52,13 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private bool busy;
     private bool shuttingDown;
     private bool autoReconnectEnabled;
+    private bool launchAtLoginEnabled;
+    private bool autoReconnectOnStartupEnabled;
+    private bool startupAutomationActive;
+    private bool startupAutomationPaused;
+    private bool startupAutomationRan;
+    private bool startupAutomationNoticeSent;
+    private DateTimeOffset? startupAutomationDeadlineUtc;
     private string runtimeReadinessText = "";
     private string professionalBiasStatusText =
         "Bias: NotCalibrated / source=none / applied=false / updates=0 / raw=0,0,0";
@@ -149,6 +156,13 @@ public sealed class MainViewModel : INotifyPropertyChanged
         selectedStickProcessingLabel =
             StickProcessingOption.FromLabel(userSettings.StickProcessingLabel).Label;
         audioEndpointGuardEnabled = userSettings.AudioEndpointGuardEnabled;
+        launchAtLoginEnabled = userSettings.LaunchAtLoginEnabled && StartupLaunchRegistration.IsEnabled();
+        autoReconnectOnStartupEnabled = userSettings.AutoReconnectOnStartupEnabled;
+        if (userSettings.LaunchAtLoginEnabled != launchAtLoginEnabled)
+        {
+            userSettings.LaunchAtLoginEnabled = launchAtLoginEnabled;
+            SaveUserSettings("[STARTUP]");
+        }
         selectedMode = ModeFromKey(userSettings.SelectedModeKey);
         inputSource.SetRumbleGain(rumbleMultiplier);
         inputSource.SetStickProcessingMode(SelectedStickProcessingOption.Mode);
@@ -159,11 +173,14 @@ public sealed class MainViewModel : INotifyPropertyChanged
         {
             AppendLog(StartupProcessGuard.LastSummary);
         }
-        AppendLog("V6.2.22 四人三模版说明：新和联胜 PS5 保留 HD 音频震动；PS5 / Edge / Pro2 / Xbox 均支持 1-4 个独立 Pro2 BLE Slot；PS5 / Edge IMU 采用 G=+X,+Z,-Y / A=+X,+Z,-Y；切模式/停止/异常恢复会自动清理 USBIP 残留端口。");
+        AppendLog("V6.2.25 四人三模版说明：新和联胜 PS5 保留 HD 音频震动；PS5 / Edge / Pro2 / Xbox 均支持 1-4 个独立 Pro2 BLE Slot；PS5 / Edge IMU 采用 G=+X,+Z,-Y / A=+X,+Z,-Y；切模式/停止/异常恢复会自动清理 USBIP 残留端口，并在每个 Slot 创建后校验 type/VID/PID，防止 Steam 识别名与实际布局串台。");
         AppendLog("[LOG_POLICY] previous v6 logs are cleaned at startup; manager log limit=" +
                   (SessionLogWriter.MaxLogBytes / 1024 / 1024) + "MB; VIIPER server log level=info.");
         AppendLog("[RUNTIME] " + RuntimeReadinessText);
         AppendLog("[RUMBLE_GAIN] multiplier=" + rumbleMultiplier.ToString("F1"));
+        AppendLog("[STARTUP] launch_at_login=" + launchAtLoginEnabled +
+                  " auto_reconnect_on_startup=" + autoReconnectOnStartupEnabled +
+                  " selected_mode=" + ModeKey(selectedMode));
         AppendLog("[LINK_TUNING] push_hz=" + SelectedPushRateOption.Hz.ToString("F1") +
                   " gyro_mode=" + ViiperGyroModeOption.Default.Label +
                   " ps5_imu_map=" + Ps5ImuMappingOption.Default.Mapping.TelemetryValue +
@@ -252,6 +269,64 @@ public sealed class MainViewModel : INotifyPropertyChanged
             RaiseConnectionStateChanged();
         }
     }
+
+    public bool LaunchAtLoginEnabled
+    {
+        get => launchAtLoginEnabled;
+        set
+        {
+            if (launchAtLoginEnabled == value)
+            {
+                return;
+            }
+
+            try
+            {
+                StartupLaunchRegistration.SetEnabled(value);
+                launchAtLoginEnabled = StartupLaunchRegistration.IsEnabled();
+                userSettings.LaunchAtLoginEnabled = launchAtLoginEnabled;
+                SaveUserSettings("[STARTUP]");
+                AppendLog("[STARTUP] launch_at_login=" + launchAtLoginEnabled);
+            }
+            catch (Exception ex)
+            {
+                AppendLog("[STARTUP] launch_at_login failed: " + ex.Message);
+                launchAtLoginEnabled = StartupLaunchRegistration.IsEnabled();
+                userSettings.LaunchAtLoginEnabled = launchAtLoginEnabled;
+                SaveUserSettings("[STARTUP]");
+                RequestUserNotification("开机自启动设置失败", FirstLine(ex.Message));
+            }
+
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(StartupAutomationSummary));
+        }
+    }
+
+    public bool AutoReconnectOnStartupEnabled
+    {
+        get => autoReconnectOnStartupEnabled;
+        set
+        {
+            if (autoReconnectOnStartupEnabled == value)
+            {
+                return;
+            }
+
+            autoReconnectOnStartupEnabled = value;
+            userSettings.AutoReconnectOnStartupEnabled = value;
+            SaveUserSettings("[STARTUP]");
+            AppendLog("[STARTUP] auto_reconnect_on_startup=" + value);
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(StartupAutomationSummary));
+        }
+    }
+
+    public string StartupAutomationSummary =>
+        LaunchAtLoginEnabled || AutoReconnectOnStartupEnabled
+            ? "开机自启=" + (LaunchAtLoginEnabled ? "开" : "关") +
+              " · 启动自动进入=" + (AutoReconnectOnStartupEnabled ? "开" : "关") +
+              " · 上次模式=" + SelectedModeLabel
+            : "开机自动化未启用。";
 
     public string RuntimeReadinessText
     {
@@ -1298,6 +1373,34 @@ public sealed class MainViewModel : INotifyPropertyChanged
         }
     }
 
+    public async Task RunStartupAutomationAsync()
+    {
+        if (shuttingDown || startupAutomationRan)
+        {
+            return;
+        }
+
+        startupAutomationRan = true;
+        if (!AutoReconnectOnStartupEnabled)
+        {
+            return;
+        }
+
+        startupAutomationActive = true;
+        startupAutomationPaused = false;
+        startupAutomationNoticeSent = false;
+        startupAutomationDeadlineUtc = DateTimeOffset.UtcNow.AddMinutes(5);
+        OnPropertyChanged(nameof(StartupAutomationSummary));
+        AppendLog("[STARTUP_AUTO] begin mode=" + ModeKey(selectedMode) +
+                  " label=\"" + SelectedModeLabel + "\" deadline_seconds=300");
+        RequestUserNotification(
+            "新和联胜自动启动",
+            "已自动切换至 " + SelectedModeLabel +
+            "，并开始检索上次的 Pro2 手柄。若 5 分钟内没有连上，会暂停并等待人工操作。");
+
+        await RunExclusiveAsync("启动自动进入游戏", EnterGameAsync, isStartupAutomationOperation: true);
+    }
+
     private async Task TryConnectPro2InputOnceAsync(CancellationToken cancellationToken)
     {
         Status = "正在扫描并连接 Pro2 BLE；将依次验证 GATT、初始化命令和 live 输入。";
@@ -1306,7 +1409,15 @@ public sealed class MainViewModel : INotifyPropertyChanged
         await bleOperationGate.WaitAsync(cancellationToken);
         try
         {
-            await inputSource.StartAsync(progress, cancellationToken);
+            Pro2ControllerSlot primarySlot = pro2Slots[0];
+            IReadOnlySet<string> preferred = PreferredAddressSetForSlot(primarySlot);
+            bool onlyPreferred = startupAutomationActive && preferred.Count > 0;
+            await inputSource.StartAsync(
+                progress,
+                new HashSet<string>(StringComparer.OrdinalIgnoreCase),
+                preferred,
+                onlyPreferred,
+                cancellationToken);
         }
         finally
         {
@@ -1315,6 +1426,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
         InputStatus = inputSource.Status;
         if (inputSource.IsRunning)
         {
+            pro2Slots[0].RefreshFromSource();
+            RememberConnectedAddress(pro2Slots[0]);
+            MarkStartupAutomationConnected("primary");
             Status = inputSource.IsPerformanceDegraded
                 ? "真实 Pro2 BLE 已接入并保持可用，但当前通知速率低于 66.7 Hz 目标；不会再强制断开。"
                 : Running
@@ -1508,6 +1622,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
                 if (live)
                 {
                     failedAttemptStreak = 0;
+                    pro2Slots[0].RefreshFromSource();
+                    RememberConnectedAddress(pro2Slots[0]);
+                    MarkStartupAutomationConnected("primary_loop");
                     if (!previouslyLive)
                     {
                         previouslyLive = true;
@@ -1519,6 +1636,11 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
                     await Task.Delay(750, cancellationToken);
                     continue;
+                }
+
+                if (TryPauseStartupAutomationAfterTimeout("primary_loop", currentSlot: null))
+                {
+                    break;
                 }
 
                 if (inputSource.IsRunning)
@@ -1670,8 +1792,13 @@ public sealed class MainViewModel : INotifyPropertyChanged
         slot.AutoReconnectCts?.Dispose();
         slot.AutoReconnectCts = CancellationTokenSource.CreateLinkedTokenSource(lifetimeCts.Token);
         slot.AutoReconnectEnabled = true;
-        slot.Status = "自动连接已启动，正在寻找未被其他 Slot 占用的 Pro2。";
-        AppendLog("[SLOT_MULTI] slot=" + slot.Index + " auto enabled mode=" + activeMode);
+        string preferredAddress = LastKnownPro2AddressForSlot(slot);
+        slot.Status = string.IsNullOrWhiteSpace(preferredAddress)
+            ? "自动连接已启动，正在寻找未被其他 Slot 占用的 Pro2。"
+            : "自动连接已启动，优先寻找上次保存的 Pro2：" + preferredAddress;
+        AppendLog("[SLOT_MULTI] slot=" + slot.Index + " auto enabled mode=" + activeMode +
+                  " preferred=" + (string.IsNullOrWhiteSpace(preferredAddress) ? "none" : preferredAddress) +
+                  " startup_auto=" + startupAutomationActive);
         slot.AutoReconnectTask = Pro2SlotAutoReconnectLoopAsync(slot, slot.AutoReconnectCts.Token);
         UpdateMultiSlotInputStatus();
     }
@@ -1694,6 +1821,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
                 {
                     failedAttemptStreak = 0;
                     slot.RefreshFromSource();
+                    RememberConnectedAddress(slot);
+                    MarkStartupAutomationConnected("slot_" + slot.Index);
                     if (!previouslyLive)
                     {
                         previouslyLive = true;
@@ -1704,6 +1833,11 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
                     await Task.Delay(750, cancellationToken);
                     continue;
+                }
+
+                if (TryPauseStartupAutomationAfterTimeout("slot_" + slot.Index, slot))
+                {
+                    break;
                 }
 
                 if (slot.InputSource.IsRunning)
@@ -1805,7 +1939,14 @@ public sealed class MainViewModel : INotifyPropertyChanged
         await bleOperationGate.WaitAsync(cancellationToken);
         try
         {
-            await slot.InputSource.StartAsync(progress, excluded, cancellationToken);
+            IReadOnlySet<string> preferred = PreferredAddressSetForSlot(slot);
+            bool onlyPreferred = startupAutomationActive && preferred.Count > 0;
+            await slot.InputSource.StartAsync(
+                progress,
+                excluded,
+                preferred,
+                onlyPreferred,
+                cancellationToken);
         }
         finally
         {
@@ -1813,6 +1954,130 @@ public sealed class MainViewModel : INotifyPropertyChanged
         }
 
         slot.RefreshFromSource();
+        if (slot.InputSource.IsRunning)
+        {
+            RememberConnectedAddress(slot);
+            MarkStartupAutomationConnected("slot_connect_" + slot.Index);
+        }
+    }
+
+    private IReadOnlySet<string> PreferredAddressSetForSlot(Pro2ControllerSlot slot)
+    {
+        string address = LastKnownPro2AddressForSlot(slot);
+        if (string.IsNullOrWhiteSpace(address))
+        {
+            return new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        }
+
+        return new HashSet<string>(StringComparer.OrdinalIgnoreCase) { address };
+    }
+
+    private string LastKnownPro2AddressForSlot(Pro2ControllerSlot slot)
+    {
+        string[] addresses = V60UserSettings.NormalizeAddressSlots(userSettings.LastConnectedPro2Addresses);
+        int index = slot.Index - 1;
+        return index >= 0 && index < addresses.Length
+            ? addresses[index]
+            : "";
+    }
+
+    private void RememberConnectedAddress(Pro2ControllerSlot slot)
+    {
+        string address = V60UserSettings.NormalizeBleAddress(slot.InputSource.ConnectedAddress);
+        if (string.IsNullOrWhiteSpace(address))
+        {
+            return;
+        }
+
+        string[] addresses = V60UserSettings.NormalizeAddressSlots(userSettings.LastConnectedPro2Addresses);
+        int index = slot.Index - 1;
+        if (index < 0 || index >= addresses.Length ||
+            string.Equals(addresses[index], address, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        addresses[index] = address;
+        userSettings.LastConnectedPro2Addresses = addresses;
+        SaveUserSettings("[PRO2_BLE_ADDR]");
+        AppendLog("[PRO2_BLE_ADDR] slot=" + slot.Index + " saved=" + address);
+    }
+
+    private void MarkStartupAutomationConnected(string context)
+    {
+        if (!startupAutomationActive)
+        {
+            return;
+        }
+
+        startupAutomationActive = false;
+        startupAutomationPaused = false;
+        startupAutomationDeadlineUtc = null;
+        AppendLog("[STARTUP_AUTO] connected context=" + context + " guard_continues=1");
+        OnPropertyChanged(nameof(StartupAutomationSummary));
+    }
+
+    private bool TryPauseStartupAutomationAfterTimeout(string context, Pro2ControllerSlot? currentSlot)
+    {
+        if (!startupAutomationActive || !startupAutomationDeadlineUtc.HasValue ||
+            DateTimeOffset.UtcNow < startupAutomationDeadlineUtc.Value)
+        {
+            return false;
+        }
+
+        startupAutomationActive = false;
+        startupAutomationPaused = true;
+        startupAutomationDeadlineUtc = null;
+        AutoReconnectEnabled = false;
+        foreach (Pro2ControllerSlot slot in pro2Slots)
+        {
+            slot.AutoReconnectEnabled = false;
+            slot.Status = "开机自动连接 5 分钟内未 live，已暂停；请手动操作。";
+            if (!ReferenceEquals(slot, currentSlot))
+            {
+                slot.AutoReconnectCts?.Cancel();
+            }
+        }
+        if (currentSlot != null)
+        {
+            autoReconnectCts?.Cancel();
+        }
+
+        InputStatus = "开机自动连接已暂停：5 分钟内没有连接到 Pro2。";
+        Status = "开机自动连接已暂停，避免 Windows BLE 长时间反复建立连接；请唤醒手柄后手动点击进入游戏。";
+        AppendLog("[STARTUP_AUTO] paused timeout context=" + context + " deadline_seconds=300");
+        if (!startupAutomationNoticeSent)
+        {
+            startupAutomationNoticeSent = true;
+            RequestUserNotification(
+                "开机自动连接已暂停",
+                "5 分钟内没有连接到 " + SelectedModeLabel +
+                " 的 Pro2。已暂停自动检索，避免 Windows BLE 长时间反复建立连接；请手动点击模式或进入游戏恢复。");
+        }
+        RaiseConnectionStateChanged();
+        OnPropertyChanged(nameof(StartupAutomationSummary));
+        return true;
+    }
+
+    private async Task CancelStartupAutomationForManualOperationAsync(string operation)
+    {
+        if (!startupAutomationActive && !startupAutomationPaused)
+        {
+            return;
+        }
+
+        startupAutomationActive = false;
+        startupAutomationPaused = false;
+        startupAutomationDeadlineUtc = null;
+        AppendLog("[STARTUP_AUTO] cancelled_by_manual operation=" + operation);
+        await StopAutoReconnectAsync();
+        Status = "已取消开机自动连接，转为手动操作：" + operation;
+        OnPropertyChanged(nameof(StartupAutomationSummary));
+    }
+
+    private void RequestUserNotification(string title, string message)
+    {
+        UserNotificationRequested?.Invoke(title, message);
     }
 
     private HashSet<string> ConnectedPro2AddressesExcept(Pro2ControllerSlot slot)
@@ -2148,7 +2413,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
             ViiperDeviceProfile slotProfile = runtimeProfile with
             {
-                Label = runtimeProfile.Label + " Slot " + slot.Index
+                Label = runtimeProfile.Label + " Slot " + slot.Index,
+                DeviceSpecificSerialNumber =
+                    ViiperDeviceProfile.SlotSerialNumber(runtimeProfile.Mode, slot.Index)
             };
             var progress = new Progress<string>(
                 line => AppendLog("[SLOT " + slot.Index + "] " + line));
@@ -2337,7 +2604,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             directory,
             "diagnostics_v6_2_20_" + DateTime.Now.ToString("yyyyMMdd_HHmmss") + ".log");
         var builder = new StringBuilder();
-        builder.AppendLine("# V6.2.22 diagnostics export");
+        builder.AppendLine("# V6.2.25 diagnostics export");
         builder.AppendLine("# session_log=" + sessionLog.FilePath);
         builder.AppendLine();
         foreach (string line in dump)
@@ -2614,7 +2881,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "PRO2WirelessReceiverControlBoard",
             "embedded",
-            "v6.2.22",
+            "v6.2.25",
             "viiper",
             "haptic-v0.8.0");
         Directory.CreateDirectory(root);
@@ -2676,7 +2943,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     private async Task RunExclusiveAsync(
         string operation,
-        Func<CancellationToken, Task> action)
+        Func<CancellationToken, Task> action,
+        bool isStartupAutomationOperation = false)
     {
         if (shuttingDown)
         {
@@ -2693,6 +2961,10 @@ public sealed class MainViewModel : INotifyPropertyChanged
         Busy = true;
         try
         {
+            if (!isStartupAutomationOperation)
+            {
+                await CancelStartupAutomationForManualOperationAsync(operation);
+            }
             await action(lifetimeCts.Token);
         }
         catch (OperationCanceledException) when (lifetimeCts.IsCancellationRequested)
@@ -3176,6 +3448,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             : "发布包不完整：未安装 USBIP，且没有找到内置安装器。请重新获取完整 EXE。";
     }
 
+    public event Action<string, string>? UserNotificationRequested;
     public event PropertyChangedEventHandler? PropertyChanged;
 
     private void OnPropertyChanged([CallerMemberName] string? propertyName = null)
@@ -3183,3 +3456,5 @@ public sealed class MainViewModel : INotifyPropertyChanged
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
     }
 }
+
+

@@ -136,10 +136,39 @@ public sealed class ViiperBridgeSession : IAsyncDisposable
         createdBus = true;
         progress.Report("[VIIPER] created dedicated bus " + busId);
 
-        device = await client.AddDeviceAsync(busId, profile.DeviceType, cancellationToken);
+        var deviceSpecific = profile.DeviceSpecificArguments();
+        device = await client.AddDeviceAsync(
+            busId,
+            profile.DeviceType,
+            deviceSpecific,
+            cancellationToken);
         usbipAttachCount = 1;
         lastUsbipLifecycleEvent = "initial_auto_attach";
         progress.Report($"[VIIPER] added {profile.Label} device bus={device.BusId} dev={device.DevId} vid={device.Vid} pid={device.Pid}");
+        if (deviceSpecific.Count > 0)
+        {
+            progress.Report("[VIIPER_DEVICE_SPECIFIC] profile=\"" + profile.Label +
+                            "\" serial_number=\"" + profile.DeviceSpecificSerialNumber + "\"");
+        }
+        bool identityOk = profile.MatchesIdentity(device);
+        progress.Report(
+            "[VIIPER_IDENTITY] profile=\"" + profile.Label +
+            "\" expected_type=" + profile.DeviceType +
+            " expected_vid=0x" + profile.ExpectedVid +
+            " expected_pid=0x" + profile.ExpectedPid +
+            " actual_type=" + device.Type +
+            " actual_vid=" + device.Vid +
+            " actual_pid=" + device.Pid +
+            " result=" + (identityOk ? "ok" : "mismatch"));
+        if (!identityOk)
+        {
+            throw new InvalidOperationException(
+                "VIIPER returned a virtual device identity that does not match the selected mode. " +
+                "profile=" + profile.Label +
+                " expected=" + profile.DeviceType + "/0x" + profile.ExpectedVid + ":0x" + profile.ExpectedPid +
+                " actual=" + device.Type + "/" + device.Vid + ":" + device.Pid +
+                ". Please use 清理残留虚拟设备 and retry.");
+        }
         SetStream(await client.OpenStreamAsync(device.BusId, device.DevId, cancellationToken));
         progress.Report(inputSource is { IsRunning: true }
             ? "[VIIPER] stream connected; feeding Pro2 BLE input."

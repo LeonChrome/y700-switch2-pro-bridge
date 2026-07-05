@@ -35,7 +35,7 @@ public static class ControllerEnumerationDiagnostics
     {
         var lines = new List<string>
         {
-            "[DIAG] kind=controller_enumeration version=6.2.22 session_log=\"" + sessionLogPath + "\""
+            "[DIAG] kind=controller_enumeration version=6.2.25 session_log=\"" + sessionLogPath + "\""
         };
         await AppendViiperDumpAsync(client, lines, cancellationToken);
         await AppendUsbipPortDumpAsync(lines, cancellationToken);
@@ -503,3 +503,5 @@ $items | ConvertTo-Json -Depth 5 -Compress
         public string CombinedOutput => (Stdout + "\n" + Stderr).Trim();
     }
 }
+
+

@@ -13,6 +13,9 @@ public sealed class V60UserSettings
     public string BackendLabel { get; set; } = VirtualBackendOption.Default.Label;
     public string StickProcessingLabel { get; set; } = StickProcessingOption.Default.Label;
     public string SelectedModeKey { get; set; } = "dualsense";
+    public bool LaunchAtLoginEnabled { get; set; }
+    public bool AutoReconnectOnStartupEnabled { get; set; }
+    public string[] LastConnectedPro2Addresses { get; set; } = new string[4];
     public bool AudioEndpointGuardEnabled { get; set; } = true;
     public double Ps5GyroScalePitch { get; set; } = 1.0;
     public double Ps5GyroScaleYaw { get; set; } = 1.0;
@@ -49,6 +52,8 @@ public sealed class V60UserSettings
                     StickProcessingOption.FromLabel(loaded.StickProcessingLabel).Label;
                 loaded.SelectedModeKey =
                     NormalizeModeKey(loaded.SelectedModeKey);
+                loaded.LastConnectedPro2Addresses =
+                    NormalizeAddressSlots(loaded.LastConnectedPro2Addresses);
                 loaded.Ps5GyroScalePitch =
                     NormalizePs5GyroScale(loaded.Ps5GyroScalePitch);
                 loaded.Ps5GyroScaleYaw =
@@ -75,6 +80,7 @@ public sealed class V60UserSettings
             BackendLabel = VirtualBackendOption.FromLabel(BackendLabel).Label;
             StickProcessingLabel = StickProcessingOption.FromLabel(StickProcessingLabel).Label;
             SelectedModeKey = NormalizeModeKey(SelectedModeKey);
+            LastConnectedPro2Addresses = NormalizeAddressSlots(LastConnectedPro2Addresses);
             Ps5GyroScalePitch = NormalizePs5GyroScale(Ps5GyroScalePitch);
             Ps5GyroScaleYaw = NormalizePs5GyroScale(Ps5GyroScaleYaw);
             Ps5GyroScaleRoll = NormalizePs5GyroScale(Ps5GyroScaleRoll);
@@ -117,6 +123,31 @@ public sealed class V60UserSettings
             "xbox" or "xinput" or "xbox360" => "xbox",
             _ => "dualsense"
         };
+    }
+
+    public static string[] NormalizeAddressSlots(string[]? value)
+    {
+        string[] normalized = new string[4];
+        if (value == null)
+        {
+            return normalized;
+        }
+
+        for (int i = 0; i < normalized.Length && i < value.Length; i++)
+        {
+            normalized[i] = NormalizeBleAddress(value[i]);
+        }
+        return normalized;
+    }
+
+    public static string NormalizeBleAddress(string? value)
+    {
+        string text = (value ?? "").Trim().ToUpperInvariant();
+        if (text.Length == 0)
+        {
+            return "";
+        }
+        return text.Replace("-", ":");
     }
 
     private static string SettingsPath => Path.Combine(

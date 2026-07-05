@@ -251,12 +251,32 @@ public sealed class Pro2BleInputSource :
 
     public Task StartAsync(IProgress<string> progress, CancellationToken cancellationToken)
     {
-        return StartAsync(progress, new HashSet<string>(StringComparer.OrdinalIgnoreCase), cancellationToken);
+        return StartAsync(
+            progress,
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase),
+            preferredAddresses: null,
+            onlyPreferredAddresses: false,
+            cancellationToken);
+    }
+
+    public Task StartAsync(
+        IProgress<string> progress,
+        IReadOnlySet<string> excludedAddresses,
+        CancellationToken cancellationToken)
+    {
+        return StartAsync(
+            progress,
+            excludedAddresses,
+            preferredAddresses: null,
+            onlyPreferredAddresses: false,
+            cancellationToken);
     }
 
     public async Task StartAsync(
         IProgress<string> progress,
         IReadOnlySet<string> excludedAddresses,
+        IReadOnlySet<string>? preferredAddresses,
+        bool onlyPreferredAddresses,
         CancellationToken cancellationToken)
     {
         if (IsRunning)
@@ -290,10 +310,42 @@ public sealed class Pro2BleInputSource :
             lastCandidates.AddRange(candidates);
         }
 
-        foreach (BleCandidate candidate in candidates.OrderByDescending(c => c.Score).ThenByDescending(c => c.Rssi))
+        var preferred = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (preferredAddresses != null)
+        {
+            foreach (string address in preferredAddresses)
+            {
+                preferred.Add(address);
+            }
+        }
+        if (preferred.Count > 0)
+        {
+            progress.Report("[PRO2_BLE] preferred addresses=" + string.Join(",", preferred) +
+                            " only_preferred=" + onlyPreferredAddresses);
+        }
+
+        var orderedCandidates = candidates
+            .Select(candidate => new
+            {
+                Candidate = candidate,
+                Address = FormatAddress(candidate.Address)
+            })
+            .OrderByDescending(item => preferred.Contains(item.Address))
+            .ThenByDescending(item => item.Candidate.Score)
+            .ThenByDescending(item => item.Candidate.Rssi)
+            .ToList();
+
+        int skippedNonPreferred = 0;
+        foreach (var item in orderedCandidates)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            string candidateAddress = FormatAddress(candidate.Address);
+            BleCandidate candidate = item.Candidate;
+            string candidateAddress = item.Address;
+            if (onlyPreferredAddresses && preferred.Count > 0 && !preferred.Contains(candidateAddress))
+            {
+                skippedNonPreferred++;
+                continue;
+            }
             if (excludedAddresses.Contains(candidateAddress))
             {
                 progress.Report("[PRO2_BLE] skip occupied candidate " + DescribeCandidate(candidate));
@@ -327,9 +379,15 @@ public sealed class Pro2BleInputSource :
             await CloseCurrentAsync("候选 BLE 未确认 live，继续尝试下一项。");
         }
 
-        Status = string.IsNullOrWhiteSpace(lastPerformanceFailure)
-            ? "未能连接到真实 Pro2 BLE。请确保手柄处于可连接状态，并且没有被 ESP32、Switch、手机或旧进程占用。"
-            : lastPerformanceFailure;
+        if (skippedNonPreferred > 0)
+        {
+            progress.Report("[PRO2_BLE] skipped non-preferred candidates=" + skippedNonPreferred);
+        }
+        Status = onlyPreferredAddresses && preferred.Count > 0
+            ? "未连接到上次保存的 Pro2 BLE 地址。请唤醒上次那只手柄；如需换新手柄，请手动点击连接。"
+            : string.IsNullOrWhiteSpace(lastPerformanceFailure)
+                ? "未能连接到真实 Pro2 BLE。请确保手柄处于可连接状态，并且没有被 ESP32、Switch、手机或旧进程占用。"
+                : lastPerformanceFailure;
     }
 
     public bool TryGetLatest(out GamepadState state, out TimeSpan age)
@@ -1497,7 +1555,7 @@ public sealed class Pro2BleInputSource :
         BlePerformanceSnapshot failed = GetPerformanceSnapshot();
         if (HasUsableLivePerformance(failed))
         {
-            string warning = "BLE 输入保持 live，但没有达到 66.7 Hz 目标；V6.2.22 将自动降低虚拟 USB 输出刷新率：" +
+            string warning = "BLE 输入保持 live，但没有达到 66.7 Hz 目标；V6.2.25 将自动降低虚拟 USB 输出刷新率：" +
                              FormatPerformanceSnapshot(failed);
             lock (gate)
             {
@@ -2383,3 +2441,5 @@ public sealed class Pro2BleInputSource :
         uint RawNotifications,
         uint ParsedNotifications);
 }
+
+

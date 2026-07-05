@@ -1,5 +1,6 @@
 using System;
 using System.Buffers.Binary;
+using System.Collections.Generic;
 using System.Diagnostics;
 using Y700Switch2V60Viiper;
 
@@ -146,8 +147,41 @@ byte[] edge = VirtualPadPackets.FromGamepad(ViiperDeviceProfile.DualSenseEdge, e
 Expect(edge.Length == 33, "DualSense Edge wire size");
 Expect(
     ViiperDeviceProfile.DualSenseEdge.DeviceType == "dualsenseedge" &&
+    ViiperDeviceProfile.DualSenseEdge.ExpectedVid == "054c" &&
+    ViiperDeviceProfile.DualSenseEdge.ExpectedPid == "0df2" &&
     ViiperDeviceProfile.DualSenseEdge.FeedbackSize == 6,
     "DualSense Edge profile uses VIIPER dualsenseedge identity and 6-byte feedback");
+Expect(
+    ViiperDeviceProfile.DualSenseLike.MatchesIdentity(
+        new ViiperDevice(1, "1", "0x054c", "0x0ce6", "dualsensehaptic")),
+    "DualSense identity guard accepts expected VIIPER identity");
+Expect(
+    ViiperDeviceProfile.DualSenseEdge.MatchesIdentity(
+        new ViiperDevice(1, "1", "054c", "0df2", "dualsenseedge")),
+    "DualSense Edge identity guard accepts expected VIIPER identity");
+Expect(
+    ViiperDeviceProfile.Pro2.MatchesIdentity(
+        new ViiperDevice(1, "1", "057e", "2069", "ns2pro")),
+    "Pro2 identity guard accepts expected VIIPER identity");
+Expect(
+    ViiperDeviceProfile.Xbox.MatchesIdentity(
+        new ViiperDevice(1, "1", "045e", "028e", "xbox360")),
+    "Xbox identity guard accepts expected VIIPER identity");
+Expect(
+    !ViiperDeviceProfile.Pro2.MatchesIdentity(
+        new ViiperDevice(1, "1", "054c", "0ce6", "dualsensehaptic")),
+    "Pro2 identity guard rejects a DualSense descriptor");
+ViiperDeviceProfile pro2Slot2 = ViiperDeviceProfile.Pro2 with
+{
+    DeviceSpecificSerialNumber =
+        ViiperDeviceProfile.SlotSerialNumber(ViiperVirtualMode.Pro2, 2)
+};
+IReadOnlyDictionary<string, object?> pro2SlotSpecific =
+    pro2Slot2.DeviceSpecificArguments();
+Expect(
+    pro2SlotSpecific.TryGetValue("serial_number", out object? pro2Serial) &&
+    string.Equals(pro2Serial?.ToString(), "LC-V624-NS2PRO-S2", StringComparison.Ordinal),
+    "Pro2 VIIPER deviceSpecific carries a stable slot serial to avoid Steam name cache collisions");
 uint edgeButtons = BinaryPrimitives.ReadUInt32LittleEndian(edge.AsSpan(4, 4));
 Expect((edgeButtons & 0x00400000) != 0, "DualSense Edge maps Pro2 left paddle to L4");
 Expect((edgeButtons & 0x00800000) != 0, "DualSense Edge maps Pro2 right paddle to R4");

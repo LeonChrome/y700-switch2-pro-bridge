@@ -14,6 +14,8 @@ public partial class MainWindow : Window
 {
     private Forms.NotifyIcon? trayIcon;
     private Forms.ContextMenuStrip? trayMenu;
+    private Forms.ToolStripMenuItem? launchAtLoginMenuItem;
+    private Forms.ToolStripMenuItem? autoReconnectOnStartupMenuItem;
     private bool shutdownInProgress;
     private bool shutdownComplete;
     private bool trayTipShown;
@@ -22,6 +24,12 @@ public partial class MainWindow : Window
     {
         InitializeComponent();
         DataContext = new MainViewModel();
+        if (DataContext is MainViewModel viewModel)
+        {
+            viewModel.PropertyChanged += MainViewModel_PropertyChanged;
+            viewModel.UserNotificationRequested += MainViewModel_UserNotificationRequested;
+        }
+        Loaded += MainWindow_Loaded;
         SourceInitialized += MainWindow_SourceInitialized;
         StateChanged += MainWindow_StateChanged;
         Closing += MainWindow_Closing;
@@ -57,16 +65,94 @@ public partial class MainWindow : Window
         trayMenu.Items.Add("连接 PRO2 · 进入游戏", null, (_, _) => ExecuteTrayCommand(vm => vm.ConnectPro2InputCommand));
         trayMenu.Items.Add("停止虚拟设备", null, (_, _) => ExecuteTrayCommand(vm => vm.StopCommand));
         trayMenu.Items.Add(new Forms.ToolStripSeparator());
+        launchAtLoginMenuItem = new Forms.ToolStripMenuItem("开机自启动") { CheckOnClick = true };
+        launchAtLoginMenuItem.Click += (_, _) => ToggleTraySetting(
+            vm => vm.LaunchAtLoginEnabled = launchAtLoginMenuItem.Checked);
+        trayMenu.Items.Add(launchAtLoginMenuItem);
+        autoReconnectOnStartupMenuItem = new Forms.ToolStripMenuItem("启动后自动进入上次模式") { CheckOnClick = true };
+        autoReconnectOnStartupMenuItem.Click += (_, _) => ToggleTraySetting(
+            vm => vm.AutoReconnectOnStartupEnabled = autoReconnectOnStartupMenuItem.Checked);
+        trayMenu.Items.Add(autoReconnectOnStartupMenuItem);
+        trayMenu.Items.Add(new Forms.ToolStripSeparator());
         trayMenu.Items.Add("退出", null, (_, _) => Dispatcher.BeginInvoke(new Action(RequestExitFromTray)));
+        UpdateTrayToggleChecks();
 
         trayIcon = new Forms.NotifyIcon
         {
             Icon = LoadTrayIcon(),
-            Text = "PRO2 控制板 V6.2.22",
+            Text = "PRO2 控制板 V6.2.25",
             ContextMenuStrip = trayMenu,
             Visible = true
         };
         trayIcon.DoubleClick += (_, _) => Dispatcher.BeginInvoke(new Action(ShowFromTray));
+    }
+
+    private async void MainWindow_Loaded(object sender, RoutedEventArgs e)
+    {
+        if (IsUiSmokeRun())
+        {
+            return;
+        }
+
+        if (DataContext is MainViewModel viewModel)
+        {
+            await viewModel.RunStartupAutomationAsync();
+        }
+    }
+
+    private void MainViewModel_PropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(MainViewModel.LaunchAtLoginEnabled) ||
+            e.PropertyName == nameof(MainViewModel.AutoReconnectOnStartupEnabled))
+        {
+            _ = Dispatcher.BeginInvoke(new Action(UpdateTrayToggleChecks));
+        }
+    }
+
+    private void MainViewModel_UserNotificationRequested(string title, string message)
+    {
+        _ = Dispatcher.BeginInvoke(new Action(() =>
+        {
+            if (trayIcon != null)
+            {
+                trayIcon.BalloonTipTitle = title;
+                trayIcon.BalloonTipText = message;
+                trayIcon.ShowBalloonTip(5000);
+            }
+            else
+            {
+                System.Windows.MessageBox.Show(this, message, title, MessageBoxButton.OK, MessageBoxImage.Information);
+            }
+        }));
+    }
+
+    private void ToggleTraySetting(Action<MainViewModel> action)
+    {
+        _ = Dispatcher.BeginInvoke(new Action(() =>
+        {
+            if (DataContext is MainViewModel viewModel)
+            {
+                action(viewModel);
+                UpdateTrayToggleChecks();
+            }
+        }));
+    }
+
+    private void UpdateTrayToggleChecks()
+    {
+        if (DataContext is not MainViewModel viewModel)
+        {
+            return;
+        }
+
+        if (launchAtLoginMenuItem != null)
+        {
+            launchAtLoginMenuItem.Checked = viewModel.LaunchAtLoginEnabled;
+        }
+        if (autoReconnectOnStartupMenuItem != null)
+        {
+            autoReconnectOnStartupMenuItem.Checked = viewModel.AutoReconnectOnStartupEnabled;
+        }
     }
 
     private static System.Drawing.Icon LoadTrayIcon()
@@ -183,6 +269,11 @@ public partial class MainWindow : Window
 
     private void MainWindow_Closed(object? sender, EventArgs e)
     {
+        if (DataContext is MainViewModel viewModel)
+        {
+            viewModel.PropertyChanged -= MainViewModel_PropertyChanged;
+            viewModel.UserNotificationRequested -= MainViewModel_UserNotificationRequested;
+        }
         trayIcon?.Dispose();
         trayMenu?.Dispose();
         trayIcon = null;
@@ -197,3 +288,5 @@ public partial class MainWindow : Window
         ref int value,
         int valueSize);
 }
+
+

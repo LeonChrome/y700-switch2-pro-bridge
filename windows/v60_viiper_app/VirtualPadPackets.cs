@@ -1,5 +1,6 @@
 using System;
 using System.Buffers.Binary;
+using System.Collections.Generic;
 
 namespace Y700Switch2V60Viiper;
 
@@ -17,14 +18,20 @@ public sealed record ViiperDeviceProfile(
     ViiperVirtualMode Mode,
     string Label,
     string DeviceType,
+    string ExpectedVid,
+    string ExpectedPid,
     int InputSize,
     int FeedbackSize,
     TimeSpan SendInterval)
 {
+    public string DeviceSpecificSerialNumber { get; init; } = "";
+
     public static ViiperDeviceProfile DualSenseLike { get; } = new(
         ViiperVirtualMode.DualSenseLike,
         "新和联胜 / PS5",
         "dualsensehaptic",
+        "054c",
+        "0ce6",
         33,
         DualSenseHapticFrame.WireSize,
         TimeSpan.FromMilliseconds(4));
@@ -33,6 +40,8 @@ public sealed record ViiperDeviceProfile(
         ViiperVirtualMode.DualSenseEdge,
         "PS5 Edge / 背键",
         "dualsenseedge",
+        "054c",
+        "0df2",
         33,
         6,
         TimeSpan.FromMilliseconds(4));
@@ -41,6 +50,8 @@ public sealed record ViiperDeviceProfile(
         ViiperVirtualMode.Pro2,
         "Pro2 / Nintendo",
         "ns2pro",
+        "057e",
+        "2069",
         24,
         34,
         TimeSpan.FromMilliseconds(4));
@@ -49,6 +60,8 @@ public sealed record ViiperDeviceProfile(
         ViiperVirtualMode.Xbox,
         "Xbox / XInput",
         "xbox360",
+        "045e",
+        "028e",
         20,
         2,
         TimeSpan.FromMilliseconds(4));
@@ -57,6 +70,8 @@ public sealed record ViiperDeviceProfile(
         ViiperVirtualMode.DualSenseProfessionalImuTest,
         "PS5 / Professional IMU Test",
         "dualsensehaptic",
+        "054c",
+        "0ce6",
         33,
         DualSenseHapticFrame.WireSize,
         TimeSpan.FromMilliseconds(4));
@@ -65,6 +80,8 @@ public sealed record ViiperDeviceProfile(
         ViiperVirtualMode.XboxProfessionalImuTest,
         "Xbox / Professional IMU Test",
         "xbox360",
+        "045e",
+        "028e",
         20,
         2,
         TimeSpan.FromMilliseconds(4));
@@ -81,6 +98,64 @@ public sealed record ViiperDeviceProfile(
     public bool IsProfessionalImuTest =>
         Mode is ViiperVirtualMode.DualSenseProfessionalImuTest
             or ViiperVirtualMode.XboxProfessionalImuTest;
+
+    public bool MatchesIdentity(ViiperDevice device)
+    {
+        bool typeOk = string.Equals(
+            DeviceType,
+            device.Type,
+            StringComparison.OrdinalIgnoreCase);
+        bool vidOk = string.Equals(
+            NormalizeHex(ExpectedVid),
+            NormalizeHex(device.Vid),
+            StringComparison.OrdinalIgnoreCase);
+        bool pidOk = string.Equals(
+            NormalizeHex(ExpectedPid),
+            NormalizeHex(device.Pid),
+            StringComparison.OrdinalIgnoreCase);
+        return typeOk && vidOk && pidOk;
+    }
+
+    public IReadOnlyDictionary<string, object?> DeviceSpecificArguments()
+    {
+        if (string.IsNullOrWhiteSpace(DeviceSpecificSerialNumber))
+        {
+            return new Dictionary<string, object?>();
+        }
+
+        return new Dictionary<string, object?>
+        {
+            ["serial_number"] = DeviceSpecificSerialNumber.Trim()
+        };
+    }
+
+    public static string SlotSerialNumber(ViiperVirtualMode mode, int slotIndex)
+    {
+        int normalizedSlot = Math.Clamp(slotIndex, 1, 4);
+        return mode switch
+        {
+            ViiperVirtualMode.Pro2 => "LC-V624-NS2PRO-S" + normalizedSlot,
+            ViiperVirtualMode.DualSenseLike => "LC-V624-DS5-S" + normalizedSlot,
+            ViiperVirtualMode.DualSenseEdge => "LC-V624-EDGE-S" + normalizedSlot,
+            ViiperVirtualMode.Xbox => "LC-V624-XBOX-S" + normalizedSlot,
+            _ => "LC-V624-VPAD-S" + normalizedSlot
+        };
+    }
+
+    private static string NormalizeHex(string value)
+    {
+        string text = (value ?? "").Trim().ToLowerInvariant();
+        if (text.StartsWith("0x", StringComparison.Ordinal))
+        {
+            text = text[2..];
+        }
+        if (text.StartsWith("vid_", StringComparison.Ordinal) ||
+            text.StartsWith("pid_", StringComparison.Ordinal))
+        {
+            text = text[4..];
+        }
+        return text.PadLeft(4, '0');
+    }
 }
 
 public static class VirtualPadPackets

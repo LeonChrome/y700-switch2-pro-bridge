@@ -8,13 +8,13 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>Y700Switch2V60Viiper</AssemblyName>
-    <AssemblyTitle>PRO2 手柄无线接收器控制板 V6.2.22</AssemblyTitle>
+    <AssemblyTitle>PRO2 手柄无线接收器控制板 V6.2.25</AssemblyTitle>
     <Product>PRO2 手柄无线接收器控制板</Product>
-    <Description>V6.2.22 VIIPER release with four independent Pro2 BLE slots for PS5, Edge, Pro2 and Xbox modes.</Description>
-    <Version>6.2.22</Version>
-    <AssemblyVersion>6.2.22.0</AssemblyVersion>
-    <FileVersion>6.2.22.0</FileVersion>
-    <InformationalVersion>6.2.22</InformationalVersion>
+    <Description>V6.2.25 VIIPER release with four independent Pro2 BLE slots, launch-at-login, and startup auto reconnect.</Description>
+    <Version>6.2.25</Version>
+    <AssemblyVersion>6.2.25.0</AssemblyVersion>
+    <FileVersion>6.2.25.0</FileVersion>
+    <InformationalVersion>6.2.25</InformationalVersion>
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <PublishSingleFile>true</PublishSingleFile>
@@ -35,3 +35,5 @@
     <EmbeddedResource Include="..\..\tools\usbip-win2\v0.9.7.7\LICENSE.txt" LogicalName="Embedded.usbip.license" />
   </ItemGroup>
 </Project>
+
+
