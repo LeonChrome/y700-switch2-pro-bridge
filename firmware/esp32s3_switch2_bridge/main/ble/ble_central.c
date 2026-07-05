@@ -23,6 +23,7 @@
 #include "device_config.h"
 #include "switch2_gatt.h"
 #include "switch2_state.h"
+#include "ble_dual_probe.h"
 #include "ble_central.h"
 
 static const char *TAG = "ble";
@@ -36,12 +37,24 @@ static const char *TAG = "ble";
 #define BLE_NOTIFY_BUF_MAX 128
 #define SWITCH2_INIT_COMMAND_COUNT 15
 #define NINTENDO_COMPANY_ID 0x0553
+#define BLE_SAFE_CONN_ITVL_MIN 12
+#define BLE_SAFE_CONN_ITVL_MAX 12
+#define BLE_SAFE_CONN_LATENCY 0
+#define BLE_SAFE_CONN_SUPERVISION_TIMEOUT 400
 #define BLE_FAST_CONN_ITVL_MIN 6
 #define BLE_FAST_CONN_ITVL_MAX 6
 #define BLE_FAST_CONN_LATENCY 0
 #define BLE_FAST_CONN_SUPERVISION_TIMEOUT 400
 #define BLE_FAST_SCAN_ITVL 16
 #define BLE_FAST_SCAN_WINDOW 16
+#define BLE_FAST_PARAM_DROP_WINDOW_US 10000000LL
+#define BLE_FAST_PARAM_BLOCK_US 300000000LL
+#define BLE_FAST_LIVE_WARMUP_PARSED_COUNT 180
+#define BLE_TURBO_SHORT_GAP_US 3000
+#define BLE_TURBO_SUB_INTERVAL_GAP_US 6500
+#define BLE_TURBO_NEAR_INTERVAL_GAP_US 10000
+#define BLE_READ_POLL_MIN_HZ 50
+#define BLE_READ_POLL_MAX_HZ 1000
 #define BLE_AUTO_RECONNECT_INITIAL_DELAY_MS 1500
 #define BLE_AUTO_RECONNECT_AFTER_DROP_DELAY_MS 800
 #define BLE_AUTO_RECONNECT_FAST_WINDOW_MS 60000
@@ -117,6 +130,7 @@ static int s_subscribe_index;
 static ble_subscribe_phase_t s_subscribe_phase;
 static uint16_t s_cmd_val_handle;
 static bool s_cmd_write_no_rsp;
+static uint16_t s_input_val_handle;
 static bool s_init_started;
 static bool s_init_done;
 static size_t s_init_index;
@@ -142,17 +156,34 @@ static ble_central_conn_metrics_t s_conn_metrics = {
 static bool s_imu_debug_enabled;
 static uint32_t s_imu_debug_every = 32;
 static uint32_t s_imu_debug_seen;
+static bool s_last_input_notify_valid;
+static uint16_t s_last_input_notify_len;
+static uint8_t s_last_input_notify[BLE_NOTIFY_BUF_MAX];
+static bool s_last_control_fingerprint_valid;
+static uint32_t s_last_control_fingerprint;
+static bool s_last_motion_fingerprint_valid;
+static uint32_t s_last_motion_fingerprint;
+static bool s_last_read_poll_valid;
+static uint16_t s_last_read_poll_len;
+static uint8_t s_last_read_poll[BLE_NOTIFY_BUF_MAX];
+static bool s_last_read_poll_control_fingerprint_valid;
+static uint32_t s_last_read_poll_control_fingerprint;
+static bool s_last_read_poll_motion_fingerprint_valid;
+static uint32_t s_last_read_poll_motion_fingerprint;
 static TaskHandle_t s_auto_reconnect_task;
 static TaskHandle_t s_auto_connect_selected_task;
+static TaskHandle_t s_read_poll_task;
 static bool s_suppress_next_auto_reconnect;
+static bool s_fast_live_request_sent;
+static uint32_t s_live_parsed_since_connect;
 
-static const struct ble_gap_conn_params s_fast_connect_params = {
+static const struct ble_gap_conn_params s_safe_connect_params = {
     .scan_itvl = BLE_FAST_SCAN_ITVL,
     .scan_window = BLE_FAST_SCAN_WINDOW,
-    .itvl_min = BLE_FAST_CONN_ITVL_MIN,
-    .itvl_max = BLE_FAST_CONN_ITVL_MAX,
-    .latency = BLE_FAST_CONN_LATENCY,
-    .supervision_timeout = BLE_FAST_CONN_SUPERVISION_TIMEOUT,
+    .itvl_min = BLE_SAFE_CONN_ITVL_MIN,
+    .itvl_max = BLE_SAFE_CONN_ITVL_MAX,
+    .latency = BLE_SAFE_CONN_LATENCY,
+    .supervision_timeout = BLE_SAFE_CONN_SUPERVISION_TIMEOUT,
     .min_ce_len = 0,
     .max_ce_len = 0,
 };
@@ -162,6 +193,15 @@ static const struct ble_gap_upd_params s_fast_update_params = {
     .itvl_max = BLE_FAST_CONN_ITVL_MAX,
     .latency = BLE_FAST_CONN_LATENCY,
     .supervision_timeout = BLE_FAST_CONN_SUPERVISION_TIMEOUT,
+    .min_ce_len = 0,
+    .max_ce_len = 0,
+};
+
+static const struct ble_gap_upd_params s_safe_update_params = {
+    .itvl_min = BLE_SAFE_CONN_ITVL_MIN,
+    .itvl_max = BLE_SAFE_CONN_ITVL_MAX,
+    .latency = BLE_SAFE_CONN_LATENCY,
+    .supervision_timeout = BLE_SAFE_CONN_SUPERVISION_TIMEOUT,
     .min_ce_len = 0,
     .max_ce_len = 0,
 };
@@ -217,6 +257,11 @@ static void ble_auto_reconnect_task(void *arg)
 
 static void schedule_auto_reconnect(const char *reason, uint32_t delay_ms)
 {
+    if (device_config_get_mode() == DUAL_PRO2_EXPERIMENT_MODE) {
+        APP_LOGI(TAG, "BLE single-link reconnect suppressed in dual Pro2 probe mode reason=%s",
+                 reason ? reason : "<none>");
+        return;
+    }
     if (!device_config_get_ble_autoconnect()) {
         APP_LOGI(TAG, "BLE auto reconnect not scheduled reason=%s auto=off",
                  reason ? reason : "<none>");
@@ -328,6 +373,131 @@ static uint32_t conn_interval_us(uint16_t interval_units)
     return (uint32_t)interval_units * 1250u;
 }
 
+static uint32_t fast_param_block_remaining_ms(int64_t now_us)
+{
+    if (s_conn_metrics.fast_param_blocked_until_us <= now_us) {
+        return 0;
+    }
+    int64_t remaining_us = s_conn_metrics.fast_param_blocked_until_us - now_us;
+    return (uint32_t)((remaining_us + 999) / 1000);
+}
+
+static bool fast_params_temporarily_blocked(int64_t now_us)
+{
+    return fast_param_block_remaining_ms(now_us) > 0;
+}
+
+static void note_fast_param_drop_if_needed(int disconnect_reason)
+{
+    int64_t now_us = esp_timer_get_time();
+    int64_t last_request_us = s_conn_metrics.last_fast_param_request_us;
+    if (last_request_us <= 0 ||
+        now_us - last_request_us > BLE_FAST_PARAM_DROP_WINDOW_US) {
+        return;
+    }
+
+    s_conn_metrics.fast_param_drop_count++;
+    s_conn_metrics.fast_param_blocked_until_us = now_us + BLE_FAST_PARAM_BLOCK_US;
+    APP_LOGW(TAG,
+             "BLE turbo conn params caused early disconnect; fallback to stable interval for %lu ms reason=%d drops=%lu",
+             (unsigned long)fast_param_block_remaining_ms(now_us),
+             disconnect_reason,
+             (unsigned long)s_conn_metrics.fast_param_drop_count);
+}
+
+static void clear_multi_probe_history(void)
+{
+    s_last_input_notify_valid = false;
+    s_last_input_notify_len = 0;
+    memset(s_last_input_notify, 0, sizeof(s_last_input_notify));
+    s_last_control_fingerprint_valid = false;
+    s_last_control_fingerprint = 0;
+    s_last_motion_fingerprint_valid = false;
+    s_last_motion_fingerprint = 0;
+    s_last_read_poll_valid = false;
+    s_last_read_poll_len = 0;
+    memset(s_last_read_poll, 0, sizeof(s_last_read_poll));
+    s_last_read_poll_control_fingerprint_valid = false;
+    s_last_read_poll_control_fingerprint = 0;
+    s_last_read_poll_motion_fingerprint_valid = false;
+    s_last_read_poll_motion_fingerprint = 0;
+}
+
+static void clear_multi_probe_metrics(void)
+{
+    s_conn_metrics.notify_min_gap_us = 0;
+    s_conn_metrics.notify_short_gap_count = 0;
+    s_conn_metrics.notify_sub_interval_count = 0;
+    s_conn_metrics.notify_gap_lt3ms_count = 0;
+    s_conn_metrics.notify_gap_3_6p5ms_count = 0;
+    s_conn_metrics.notify_gap_6p5_10ms_count = 0;
+    s_conn_metrics.notify_gap_ge10ms_count = 0;
+    s_conn_metrics.notify_raw_unique_count = 0;
+    s_conn_metrics.notify_raw_repeat_count = 0;
+    s_conn_metrics.notify_raw_repeat_streak = 0;
+    s_conn_metrics.notify_raw_repeat_streak_max = 0;
+    s_conn_metrics.notify_raw_unique_actual_millihz = 0;
+    s_conn_metrics.notify_raw_unique_last_gap_us = 0;
+    s_conn_metrics.notify_raw_unique_max_gap_us = 0;
+    s_conn_metrics.notify_control_unique_count = 0;
+    s_conn_metrics.notify_control_repeat_count = 0;
+    s_conn_metrics.notify_control_unique_actual_millihz = 0;
+    s_conn_metrics.notify_control_unique_last_gap_us = 0;
+    s_conn_metrics.notify_control_unique_max_gap_us = 0;
+    s_conn_metrics.notify_motion_unique_count = 0;
+    s_conn_metrics.notify_motion_repeat_count = 0;
+    s_conn_metrics.notify_motion_unique_actual_millihz = 0;
+    s_conn_metrics.notify_motion_unique_last_gap_us = 0;
+    s_conn_metrics.notify_motion_unique_max_gap_us = 0;
+    s_conn_metrics.notify_sub_interval_raw_unique_count = 0;
+    s_conn_metrics.notify_sub_interval_control_unique_count = 0;
+    s_conn_metrics.notify_sub_interval_motion_unique_count = 0;
+    s_conn_metrics.read_poll_start_count = 0;
+    s_conn_metrics.read_poll_start_fail_count = 0;
+    s_conn_metrics.read_poll_rsp_count = 0;
+    s_conn_metrics.read_poll_error_count = 0;
+    s_conn_metrics.read_poll_actual_millihz = 0;
+    s_conn_metrics.read_poll_last_gap_us = 0;
+    s_conn_metrics.read_poll_max_gap_us = 0;
+    s_conn_metrics.read_poll_raw_unique_count = 0;
+    s_conn_metrics.read_poll_raw_repeat_count = 0;
+    s_conn_metrics.read_poll_control_unique_count = 0;
+    s_conn_metrics.read_poll_control_repeat_count = 0;
+    s_conn_metrics.read_poll_control_unique_actual_millihz = 0;
+    s_conn_metrics.read_poll_control_unique_last_gap_us = 0;
+    s_conn_metrics.read_poll_control_unique_max_gap_us = 0;
+    s_conn_metrics.read_poll_motion_unique_count = 0;
+    s_conn_metrics.read_poll_motion_repeat_count = 0;
+    s_conn_metrics.read_poll_motion_unique_actual_millihz = 0;
+    s_conn_metrics.read_poll_motion_unique_last_gap_us = 0;
+    s_conn_metrics.read_poll_motion_unique_max_gap_us = 0;
+    s_conn_metrics.notify_raw_unique_window_start_us = 0;
+    s_conn_metrics.notify_raw_unique_last_event_us = 0;
+    s_conn_metrics.notify_raw_unique_window_count = 0;
+    s_conn_metrics.notify_raw_unique_window_max_gap_us = 0;
+    s_conn_metrics.notify_control_unique_window_start_us = 0;
+    s_conn_metrics.notify_control_unique_last_event_us = 0;
+    s_conn_metrics.notify_control_unique_window_count = 0;
+    s_conn_metrics.notify_control_unique_window_max_gap_us = 0;
+    s_conn_metrics.notify_motion_unique_window_start_us = 0;
+    s_conn_metrics.notify_motion_unique_last_event_us = 0;
+    s_conn_metrics.notify_motion_unique_window_count = 0;
+    s_conn_metrics.notify_motion_unique_window_max_gap_us = 0;
+    s_conn_metrics.read_poll_window_start_us = 0;
+    s_conn_metrics.read_poll_last_event_us = 0;
+    s_conn_metrics.read_poll_window_count = 0;
+    s_conn_metrics.read_poll_window_max_gap_us = 0;
+    s_conn_metrics.read_poll_control_unique_window_start_us = 0;
+    s_conn_metrics.read_poll_control_unique_last_event_us = 0;
+    s_conn_metrics.read_poll_control_unique_window_count = 0;
+    s_conn_metrics.read_poll_control_unique_window_max_gap_us = 0;
+    s_conn_metrics.read_poll_motion_unique_window_start_us = 0;
+    s_conn_metrics.read_poll_motion_unique_last_event_us = 0;
+    s_conn_metrics.read_poll_motion_unique_window_count = 0;
+    s_conn_metrics.read_poll_motion_unique_window_max_gap_us = 0;
+    clear_multi_probe_history();
+}
+
 static void clear_conn_metrics(void)
 {
     s_conn_metrics.connected = false;
@@ -351,6 +521,7 @@ static void clear_conn_metrics(void)
     s_conn_metrics.notify_parsed_last_event_us = 0;
     s_conn_metrics.notify_parsed_window_count = 0;
     s_conn_metrics.notify_parsed_window_max_gap_us = 0;
+    clear_multi_probe_metrics();
 }
 
 static void update_rate_window(uint32_t *actual_millihz,
@@ -388,6 +559,266 @@ static void update_rate_window(uint32_t *actual_millihz,
     }
 }
 
+static uint32_t fnv1a_update(uint32_t hash, const void *data, size_t len)
+{
+    const uint8_t *bytes = (const uint8_t *)data;
+    for (size_t i = 0; i < len; i++) {
+        hash ^= bytes[i];
+        hash *= 16777619u;
+    }
+    return hash;
+}
+
+static uint32_t switch2_control_fingerprint(const switch2_state_t *state)
+{
+    uint32_t hash = 2166136261u;
+    hash = fnv1a_update(hash, &state->buttons, sizeof(state->buttons));
+    hash = fnv1a_update(hash, &state->lx, sizeof(state->lx));
+    hash = fnv1a_update(hash, &state->ly, sizeof(state->ly));
+    hash = fnv1a_update(hash, &state->rx, sizeof(state->rx));
+    hash = fnv1a_update(hash, &state->ry, sizeof(state->ry));
+    return hash;
+}
+
+static uint32_t switch2_motion_fingerprint(const switch2_state_t *state)
+{
+    if (!state->motion_valid) {
+        return 0;
+    }
+    return fnv1a_update(2166136261u, state->motion, sizeof(state->motion));
+}
+
+static bool record_raw_input_uniqueness(const uint8_t *data,
+                                        uint16_t len,
+                                        int64_t now_us)
+{
+    bool repeat = s_last_input_notify_valid &&
+                  s_last_input_notify_len == len &&
+                  memcmp(s_last_input_notify, data, len) == 0;
+    if (repeat) {
+        s_conn_metrics.notify_raw_repeat_count++;
+        s_conn_metrics.notify_raw_repeat_streak++;
+        if (s_conn_metrics.notify_raw_repeat_streak >
+            s_conn_metrics.notify_raw_repeat_streak_max) {
+            s_conn_metrics.notify_raw_repeat_streak_max =
+                s_conn_metrics.notify_raw_repeat_streak;
+        }
+    } else {
+        s_conn_metrics.notify_raw_unique_count++;
+        s_conn_metrics.notify_raw_repeat_streak = 0;
+        update_rate_window(&s_conn_metrics.notify_raw_unique_actual_millihz,
+                           &s_conn_metrics.notify_raw_unique_last_gap_us,
+                           &s_conn_metrics.notify_raw_unique_max_gap_us,
+                           &s_conn_metrics.notify_raw_unique_window_start_us,
+                           &s_conn_metrics.notify_raw_unique_last_event_us,
+                           &s_conn_metrics.notify_raw_unique_window_count,
+                           &s_conn_metrics.notify_raw_unique_window_max_gap_us,
+                           now_us);
+    }
+
+    memcpy(s_last_input_notify, data, len);
+    s_last_input_notify_len = len;
+    s_last_input_notify_valid = true;
+    return !repeat;
+}
+
+static void record_parsed_uniqueness(const switch2_state_t *state,
+                                     int64_t now_us,
+                                     bool *out_control_unique,
+                                     bool *out_motion_unique)
+{
+    uint32_t control_fingerprint = switch2_control_fingerprint(state);
+    bool control_unique = false;
+    if (s_last_control_fingerprint_valid &&
+        s_last_control_fingerprint == control_fingerprint) {
+        s_conn_metrics.notify_control_repeat_count++;
+    } else {
+        control_unique = true;
+        s_conn_metrics.notify_control_unique_count++;
+        update_rate_window(&s_conn_metrics.notify_control_unique_actual_millihz,
+                           &s_conn_metrics.notify_control_unique_last_gap_us,
+                           &s_conn_metrics.notify_control_unique_max_gap_us,
+                           &s_conn_metrics.notify_control_unique_window_start_us,
+                           &s_conn_metrics.notify_control_unique_last_event_us,
+                           &s_conn_metrics.notify_control_unique_window_count,
+                           &s_conn_metrics.notify_control_unique_window_max_gap_us,
+                           now_us);
+    }
+    s_last_control_fingerprint = control_fingerprint;
+    s_last_control_fingerprint_valid = true;
+
+    uint32_t motion_fingerprint = switch2_motion_fingerprint(state);
+    bool motion_unique = false;
+    if (s_last_motion_fingerprint_valid &&
+        s_last_motion_fingerprint == motion_fingerprint) {
+        s_conn_metrics.notify_motion_repeat_count++;
+    } else {
+        motion_unique = true;
+        s_conn_metrics.notify_motion_unique_count++;
+        update_rate_window(&s_conn_metrics.notify_motion_unique_actual_millihz,
+                           &s_conn_metrics.notify_motion_unique_last_gap_us,
+                           &s_conn_metrics.notify_motion_unique_max_gap_us,
+                           &s_conn_metrics.notify_motion_unique_window_start_us,
+                           &s_conn_metrics.notify_motion_unique_last_event_us,
+                           &s_conn_metrics.notify_motion_unique_window_count,
+                           &s_conn_metrics.notify_motion_unique_window_max_gap_us,
+                           now_us);
+    }
+    s_last_motion_fingerprint = motion_fingerprint;
+    s_last_motion_fingerprint_valid = true;
+    if (out_control_unique) {
+        *out_control_unique = control_unique;
+    }
+    if (out_motion_unique) {
+        *out_motion_unique = motion_unique;
+    }
+}
+
+static void record_read_poll_payload(const uint8_t *data, uint16_t len, int64_t now_us)
+{
+    if (!data || len == 0) {
+        return;
+    }
+
+    s_conn_metrics.read_poll_rsp_count++;
+    update_rate_window(&s_conn_metrics.read_poll_actual_millihz,
+                       &s_conn_metrics.read_poll_last_gap_us,
+                       &s_conn_metrics.read_poll_max_gap_us,
+                       &s_conn_metrics.read_poll_window_start_us,
+                       &s_conn_metrics.read_poll_last_event_us,
+                       &s_conn_metrics.read_poll_window_count,
+                       &s_conn_metrics.read_poll_window_max_gap_us,
+                       now_us);
+
+    bool raw_repeat = s_last_read_poll_valid &&
+                      s_last_read_poll_len == len &&
+                      memcmp(s_last_read_poll, data, len) == 0;
+    if (raw_repeat) {
+        s_conn_metrics.read_poll_raw_repeat_count++;
+    } else {
+        s_conn_metrics.read_poll_raw_unique_count++;
+    }
+    uint16_t copy_len = len > BLE_NOTIFY_BUF_MAX ? BLE_NOTIFY_BUF_MAX : len;
+    memcpy(s_last_read_poll, data, copy_len);
+    s_last_read_poll_len = copy_len;
+    s_last_read_poll_valid = true;
+
+    switch2_state_t state;
+    switch2_state_reset(&state);
+    esp_err_t err = switch2_gatt_handle_notify(SWITCH2_NOTIFY_FD2_UUID, data, len, &state);
+    if (err != ESP_OK) {
+        return;
+    }
+
+    uint32_t control_fingerprint = switch2_control_fingerprint(&state);
+    if (s_last_read_poll_control_fingerprint_valid &&
+        s_last_read_poll_control_fingerprint == control_fingerprint) {
+        s_conn_metrics.read_poll_control_repeat_count++;
+    } else {
+        s_conn_metrics.read_poll_control_unique_count++;
+        update_rate_window(&s_conn_metrics.read_poll_control_unique_actual_millihz,
+                           &s_conn_metrics.read_poll_control_unique_last_gap_us,
+                           &s_conn_metrics.read_poll_control_unique_max_gap_us,
+                           &s_conn_metrics.read_poll_control_unique_window_start_us,
+                           &s_conn_metrics.read_poll_control_unique_last_event_us,
+                           &s_conn_metrics.read_poll_control_unique_window_count,
+                           &s_conn_metrics.read_poll_control_unique_window_max_gap_us,
+                           now_us);
+    }
+    s_last_read_poll_control_fingerprint = control_fingerprint;
+    s_last_read_poll_control_fingerprint_valid = true;
+
+    uint32_t motion_fingerprint = switch2_motion_fingerprint(&state);
+    if (s_last_read_poll_motion_fingerprint_valid &&
+        s_last_read_poll_motion_fingerprint == motion_fingerprint) {
+        s_conn_metrics.read_poll_motion_repeat_count++;
+    } else {
+        s_conn_metrics.read_poll_motion_unique_count++;
+        update_rate_window(&s_conn_metrics.read_poll_motion_unique_actual_millihz,
+                           &s_conn_metrics.read_poll_motion_unique_last_gap_us,
+                           &s_conn_metrics.read_poll_motion_unique_max_gap_us,
+                           &s_conn_metrics.read_poll_motion_unique_window_start_us,
+                           &s_conn_metrics.read_poll_motion_unique_last_event_us,
+                           &s_conn_metrics.read_poll_motion_unique_window_count,
+                           &s_conn_metrics.read_poll_motion_unique_window_max_gap_us,
+                           now_us);
+    }
+    s_last_read_poll_motion_fingerprint = motion_fingerprint;
+    s_last_read_poll_motion_fingerprint_valid = true;
+}
+
+static int gatt_read_poll_cb(uint16_t conn_handle,
+                             const struct ble_gatt_error *error,
+                             struct ble_gatt_attr *attr,
+                             void *arg)
+{
+    (void)conn_handle;
+    (void)arg;
+
+    int status = error ? error->status : -1;
+    s_conn_metrics.read_poll_last_status = status;
+    if (status != 0) {
+        s_conn_metrics.read_poll_error_count++;
+        return 0;
+    }
+    if (!attr || !attr->om) {
+        s_conn_metrics.read_poll_error_count++;
+        return 0;
+    }
+
+    uint16_t len = OS_MBUF_PKTLEN(attr->om);
+    uint16_t copy_len = len > BLE_NOTIFY_BUF_MAX ? BLE_NOTIFY_BUF_MAX : len;
+    uint8_t data[BLE_NOTIFY_BUF_MAX];
+    int rc = os_mbuf_copydata(attr->om, 0, copy_len, data);
+    if (rc != 0) {
+        s_conn_metrics.read_poll_error_count++;
+        APP_LOGW(TAG, "BLE read-poll copy failed len=%u rc=%d", len, rc);
+        return 0;
+    }
+
+    record_read_poll_payload(data, copy_len, esp_timer_get_time());
+    return 0;
+}
+
+static void read_poll_task(void *arg)
+{
+    uint16_t rate_hz = (uint16_t)(uintptr_t)arg;
+    if (rate_hz < BLE_READ_POLL_MIN_HZ) {
+        rate_hz = BLE_READ_POLL_MIN_HZ;
+    }
+    uint32_t period_ms = 1000u / rate_hz;
+    if (period_ms == 0) {
+        period_ms = 1;
+    }
+
+    APP_LOGI(TAG, "BLE read-poll task started rate_hz=%u handle=0x%04x",
+             (unsigned)rate_hz,
+             (unsigned)s_input_val_handle);
+
+    while (s_conn_metrics.read_poll_active && s_connected && s_input_val_handle) {
+        int rc = ble_gattc_read(s_conn_handle,
+                                s_input_val_handle,
+                                gatt_read_poll_cb,
+                                NULL);
+        s_conn_metrics.read_poll_last_start_rc = rc;
+        if (rc == 0) {
+            s_conn_metrics.read_poll_start_count++;
+        } else {
+            s_conn_metrics.read_poll_start_fail_count++;
+        }
+        vTaskDelay(pdMS_TO_TICKS(period_ms));
+    }
+
+    s_conn_metrics.read_poll_active = false;
+    APP_LOGI(TAG, "BLE read-poll task stopped starts=%lu fails=%lu rsp=%lu errors=%lu",
+             (unsigned long)s_conn_metrics.read_poll_start_count,
+             (unsigned long)s_conn_metrics.read_poll_start_fail_count,
+             (unsigned long)s_conn_metrics.read_poll_rsp_count,
+             (unsigned long)s_conn_metrics.read_poll_error_count);
+    s_read_poll_task = NULL;
+    vTaskDelete(NULL);
+}
+
 static void update_conn_metrics_from_desc(uint16_t conn_handle, const char *reason)
 {
     struct ble_gap_conn_desc desc;
@@ -414,15 +845,46 @@ static void update_conn_metrics_from_desc(uint16_t conn_handle, const char *reas
              desc.supervision_timeout);
 }
 
+static void record_notify_gap_bucket(uint32_t gap_us)
+{
+    if (gap_us == 0) {
+        return;
+    }
+    if (gap_us < BLE_TURBO_SHORT_GAP_US) {
+        s_conn_metrics.notify_gap_lt3ms_count++;
+    } else if (gap_us < BLE_TURBO_SUB_INTERVAL_GAP_US) {
+        s_conn_metrics.notify_gap_3_6p5ms_count++;
+    } else if (gap_us < BLE_TURBO_NEAR_INTERVAL_GAP_US) {
+        s_conn_metrics.notify_gap_6p5_10ms_count++;
+    } else {
+        s_conn_metrics.notify_gap_ge10ms_count++;
+    }
+}
+
 static esp_err_t request_fast_conn_params_internal(const char *reason)
 {
     if (!s_connected) {
         return ESP_ERR_INVALID_STATE;
     }
 
+    int64_t now_us = esp_timer_get_time();
+    uint32_t blocked_ms = fast_param_block_remaining_ms(now_us);
+    if (blocked_ms > 0) {
+        s_conn_metrics.last_update_start_rc = ESP_ERR_INVALID_STATE;
+        APP_LOGW(TAG,
+                 "BLE fast conn request skipped reason=%s fallback=stable blocked_remaining_ms=%lu drops=%lu",
+                 reason,
+                 (unsigned long)blocked_ms,
+                 (unsigned long)s_conn_metrics.fast_param_drop_count);
+        return ESP_ERR_INVALID_STATE;
+    }
+
     s_conn_metrics.update_request_count++;
     int rc = ble_gap_update_params(s_conn_handle, &s_fast_update_params);
     s_conn_metrics.last_update_start_rc = rc;
+    if (rc == 0) {
+        s_conn_metrics.last_fast_param_request_us = now_us;
+    }
     APP_LOGI(TAG, "BLE fast conn request reason=%s handle=%u interval=%u..%u units (%lu..%lu us) latency=%u supervision=%u rc=%d",
              reason,
              s_conn_handle,
@@ -660,6 +1122,7 @@ static void clear_gatt_cache(void)
     s_subscribe_phase = BLE_SUBSCRIBE_PHASE_ACK;
     s_cmd_val_handle = 0;
     s_cmd_write_no_rsp = false;
+    s_input_val_handle = 0;
     s_init_started = false;
     s_init_done = false;
     s_init_index = 0;
@@ -1196,6 +1659,9 @@ static void subscribe_next_target(void)
     APP_LOGI(TAG, "BLE GATT ready subscribed=%u rumble_value_handle=0x%04x",
              subscribed,
              s_rumble_val_handle);
+    APP_LOGI(TAG,
+             "BLE fast conn request delayed until live input warmup parsed_count>=%u",
+             (unsigned)BLE_FAST_LIVE_WARMUP_PARSED_COUNT);
 }
 
 static void start_post_init_subscriptions(void)
@@ -1383,6 +1849,9 @@ static int gatt_chr_cb(uint16_t conn_handle,
         out->ack_target = is_ack_uuid(out->uuid);
         out->post_init_notify_target = is_notify_uuid(out->uuid);
         out->notify_target = out->ack_target || out->post_init_notify_target;
+        if (strcmp(out->uuid, SWITCH2_NOTIFY_FD2_UUID) == 0) {
+            s_input_val_handle = out->val_handle;
+        }
         out->command_target = is_command_uuid(out->uuid);
         if (out->command_target) {
             s_cmd_val_handle = out->val_handle;
@@ -1394,7 +1863,7 @@ static int gatt_chr_cb(uint16_t conn_handle,
             s_rumble_write_no_rsp = (out->properties & BLE_GATT_CHR_F_WRITE_NO_RSP) != 0;
         }
 
-        APP_LOGI(TAG, "BLE char svc=%u def=0x%04x value=0x%04x props=0x%02x uuid=%s target=%s",
+        APP_LOGI(TAG, "BLE char svc=%u def=0x%04x value=0x%04x props=0x%02x uuid=%s target=%s readable=%s",
                  (unsigned)s_disc_service_index,
                  out->def_handle,
                  out->val_handle,
@@ -1403,7 +1872,8 @@ static int gatt_chr_cb(uint16_t conn_handle,
                  out->ack_target ? "ack" :
                  (out->post_init_notify_target ? "notify" :
                  (out->command_target ? "cmd" :
-                 (out->rumble_target ? "rumble" : "no"))));
+                 (out->rumble_target ? "rumble" : "no"))),
+                 (out->properties & BLE_GATT_CHR_F_READ) ? "yes" : "no");
         return 0;
     }
 
@@ -1531,6 +2001,11 @@ static void handle_notify_rx(const struct ble_gap_event *event)
 {
     s_conn_metrics.notify_rx_count++;
     int64_t now_us = esp_timer_get_time();
+    uint32_t notify_gap_us = 0;
+    if (s_conn_metrics.notify_last_event_us > 0 &&
+        now_us > s_conn_metrics.notify_last_event_us) {
+        notify_gap_us = (uint32_t)(now_us - s_conn_metrics.notify_last_event_us);
+    }
     s_conn_metrics.last_notify_us = now_us;
     update_rate_window(&s_conn_metrics.notify_actual_millihz,
                        &s_conn_metrics.notify_last_gap_us,
@@ -1540,6 +2015,19 @@ static void handle_notify_rx(const struct ble_gap_event *event)
                        &s_conn_metrics.notify_window_count,
                        &s_conn_metrics.notify_window_max_gap_us,
                        now_us);
+    if (notify_gap_us > 0) {
+        if (s_conn_metrics.notify_min_gap_us == 0 ||
+            notify_gap_us < s_conn_metrics.notify_min_gap_us) {
+            s_conn_metrics.notify_min_gap_us = notify_gap_us;
+        }
+        record_notify_gap_bucket(notify_gap_us);
+        if (notify_gap_us < BLE_TURBO_SHORT_GAP_US) {
+            s_conn_metrics.notify_short_gap_count++;
+        }
+        if (notify_gap_us < BLE_TURBO_SUB_INTERVAL_GAP_US) {
+            s_conn_metrics.notify_sub_interval_count++;
+        }
+    }
     uint16_t len = OS_MBUF_PKTLEN(event->notify_rx.om);
     uint16_t copy_len = len > BLE_NOTIFY_BUF_MAX ? BLE_NOTIFY_BUF_MAX : len;
     uint8_t data[BLE_NOTIFY_BUF_MAX];
@@ -1615,6 +2103,12 @@ static void handle_notify_rx(const struct ble_gap_event *event)
         return;
     }
 
+    bool raw_unique = record_raw_input_uniqueness(data, copy_len, now_us);
+    if (raw_unique && notify_gap_us > 0 &&
+        notify_gap_us < BLE_TURBO_SUB_INTERVAL_GAP_US) {
+        s_conn_metrics.notify_sub_interval_raw_unique_count++;
+    }
+
     switch2_state_t state;
     if (!switch2_state_get_live(&state, NULL, NULL)) {
         switch2_state_reset(&state);
@@ -1625,6 +2119,17 @@ static void handle_notify_rx(const struct ble_gap_event *event)
         s_conn_metrics.notify_parsed_count++;
         now_us = esp_timer_get_time();
         s_conn_metrics.last_parsed_notify_us = now_us;
+        bool control_unique = false;
+        bool motion_unique = false;
+        record_parsed_uniqueness(&state, now_us, &control_unique, &motion_unique);
+        if (notify_gap_us > 0 && notify_gap_us < BLE_TURBO_SUB_INTERVAL_GAP_US) {
+            if (control_unique) {
+                s_conn_metrics.notify_sub_interval_control_unique_count++;
+            }
+            if (motion_unique) {
+                s_conn_metrics.notify_sub_interval_motion_unique_count++;
+            }
+        }
         update_rate_window(&s_conn_metrics.notify_parsed_actual_millihz,
                            &s_conn_metrics.notify_parsed_last_gap_us,
                            &s_conn_metrics.notify_parsed_max_gap_us,
@@ -1635,6 +2140,16 @@ static void handle_notify_rx(const struct ble_gap_event *event)
                            now_us);
         uint32_t updates = 0;
         (void)switch2_state_get_live(NULL, &updates, NULL);
+        s_live_parsed_since_connect++;
+        if (!s_fast_live_request_sent &&
+            s_live_parsed_since_connect >= BLE_FAST_LIVE_WARMUP_PARSED_COUNT) {
+            s_fast_live_request_sent = true;
+            APP_LOGI(TAG,
+                     "BLE live input warmup complete parsed_since_connect=%lu total_parsed=%lu; requesting fast params once",
+                     (unsigned long)s_live_parsed_since_connect,
+                     (unsigned long)s_conn_metrics.notify_parsed_count);
+            (void)request_fast_conn_params_internal("live_warmup");
+        }
         if ((updates & 0x1ff) == 1) {
             APP_LOGI(TAG, "BLE notify parsed uuid=%s len=%u updates=%lu buttons=0x%08lx",
                      uuid,
@@ -1697,11 +2212,14 @@ static int ble_gap_event(struct ble_gap_event *event, void *arg)
             s_connected = true;
             s_conn_handle = event->connect.conn_handle;
             s_state = BLE_STATE_CONNECTED;
+            s_fast_live_request_sent = false;
+            s_live_parsed_since_connect = 0;
             s_conn_metrics.connect_success_count++;
             s_conn_metrics.last_connect_us = esp_timer_get_time();
             APP_LOGI(TAG, "BLE connected handle=%u", event->connect.conn_handle);
             update_conn_metrics_from_desc(event->connect.conn_handle, "connect");
-            (void)request_fast_conn_params_internal("connect");
+            APP_LOGI(TAG,
+                     "BLE connected with stable-first policy; fast 7.5ms request is delayed until GATT ready");
             if (s_pending_connect_valid) {
                 char addr[32];
                 format_addr(&s_pending_connect_addr, addr, sizeof(addr));
@@ -1730,28 +2248,40 @@ static int ble_gap_event(struct ble_gap_event *event, void *arg)
         return 0;
 
     case BLE_GAP_EVENT_CONN_UPDATE_REQ:
-        APP_LOGI(TAG, "BLE conn update req handle=%u peer_interval=%u..%u latency=%u supervision=%u; requesting fast interval=%u..%u latency=%u supervision=%u",
+        {
+        int64_t now_us = esp_timer_get_time();
+        bool fast_blocked = fast_params_temporarily_blocked(now_us);
+        const struct ble_gap_upd_params *selected_params =
+            fast_blocked ? &s_safe_update_params : &s_fast_update_params;
+        APP_LOGI(TAG, "BLE conn update req handle=%u peer_interval=%u..%u latency=%u supervision=%u; selected=%s interval=%u..%u latency=%u supervision=%u blocked_remaining_ms=%lu",
                  event->conn_update_req.conn_handle,
                  event->conn_update_req.peer_params ? event->conn_update_req.peer_params->itvl_min : 0,
                  event->conn_update_req.peer_params ? event->conn_update_req.peer_params->itvl_max : 0,
                  event->conn_update_req.peer_params ? event->conn_update_req.peer_params->latency : 0,
                  event->conn_update_req.peer_params ? event->conn_update_req.peer_params->supervision_timeout : 0,
-                 s_fast_update_params.itvl_min,
-                 s_fast_update_params.itvl_max,
-                 s_fast_update_params.latency,
-                 s_fast_update_params.supervision_timeout);
+                 fast_blocked ? "stable" : "fast",
+                 selected_params->itvl_min,
+                 selected_params->itvl_max,
+                 selected_params->latency,
+                 selected_params->supervision_timeout,
+                 (unsigned long)fast_param_block_remaining_ms(now_us));
         if (event->conn_update_req.self_params) {
-            *event->conn_update_req.self_params = s_fast_update_params;
+            *event->conn_update_req.self_params = *selected_params;
         }
         return 0;
+        }
 
     case BLE_GAP_EVENT_DISCONNECT:
+        ble_central_stop_read_poll_probe();
         s_conn_metrics.disconnect_count++;
         s_conn_metrics.last_disconnect_reason = event->disconnect.reason;
         s_conn_metrics.last_disconnect_us = esp_timer_get_time();
+        note_fast_param_drop_if_needed(event->disconnect.reason);
         s_connected = false;
         s_conn_handle = 0;
         s_state = BLE_STATE_IDLE;
+        s_fast_live_request_sent = false;
+        s_live_parsed_since_connect = 0;
         clear_gatt_cache();
         switch2_state_clear_live();
         clear_conn_metrics();
@@ -1779,6 +2309,8 @@ static void ble_on_reset(int reason)
     s_host_ready = false;
     s_connected = false;
     s_state = BLE_STATE_IDLE;
+    s_fast_live_request_sent = false;
+    s_live_parsed_since_connect = 0;
     s_auto_scan_connect = false;
     s_auto_scan_target_valid = false;
     s_auto_scan_preferred_valid = false;
@@ -1786,6 +2318,9 @@ static void ble_on_reset(int reason)
     clear_gatt_cache();
     switch2_state_clear_live();
     clear_conn_metrics();
+    if (device_config_get_mode() == DUAL_PRO2_EXPERIMENT_MODE) {
+        ble_dual_probe_stop();
+    }
     APP_LOGW(TAG, "NimBLE reset reason=%d", reason);
 }
 
@@ -1805,6 +2340,10 @@ static void ble_on_sync(void)
 
     s_host_ready = true;
     APP_LOGI(TAG, "NimBLE host ready own_addr_type=%u", s_own_addr_type);
+    if (device_config_get_mode() == DUAL_PRO2_EXPERIMENT_MODE) {
+        ble_dual_probe_host_ready(s_own_addr_type);
+        return;
+    }
     schedule_auto_reconnect("host_sync", BLE_AUTO_RECONNECT_INITIAL_DELAY_MS);
 }
 
@@ -1823,6 +2362,8 @@ void ble_central_init(void)
     s_connected = false;
     s_conn_handle = 0;
     s_scan_seen_count = 0;
+    s_fast_live_request_sent = false;
+    s_live_parsed_since_connect = 0;
     s_auto_scan_connect = false;
     s_auto_scan_target_valid = false;
     s_auto_scan_preferred_valid = false;
@@ -1889,7 +2430,7 @@ static esp_err_t ble_central_connect_addr(const ble_addr_t *target, const char *
              label ? label : "<addr>",
              BLE_CONNECT_TIMEOUT_MS);
 
-    int rc = ble_gap_connect(s_own_addr_type, target, BLE_CONNECT_TIMEOUT_MS, &s_fast_connect_params, ble_gap_event, NULL);
+    int rc = ble_gap_connect(s_own_addr_type, target, BLE_CONNECT_TIMEOUT_MS, &s_safe_connect_params, ble_gap_event, NULL);
     s_conn_metrics.last_connect_start_rc = rc;
     if (rc != 0) {
         s_state = BLE_STATE_IDLE;
@@ -2032,11 +2573,16 @@ esp_err_t ble_central_reconnect_saved_or_scan(void)
 
 void ble_central_start_auto_reconnect(void)
 {
+    if (device_config_get_mode() == DUAL_PRO2_EXPERIMENT_MODE) {
+        (void)ble_dual_probe_start();
+        return;
+    }
     schedule_auto_reconnect("control", 0);
 }
 
 void ble_central_disconnect(void)
 {
+    ble_central_stop_read_poll_probe();
     s_auto_scan_connect = false;
     s_auto_scan_target_valid = false;
     s_auto_scan_preferred_valid = false;
@@ -2084,6 +2630,7 @@ esp_err_t ble_central_recover_stale_link(void)
     s_connected = false;
     s_conn_handle = 0;
     s_state = BLE_STATE_IDLE;
+    ble_central_stop_read_poll_probe();
     clear_gatt_cache();
     clear_conn_metrics();
     handle_auto_reconnect_after_drop("stale_notify_terminate_failed");
@@ -2093,6 +2640,66 @@ esp_err_t ble_central_recover_stale_link(void)
 esp_err_t ble_central_request_fast_params(void)
 {
     return request_fast_conn_params_internal("control");
+}
+
+void ble_central_reset_multi_probe_metrics(void)
+{
+    clear_multi_probe_metrics();
+    APP_LOGI(TAG, "BLE multiprobe counters reset");
+}
+
+esp_err_t ble_central_start_multi_report_probe(void)
+{
+    ble_central_reset_multi_probe_metrics();
+    esp_err_t err = request_fast_conn_params_internal("multi_report_probe");
+    APP_LOGI(TAG, "BLE multi-report probe started fd2_handle=0x%04x err=%s",
+             (unsigned)s_input_val_handle,
+             esp_err_to_name(err));
+    return err;
+}
+
+esp_err_t ble_central_start_read_poll_probe(uint16_t rate_hz)
+{
+    if (!s_connected || s_state != BLE_STATE_CONNECTED || s_input_val_handle == 0) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    if (rate_hz < BLE_READ_POLL_MIN_HZ || rate_hz > BLE_READ_POLL_MAX_HZ) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    ble_central_stop_read_poll_probe();
+    for (int i = 0; i < 50 && s_read_poll_task; i++) {
+        vTaskDelay(pdMS_TO_TICKS(10));
+    }
+    if (s_read_poll_task) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    clear_multi_probe_metrics();
+    (void)request_fast_conn_params_internal("read_poll_probe");
+    s_conn_metrics.read_poll_active = true;
+    s_conn_metrics.read_poll_rate_hz = rate_hz;
+    s_conn_metrics.read_poll_handle = s_input_val_handle;
+    s_conn_metrics.read_poll_last_start_rc = 0;
+    s_conn_metrics.read_poll_last_status = 0;
+
+    BaseType_t created = xTaskCreate(read_poll_task,
+                                     "ble_readpoll",
+                                     4096,
+                                     (void *)(uintptr_t)rate_hz,
+                                     4,
+                                     &s_read_poll_task);
+    if (created != pdPASS) {
+        s_read_poll_task = NULL;
+        s_conn_metrics.read_poll_active = false;
+        return ESP_FAIL;
+    }
+    return ESP_OK;
+}
+
+void ble_central_stop_read_poll_probe(void)
+{
+    s_conn_metrics.read_poll_active = false;
+    s_conn_metrics.read_poll_rate_hz = 0;
 }
 
 void ble_central_get_conn_metrics(ble_central_conn_metrics_t *out_metrics)
@@ -2106,6 +2713,8 @@ void ble_central_get_conn_metrics(ble_central_conn_metrics_t *out_metrics)
     out_metrics->connecting = s_state == BLE_STATE_CONNECTING || ble_gap_conn_active();
     out_metrics->reconnect_task_running = s_auto_reconnect_task != NULL;
     out_metrics->auto_scan_connect = s_auto_scan_connect;
+    out_metrics->fast_param_block_remaining_ms =
+        fast_param_block_remaining_ms(esp_timer_get_time());
 }
 
 void ble_central_set_imu_debug(bool enabled, uint32_t every)
@@ -2182,6 +2791,9 @@ esp_err_t ble_central_send_rumble(const uint8_t *data, uint16_t len)
 
 const char *ble_central_state_string(void)
 {
+    if (device_config_get_mode() == DUAL_PRO2_EXPERIMENT_MODE) {
+        return ble_dual_probe_state_string();
+    }
     switch (s_state) {
     case BLE_STATE_IDLE:
         return "idle";

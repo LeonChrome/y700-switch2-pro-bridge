@@ -15,6 +15,18 @@ public sealed class ManagerSettings
     public string PendingProfileId { get; set; } = "";
     public string PendingExpectedUsbMarker { get; set; } = "";
     public DateTime? PendingRequestedUtc { get; set; }
+    public bool XboxPaddleLeftEnabled { get; set; }
+    public bool XboxPaddleRightEnabled { get; set; }
+    public string XboxPaddleLeftMode { get; set; } = "hold";
+    public string XboxPaddleRightMode { get; set; } = "hold";
+    public string XboxPaddleLeftTargets { get; set; } = "B";
+    public string XboxPaddleRightTargets { get; set; } = "A";
+    public string XboxPaddleLeftTapMs { get; set; } = "70";
+    public string XboxPaddleRightTapMs { get; set; } = "70";
+    public string XboxPaddleLeftTurboOnMs { get; set; } = "45";
+    public string XboxPaddleLeftTurboOffMs { get; set; } = "45";
+    public string XboxPaddleRightTurboOnMs { get; set; } = "45";
+    public string XboxPaddleRightTurboOffMs { get; set; } = "45";
 }
 
 public static class ManagerSettingsStore

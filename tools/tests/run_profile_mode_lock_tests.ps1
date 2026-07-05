@@ -25,5 +25,11 @@ if ($package -notmatch "(?s)firmware_build.*pro2_bridge_v5_5.*DeviceDefaultMode 
 if ($package -notmatch "(?s)firmware_build.*xinput_bridge_v5_8.*DeviceDefaultMode XINPUT_EXPERIMENT_MODE") {
     throw "package_v5_9_manager.ps1 does not lock the Xbox profile."
 }
+if ($buildAll -notmatch "(?s)work\\b\\dual_pro2.*DeviceDefaultMode DUAL_PRO2_EXPERIMENT_MODE") {
+    throw "build_all.ps1 does not lock the Dual Pro2 probe profile."
+}
+if ($package -notmatch "(?s)firmware_build.*dual_pro2_probe_v5_9.*DeviceDefaultMode DUAL_PRO2_EXPERIMENT_MODE") {
+    throw "package_v5_9_manager.ps1 does not lock the Dual Pro2 probe profile."
+}
 
 Write-Output "release profile mode lock tests passed"

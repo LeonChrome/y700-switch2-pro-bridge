@@ -12,7 +12,7 @@ Try:
 4. Plug it back in.
 5. Refresh serial in the Manager and retry.
 
-V5.9.3 refuses to start a second esptool while an older matching process still
+V5.9.6 refuses to start a second esptool while an older matching process still
 exists. `chip_id` also has a 20-second watchdog, so a blocked CH343 driver is
 reported instead of leaving the UI waiting indefinitely.
 
@@ -22,7 +22,7 @@ This exact combination was reproduced blocking both esptool and espflash
 inside the CH343 kernel driver. The process could not be terminated until the
 CH343 control cable was unplugged.
 
-V5.9.3 reads the active driver before flashing and refuses to launch esptool
+V5.9.6 reads the active driver before flashing and refuses to launch esptool
 for this known-risk combination. Open Device Manager, choose the CH343 port,
 use `Update driver` / `Let me pick`, and select Microsoft's `USB Serial Device`
 driver. Replug the CH343 control cable and refresh the Manager.
@@ -39,7 +39,7 @@ has a kernel-stuck process.
 
 ## Manager Freezes When Both USB Cables Are Connected
 
-Use the final V5.9.3 EXE. The flashing flow runs off the UI thread and each
+Use the final V5.9.6 EXE. The flashing flow runs off the UI thread and each
 esptool command has its own timeout. The Manager deliberately does not probe
 COM by calling `SerialPort.Open()` before flashing because a blocked CH343
 driver open cannot be cancelled safely. If Windows leaves a process in an
@@ -76,7 +76,7 @@ Check:
 - Replug the native USB / OTG cable after flashing.
 - Restart Steam if it cached the previous mode.
 
-V5.9.3 release profiles lock their compiled USB identity. Old NVS mode values
+V5.9.6 release profiles lock their compiled USB identity. Old NVS mode values
 can no longer make a Pro2 flash enumerate as Xbox or make an Xbox flash
 enumerate as Pro2.
 

@@ -2,6 +2,7 @@
 
 #include <stdint.h>
 #include "hid_report.h"
+#include "internal_gamepad_state.h"
 #include "switch2_state.h"
 
 #define REPORT_MAPPER_NINTENDO_MOTION_SAMPLE_SIZE 12
@@ -28,6 +29,8 @@ void report_mapper_internal_to_generic_report(const internal_gamepad_state_t *st
 void report_mapper_state_to_nintendo_report(const switch2_state_t *state, uint8_t report[NINTENDO_REPORT_SIZE]);
 void report_mapper_internal_to_nintendo_report(const internal_gamepad_state_t *state,
                                                uint8_t report[NINTENDO_REPORT_SIZE]);
+void report_mapper_internal_to_switch_legacy_report(const internal_gamepad_state_t *state,
+                                                    uint8_t report[SWITCH_LEGACY_REPORT_SIZE]);
 void report_mapper_set_nintendo_motion_passthrough(bool enabled);
 bool report_mapper_get_nintendo_motion_passthrough(void);
 bool report_mapper_set_nintendo_motion_offset(uint8_t offset);

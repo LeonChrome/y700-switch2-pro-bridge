@@ -12,6 +12,7 @@
 #include "tusb.h"
 #include "usb_descriptors.h"
 #include "usb_switch2_vendor.h"
+#include "xbox_paddle_mapper.h"
 
 static const char *TAG = "usb_xinput";
 
@@ -595,6 +596,28 @@ static bool parse_rumble_out(const uint8_t *data, uint16_t len,
     *right_light = data[3];
     return true;
 }
+
+static bool xinput_write_report(const xinput_input_report_t *report)
+{
+    if (!report || !usb_xinput_device_ready()) {
+        return false;
+    }
+
+    size_t len = sizeof(*report);
+    if (tud_vendor_write_available() < len) {
+        tud_vendor_write_flush();
+        if (tud_vendor_write_available() < len) {
+            return false;
+        }
+    }
+
+    uint32_t written = tud_vendor_write(report, len);
+    if (written != len) {
+        return false;
+    }
+    tud_vendor_write_flush();
+    return true;
+}
 #endif
 
 esp_err_t usb_xinput_device_send_report(const internal_gamepad_state_t *state)
@@ -618,18 +641,20 @@ esp_err_t usb_xinput_device_send_report(const internal_gamepad_state_t *state)
         return ESP_OK;
     }
 
+    internal_gamepad_state_t mapped;
+    xbox_paddle_mapper_apply(state, &mapped);
     uint8_t report[GIP_INPUT_PACKET_LEN];
-    make_gip_input_packet(state, report);
+    make_gip_input_packet(&mapped, report);
     bool ok = gip_write_bytes(report, sizeof(report));
     if (ok) {
         s_last_input_us = now;
     }
 #else
+    internal_gamepad_state_t mapped;
+    xbox_paddle_mapper_apply(state, &mapped);
     xinput_input_report_t report;
-    make_report(state, &report);
-    uint32_t written = tud_vendor_write(&report, sizeof(report));
-    tud_vendor_write_flush();
-    bool ok = written == sizeof(report);
+    make_report(&mapped, &report);
+    bool ok = xinput_write_report(&report);
 #endif
     report_rate_stats_record(ok);
     return ok ? ESP_OK : ESP_FAIL;

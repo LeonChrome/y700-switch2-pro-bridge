@@ -1,7 +1,7 @@
 param(
     [string]$IdfPath,
     [string]$BuildDir = "work\b\pro2",
-    [ValidateSet("", "GENERIC_HID_MODE", "NINTENDO_EXPERIMENT_MODE", "XINPUT_EXPERIMENT_MODE")]
+    [ValidateSet("", "GENERIC_HID_MODE", "NINTENDO_EXPERIMENT_MODE", "XINPUT_EXPERIMENT_MODE", "DUAL_PRO2_EXPERIMENT_MODE")]
     [string]$DeviceDefaultMode = "",
     [switch]$XInputElite
 )

@@ -244,7 +244,11 @@ public static class DeviceInspector
         {
             string deviceId = Convert.ToString(item["DeviceID"]) ?? "";
             string identity;
-            if (deviceId.Contains("VID_054C&PID_0CE6", StringComparison.OrdinalIgnoreCase))
+            if (deviceId.Contains("VID_054C&PID_0DF2", StringComparison.OrdinalIgnoreCase))
+            {
+                identity = "新和联胜 / PS5 Edge VID_054C&PID_0DF2";
+            }
+            else if (deviceId.Contains("VID_054C&PID_0CE6", StringComparison.OrdinalIgnoreCase))
             {
                 identity = "新和联胜 / PS5 VID_054C&PID_0CE6";
             }
@@ -277,7 +281,7 @@ public static class DeviceInspector
 
         if (lines.Count == 0)
         {
-            return "没有检测到新和联胜 / PS5 054C:0CE6、Nintendo/Pro2 057E:2069 或 Xbox/XInput 045E:028E 设备。如果刚刷完固件，请重新插拔原生 USB / OTG。";
+            return "没有检测到新和联胜 / PS5 Edge 054C:0DF2、兼容 PS5 054C:0CE6、Nintendo/Pro2 057E:2069 或 Xbox/XInput 045E:028E 设备。如果刚刷完固件，请重新插拔原生 USB / OTG。";
         }
 
         return string.Join(Environment.NewLine, lines);

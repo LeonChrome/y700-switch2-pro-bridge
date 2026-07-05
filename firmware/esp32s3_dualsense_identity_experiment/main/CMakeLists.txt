@@ -15,6 +15,8 @@ set(DS5_AUDIO_CHANNELS 0)
 set(DS5_HID_INTERFACE_NUMBER 0)
 set(DS5_INTERFACE_COUNT 1)
 set(DS5_PROFILE_SERIAL "V55HIDONLY")
+set(DS5_USB_PID "0x0ce6")
+set(DS5_USB_PRODUCT "DualSense Wireless Controller")
 set(main_sources
     "app_main.c"
     "usb_dualsense_descriptor.c"
@@ -89,7 +91,8 @@ elseif(V5_5_DS5_PROFILE STREQUAL "hid_audio_uac1_2ch")
     list(APPEND main_sources
         "usb_uac1_audio_driver.c"
     )
-elseif(V5_5_DS5_PROFILE STREQUAL "hid_audio_uac1_4ch_ds5like")
+elseif(V5_5_DS5_PROFILE STREQUAL "hid_audio_uac1_4ch_dualsense" OR
+       V5_5_DS5_PROFILE STREQUAL "hid_audio_uac1_4ch_ds5like")
     set(DS5_ENABLE_USB_COMPOSITE 1)
     set(DS5_ENABLE_USB_AUDIO 1)
     set(DS5_ENABLE_UAC1_AUDIO 1)
@@ -97,7 +100,23 @@ elseif(V5_5_DS5_PROFILE STREQUAL "hid_audio_uac1_4ch_ds5like")
     set(DS5_AUDIO_CHANNELS 4)
     set(DS5_HID_INTERFACE_NUMBER 3)
     set(DS5_INTERFACE_COUNT 4)
-    set(DS5_PROFILE_SERIAL "V59DS5AUDIO2")
+    set(DS5_PROFILE_SERIAL "V5913PS5STD")
+    set(DS5_USB_PID "0x0ce6")
+    set(DS5_USB_PRODUCT "DualSense Wireless Controller")
+    list(APPEND main_sources
+        "usb_uac1_audio_driver.c"
+    )
+elseif(V5_5_DS5_PROFILE STREQUAL "hid_audio_uac1_4ch_edge")
+    set(DS5_ENABLE_USB_COMPOSITE 1)
+    set(DS5_ENABLE_USB_AUDIO 1)
+    set(DS5_ENABLE_UAC1_AUDIO 1)
+    set(DS5_ENABLE_UAC1_DUALSENSE_TOPOLOGY 1)
+    set(DS5_AUDIO_CHANNELS 4)
+    set(DS5_HID_INTERFACE_NUMBER 3)
+    set(DS5_INTERFACE_COUNT 4)
+    set(DS5_PROFILE_SERIAL "V5913PS5EDGE")
+    set(DS5_USB_PID "0x0df2")
+    set(DS5_USB_PRODUCT "DualSense Edge Wireless Controller")
     list(APPEND main_sources
         "usb_uac1_audio_driver.c"
     )
@@ -143,6 +162,8 @@ idf_component_register(
 target_compile_definitions(${COMPONENT_LIB} PRIVATE
     DS5_PROFILE_NAME=\"${V5_5_DS5_PROFILE}\"
     DS5_PROFILE_SERIAL=\"${DS5_PROFILE_SERIAL}\"
+    DS5_USB_PID=${DS5_USB_PID}
+    DS5_USB_PRODUCT=\"${DS5_USB_PRODUCT}\"
     DS5_ENABLE_USB_AUDIO=${DS5_ENABLE_USB_AUDIO}
     DS5_ENABLE_USB_COMPOSITE=${DS5_ENABLE_USB_COMPOSITE}
     DS5_DEVICE_CLASS_IAD=${DS5_DEVICE_CLASS_IAD}
@@ -176,3 +197,5 @@ if(tinyusb_lib)
         DS5_INTERFACE_COUNT=${DS5_INTERFACE_COUNT}
     )
 endif()
+
+

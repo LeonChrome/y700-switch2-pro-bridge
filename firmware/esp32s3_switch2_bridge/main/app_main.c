@@ -10,6 +10,7 @@
 #include "nvs_flash.h"
 #include "app_log.h"
 #include "ble_central.h"
+#include "ble_dual_probe.h"
 #include "control_protocol.h"
 #include "device_config.h"
 #include "hid_report.h"
@@ -19,6 +20,7 @@
 #include "switch2_state.h"
 #include "usb_hid_device.h"
 #include "usb_xinput_device.h"
+#include "xbox_paddle_mapper.h"
 
 static const char *TAG = "app";
 
@@ -31,6 +33,9 @@ static bool usb_current_mode_ready(void)
     if (device_config_get_mode() == XINPUT_EXPERIMENT_MODE) {
         return usb_xinput_device_ready();
     }
+    if (device_config_get_mode() == DUAL_PRO2_EXPERIMENT_MODE) {
+        return usb_hid_device_dual_ready();
+    }
     return usb_hid_device_ready();
 }
 
@@ -38,6 +43,14 @@ static esp_err_t send_usb_state_report(const switch2_state_t *state)
 {
     internal_gamepad_state_t internal;
     switch2_state_to_internal(state, &internal);
+
+    if (device_config_get_mode() == DUAL_PRO2_EXPERIMENT_MODE) {
+        uint8_t slot_a[SWITCH_LEGACY_REPORT_SIZE];
+        uint8_t slot_b[SWITCH_LEGACY_REPORT_SIZE];
+        report_mapper_internal_to_switch_legacy_report(&internal, slot_a);
+        report_mapper_internal_to_switch_legacy_report(&internal, slot_b);
+        return usb_hid_device_send_dual_switch_legacy_reports(slot_a, slot_b);
+    }
 
     if (device_config_get_mode() == NINTENDO_EXPERIMENT_MODE) {
         uint8_t nintendo_report[NINTENDO_REPORT_SIZE];
@@ -61,7 +74,7 @@ static void control_task(void *arg)
     uint8_t rx[64];
     size_t line_len = 0;
     bool overflow = false;
-    static char reply[6144];
+    static char reply[16384];
 
     while (true) {
         int rx_len = read(STDIN_FILENO, rx, sizeof(rx));
@@ -210,8 +223,9 @@ static void hid_report_task(void *arg)
 void app_main(void)
 {
     app_log_init();
-    APP_LOGI(TAG, "ESP32-S3 Switch 2 bridge firmware 5.9.2 starting");
+    APP_LOGI(TAG, "ESP32-S3 Switch 2 bridge firmware 5.9.13 starting");
     APP_LOGI(TAG, "Stable path: Steam Switch Pro/Pro2 layout, BLE input, raw-like gyro, rumble, and boot autoconnect are verified");
+    APP_LOGI(TAG, "Experimental path: dual Pro2 BLE probe mode measures two-controller connection capacity before dual-HID work");
 
     esp_err_t nvs_err = nvs_flash_init();
     if (nvs_err == ESP_ERR_NVS_NO_FREE_PAGES || nvs_err == ESP_ERR_NVS_NEW_VERSION_FOUND) {
@@ -221,6 +235,7 @@ void app_main(void)
     ESP_ERROR_CHECK(nvs_err);
 
     device_config_init();
+    xbox_paddle_mapper_init();
     switch2_state_init();
     report_rate_stats_init();
     usb_xinput_device_init();
@@ -232,3 +247,6 @@ void app_main(void)
     xTaskCreate(control_task, "control_task", 6144, NULL, 6, NULL);
     xTaskCreate(hid_report_task, "hid_report_task", 4096, NULL, 5, NULL);
 }
+
+
+

@@ -7,6 +7,7 @@
 #include "esp_system.h"
 #include "app_log.h"
 #include "ble_central.h"
+#include "ble_dual_probe.h"
 #include "device_config.h"
 #include "hid_report.h"
 #include "report_mapper.h"
@@ -15,6 +16,7 @@
 #include "switch2_state.h"
 #include "usb_hid_device.h"
 #include "usb_switch2_vendor.h"
+#include "xbox_paddle_mapper.h"
 #include "control_protocol.h"
 
 static const char *TAG = "control";
@@ -86,6 +88,93 @@ static bool copy_trimmed_arg(const char *src, char *out, size_t out_len)
     memcpy(out, src, len);
     out[len] = 0;
     return true;
+}
+
+static bool read_token(const char **cursor, char *out, size_t out_len)
+{
+    if (!cursor || !*cursor || !out || out_len == 0) {
+        return false;
+    }
+
+    const char *p = *cursor;
+    while (*p && isspace((unsigned char)*p)) {
+        p++;
+    }
+    if (!*p) {
+        return false;
+    }
+
+    size_t len = 0;
+    while (p[len] && !isspace((unsigned char)p[len])) {
+        len++;
+    }
+    if (len == 0 || len >= out_len) {
+        return false;
+    }
+
+    memcpy(out, p, len);
+    out[len] = 0;
+    p += len;
+    while (*p && isspace((unsigned char)*p)) {
+        p++;
+    }
+    *cursor = p;
+    return true;
+}
+
+static bool token_equals_ci(const char *left, const char *right)
+{
+    if (!left || !right) {
+        return false;
+    }
+    while (*left && *right) {
+        if (tolower((unsigned char)*left) != tolower((unsigned char)*right)) {
+            return false;
+        }
+        left++;
+        right++;
+    }
+    return *left == 0 && *right == 0;
+}
+
+static void xbox_paddle_status_json(char *out, size_t out_len)
+{
+    xbox_paddle_binding_t left;
+    xbox_paddle_binding_t right;
+    char left_targets[96];
+    char right_targets[96];
+
+    xbox_paddle_mapper_get(XBOX_PADDLE_SIDE_LEFT, &left);
+    xbox_paddle_mapper_get(XBOX_PADDLE_SIDE_RIGHT, &right);
+    xbox_paddle_mapper_format_targets(left.target_mask, left_targets, sizeof(left_targets));
+    xbox_paddle_mapper_format_targets(right.target_mask, right_targets, sizeof(right_targets));
+
+    snprintf(out,
+             out_len,
+             "\"xbox_paddle_left_enabled\":%s,"
+             "\"xbox_paddle_left_mode\":\"%s\","
+             "\"xbox_paddle_left_targets\":\"%s\","
+             "\"xbox_paddle_left_tap_ms\":%u,"
+             "\"xbox_paddle_left_turbo_on_ms\":%u,"
+             "\"xbox_paddle_left_turbo_off_ms\":%u,"
+             "\"xbox_paddle_right_enabled\":%s,"
+             "\"xbox_paddle_right_mode\":\"%s\","
+             "\"xbox_paddle_right_targets\":\"%s\","
+             "\"xbox_paddle_right_tap_ms\":%u,"
+             "\"xbox_paddle_right_turbo_on_ms\":%u,"
+             "\"xbox_paddle_right_turbo_off_ms\":%u",
+             left.enabled ? "true" : "false",
+             xbox_paddle_mapper_action_string(left.action),
+             left_targets,
+             (unsigned)left.tap_ms,
+             (unsigned)left.turbo_on_ms,
+             (unsigned)left.turbo_off_ms,
+             right.enabled ? "true" : "false",
+             xbox_paddle_mapper_action_string(right.action),
+             right_targets,
+             (unsigned)right.tap_ms,
+             (unsigned)right.turbo_on_ms,
+             (unsigned)right.turbo_off_ms);
 }
 
 static int hex_value(char c)
@@ -202,9 +291,19 @@ esp_err_t control_protocol_handle_line(const char *line, char *reply, int reply_
                                                 &rumble_hold_ms,
                                                 &rumble_tick_ms,
                                                 &rumble_stop_packets);
-        static char extra[4600];
+        char xbox_paddle_json[512];
+        char dual_probe_json[2400];
+        char combined_status_json[3000];
+        xbox_paddle_status_json(xbox_paddle_json, sizeof(xbox_paddle_json));
+        ble_dual_probe_format_status_json(dual_probe_json, sizeof(dual_probe_json));
+        snprintf(combined_status_json,
+                 sizeof(combined_status_json),
+                 "%s,%s",
+                 xbox_paddle_json,
+                 dual_probe_json);
+        static char extra[16384];
         snprintf(extra, sizeof(extra),
-                 "\"mode\":\"%s\",\"usb\":\"%s\",\"hid_out\":%lu,\"hid_out_last\":\"%02x/%02x/%02x/%02x/%u\",\"hid_get\":%lu,\"hid_get_last\":\"%02x/%02x/%u/%u\",\"bulk\":\"%s\",\"bulk_rx\":%lu,\"bulk_tx\":%lu,\"bulk_tx_done\":%lu,\"bulk_tx_sent\":%lu,\"bulk_last\":\"%02x/%02x\",\"bulk_addr\":\"%08lx\",\"bulk_rx_len\":%u,\"bulk_tx_len\":%u,\"bulk_pending\":\"%u/%u\",\"hid_guard\":\"%s\",\"ble\":\"%s\",\"ble_auto\":\"%s\",\"ble_target\":\"%s\",\"ble_conn_interval_units\":%u,\"ble_conn_interval_us\":%lu,\"ble_conn_latency\":%u,\"ble_conn_supervision\":%u,\"ble_conn_update_start_rc\":%d,\"ble_conn_update_status\":%d,\"ble_conn_update_requests\":%lu,\"ble_input_actual_hz\":%lu,\"ble_input_actual_mhz\":%lu,\"ble_input_last_gap_us\":%lu,\"ble_input_max_gap_us\":%lu,\"ble_notify_actual_hz\":%lu,\"ble_notify_actual_mhz\":%lu,\"ble_notify_last_gap_us\":%lu,\"ble_notify_max_gap_us\":%lu,\"ble_notify_parsed_actual_hz\":%lu,\"ble_notify_parsed_actual_mhz\":%lu,\"ble_notify_parsed_last_gap_us\":%lu,\"ble_notify_parsed_max_gap_us\":%lu,\"hid\":\"%s\",\"test_mode\":\"%s\",\"imu_passthrough\":\"%s\",\"imu_usb_offset\":%u,\"imu_ble_offset\":%u,\"imu_ble_full\":\"%s\",\"imu_transform\":\"%s\",\"imu_usbtest\":\"%s\",\"gyro_bias\":\"%s\",\"gyro_bias_xyz\":\"%ld/%ld/%ld\",\"gyro_cal_remaining\":%u,\"gyro_scale\":%u,\"gyro_deadband\":%d,\"rate_hz\":%u,\"report_actual_hz\":%lu,\"report_actual_mhz\":%lu,\"report_sent\":%lu,\"report_failed\":%lu,\"report_last_gap_us\":%lu,\"report_max_gap_us\":%lu,\"live\":\"%s\",\"live_updates\":%lu,\"live_age_ms\":%lld,\"rumble\":\"%s\",\"rumble_updates\":%lu,\"rumble_writes\":%lu,\"rumble_stops\":%lu,\"rumble_errors\":%lu,\"rumble_preset_ignored\":%lu,\"rumble_scale_percent\":%u,\"rumble_hold_ms\":%u,\"rumble_tick_ms\":%u,\"rumble_stop_packets\":%u,\"version\":\"%s\"",
+                 "\"mode\":\"%s\",\"usb\":\"%s\",\"hid_out\":%lu,\"hid_out_last\":\"%02x/%02x/%02x/%02x/%u\",\"hid_get\":%lu,\"hid_get_last\":\"%02x/%02x/%u/%u\",\"bulk\":\"%s\",\"bulk_rx\":%lu,\"bulk_tx\":%lu,\"bulk_tx_done\":%lu,\"bulk_tx_sent\":%lu,\"bulk_last\":\"%02x/%02x\",\"bulk_addr\":\"%08lx\",\"bulk_rx_len\":%u,\"bulk_tx_len\":%u,\"bulk_pending\":\"%u/%u\",\"hid_guard\":\"%s\",\"ble\":\"%s\",\"ble_auto\":\"%s\",\"ble_target\":\"%s\",\"ble_conn_interval_units\":%u,\"ble_conn_interval_us\":%lu,\"ble_conn_latency\":%u,\"ble_conn_supervision\":%u,\"ble_conn_update_start_rc\":%d,\"ble_conn_update_status\":%d,\"ble_conn_update_requests\":%lu,\"ble_fast_drop_count\":%lu,\"ble_fast_block_ms\":%lu,\"ble_input_actual_hz\":%lu,\"ble_input_actual_mhz\":%lu,\"ble_input_last_gap_us\":%lu,\"ble_input_max_gap_us\":%lu,\"ble_notify_actual_hz\":%lu,\"ble_notify_actual_mhz\":%lu,\"ble_notify_last_gap_us\":%lu,\"ble_notify_max_gap_us\":%lu,\"ble_notify_min_gap_us\":%lu,\"ble_notify_short_gap_count\":%lu,\"ble_notify_sub_interval_count\":%lu,\"ble_notify_gap_lt3ms\":%lu,\"ble_notify_gap_3_6p5ms\":%lu,\"ble_notify_gap_6p5_10ms\":%lu,\"ble_notify_gap_ge10ms\":%lu,\"ble_notify_sub_raw_unique\":%lu,\"ble_notify_sub_control_unique\":%lu,\"ble_notify_sub_motion_unique\":%lu,\"ble_notify_raw_unique\":%lu,\"ble_notify_raw_repeat\":%lu,\"ble_notify_raw_repeat_streak\":%lu,\"ble_notify_raw_repeat_streak_max\":%lu,\"ble_notify_raw_unique_mhz\":%lu,\"ble_notify_raw_unique_gap_us\":%lu,\"ble_notify_raw_unique_max_gap_us\":%lu,\"ble_notify_parsed_actual_hz\":%lu,\"ble_notify_parsed_actual_mhz\":%lu,\"ble_notify_parsed_last_gap_us\":%lu,\"ble_notify_parsed_max_gap_us\":%lu,\"ble_notify_control_unique\":%lu,\"ble_notify_control_repeat\":%lu,\"ble_notify_control_unique_mhz\":%lu,\"ble_notify_control_unique_gap_us\":%lu,\"ble_notify_control_unique_max_gap_us\":%lu,\"ble_notify_motion_unique\":%lu,\"ble_notify_motion_repeat\":%lu,\"ble_notify_motion_unique_mhz\":%lu,\"ble_notify_motion_unique_gap_us\":%lu,\"ble_notify_motion_unique_max_gap_us\":%lu,\"ble_read_poll_active\":%s,\"ble_read_poll_rate_hz\":%u,\"ble_read_poll_handle\":%u,\"ble_read_poll_start_rc\":%d,\"ble_read_poll_status\":%d,\"ble_read_poll_starts\":%lu,\"ble_read_poll_start_fails\":%lu,\"ble_read_poll_rsp\":%lu,\"ble_read_poll_errors\":%lu,\"ble_read_poll_actual_mhz\":%lu,\"ble_read_poll_gap_us\":%lu,\"ble_read_poll_max_gap_us\":%lu,\"ble_read_poll_raw_unique\":%lu,\"ble_read_poll_raw_repeat\":%lu,\"ble_read_poll_control_unique\":%lu,\"ble_read_poll_control_repeat\":%lu,\"ble_read_poll_control_unique_mhz\":%lu,\"ble_read_poll_control_unique_gap_us\":%lu,\"ble_read_poll_control_unique_max_gap_us\":%lu,\"ble_read_poll_motion_unique\":%lu,\"ble_read_poll_motion_repeat\":%lu,\"ble_read_poll_motion_unique_mhz\":%lu,\"ble_read_poll_motion_unique_gap_us\":%lu,\"ble_read_poll_motion_unique_max_gap_us\":%lu,\"hid\":\"%s\",\"test_mode\":\"%s\",\"imu_passthrough\":\"%s\",\"imu_usb_offset\":%u,\"imu_ble_offset\":%u,\"imu_ble_full\":\"%s\",\"imu_transform\":\"%s\",\"imu_usbtest\":\"%s\",\"gyro_bias\":\"%s\",\"gyro_bias_xyz\":\"%ld/%ld/%ld\",\"gyro_cal_remaining\":%u,\"gyro_scale\":%u,\"gyro_deadband\":%d,\"rate_hz\":%u,\"report_actual_hz\":%lu,\"report_actual_mhz\":%lu,\"report_sent\":%lu,\"report_failed\":%lu,\"report_last_gap_us\":%lu,\"report_max_gap_us\":%lu,\"live\":\"%s\",\"live_updates\":%lu,\"live_age_ms\":%lld,\"rumble\":\"%s\",\"rumble_updates\":%lu,\"rumble_writes\":%lu,\"rumble_stops\":%lu,\"rumble_errors\":%lu,\"rumble_preset_ignored\":%lu,\"rumble_scale_percent\":%u,\"rumble_hold_ms\":%u,\"rumble_tick_ms\":%u,\"rumble_stop_packets\":%u,%s,\"version\":\"%s\"",
                  device_mode_to_string(device_config_get_mode()),
                  usb_hid_device_state_string(),
                  (unsigned long)usb_hid_device_out_count(),
@@ -241,6 +340,8 @@ esp_err_t control_protocol_handle_line(const char *line, char *reply, int reply_
                  ble_conn.last_update_start_rc,
                  ble_conn.last_update_event_status,
                  (unsigned long)ble_conn.update_request_count,
+                 (unsigned long)ble_conn.fast_param_drop_count,
+                 (unsigned long)ble_conn.fast_param_block_remaining_ms,
                  (unsigned long)((live_stats.actual_millihz + 500u) / 1000u),
                  (unsigned long)live_stats.actual_millihz,
                  (unsigned long)live_stats.last_gap_us,
@@ -249,10 +350,61 @@ esp_err_t control_protocol_handle_line(const char *line, char *reply, int reply_
                  (unsigned long)ble_conn.notify_actual_millihz,
                  (unsigned long)ble_conn.notify_last_gap_us,
                  (unsigned long)ble_conn.notify_max_gap_us,
+                 (unsigned long)ble_conn.notify_min_gap_us,
+                 (unsigned long)ble_conn.notify_short_gap_count,
+                 (unsigned long)ble_conn.notify_sub_interval_count,
+                 (unsigned long)ble_conn.notify_gap_lt3ms_count,
+                 (unsigned long)ble_conn.notify_gap_3_6p5ms_count,
+                 (unsigned long)ble_conn.notify_gap_6p5_10ms_count,
+                 (unsigned long)ble_conn.notify_gap_ge10ms_count,
+                 (unsigned long)ble_conn.notify_sub_interval_raw_unique_count,
+                 (unsigned long)ble_conn.notify_sub_interval_control_unique_count,
+                 (unsigned long)ble_conn.notify_sub_interval_motion_unique_count,
+                 (unsigned long)ble_conn.notify_raw_unique_count,
+                 (unsigned long)ble_conn.notify_raw_repeat_count,
+                 (unsigned long)ble_conn.notify_raw_repeat_streak,
+                 (unsigned long)ble_conn.notify_raw_repeat_streak_max,
+                 (unsigned long)ble_conn.notify_raw_unique_actual_millihz,
+                 (unsigned long)ble_conn.notify_raw_unique_last_gap_us,
+                 (unsigned long)ble_conn.notify_raw_unique_max_gap_us,
                  (unsigned long)((ble_conn.notify_parsed_actual_millihz + 500u) / 1000u),
                  (unsigned long)ble_conn.notify_parsed_actual_millihz,
                  (unsigned long)ble_conn.notify_parsed_last_gap_us,
                  (unsigned long)ble_conn.notify_parsed_max_gap_us,
+                 (unsigned long)ble_conn.notify_control_unique_count,
+                 (unsigned long)ble_conn.notify_control_repeat_count,
+                 (unsigned long)ble_conn.notify_control_unique_actual_millihz,
+                 (unsigned long)ble_conn.notify_control_unique_last_gap_us,
+                 (unsigned long)ble_conn.notify_control_unique_max_gap_us,
+                 (unsigned long)ble_conn.notify_motion_unique_count,
+                 (unsigned long)ble_conn.notify_motion_repeat_count,
+                 (unsigned long)ble_conn.notify_motion_unique_actual_millihz,
+                 (unsigned long)ble_conn.notify_motion_unique_last_gap_us,
+                 (unsigned long)ble_conn.notify_motion_unique_max_gap_us,
+                 ble_conn.read_poll_active ? "true" : "false",
+                 (unsigned)ble_conn.read_poll_rate_hz,
+                 (unsigned)ble_conn.read_poll_handle,
+                 ble_conn.read_poll_last_start_rc,
+                 ble_conn.read_poll_last_status,
+                 (unsigned long)ble_conn.read_poll_start_count,
+                 (unsigned long)ble_conn.read_poll_start_fail_count,
+                 (unsigned long)ble_conn.read_poll_rsp_count,
+                 (unsigned long)ble_conn.read_poll_error_count,
+                 (unsigned long)ble_conn.read_poll_actual_millihz,
+                 (unsigned long)ble_conn.read_poll_last_gap_us,
+                 (unsigned long)ble_conn.read_poll_max_gap_us,
+                 (unsigned long)ble_conn.read_poll_raw_unique_count,
+                 (unsigned long)ble_conn.read_poll_raw_repeat_count,
+                 (unsigned long)ble_conn.read_poll_control_unique_count,
+                 (unsigned long)ble_conn.read_poll_control_repeat_count,
+                 (unsigned long)ble_conn.read_poll_control_unique_actual_millihz,
+                 (unsigned long)ble_conn.read_poll_control_unique_last_gap_us,
+                 (unsigned long)ble_conn.read_poll_control_unique_max_gap_us,
+                 (unsigned long)ble_conn.read_poll_motion_unique_count,
+                 (unsigned long)ble_conn.read_poll_motion_repeat_count,
+                 (unsigned long)ble_conn.read_poll_motion_unique_actual_millihz,
+                 (unsigned long)ble_conn.read_poll_motion_unique_last_gap_us,
+                 (unsigned long)ble_conn.read_poll_motion_unique_max_gap_us,
                  device_config_bridge_running() ? "running" : "stopped",
                  hid_test_mode_to_string(device_config_get_hid_test_mode()),
                  report_mapper_get_nintendo_motion_passthrough() ? "on" : "off",
@@ -288,6 +440,7 @@ esp_err_t control_protocol_handle_line(const char *line, char *reply, int reply_
                  (unsigned)rumble_hold_ms,
                  (unsigned)rumble_tick_ms,
                  (unsigned)rumble_stop_packets,
+                 combined_status_json,
                  device_config_get_version());
         return json_ok(reply, reply_len, "status", extra);
     }
@@ -319,6 +472,15 @@ esp_err_t control_protocol_handle_line(const char *line, char *reply, int reply_
             return json_error(reply, reply_len, "mode", "failed to save xinput mode");
         }
         return json_ok(reply, reply_len, "mode", "\"mode\":\"xinput\",\"saved\":true,\"experimental\":true,\"reboot_required\":true,\"note\":\"run reboot, then replug native USB if needed\"");
+    }
+    if (strcmp(cmd, "mode dual") == 0 ||
+        strcmp(cmd, "mode dual_pro2") == 0 ||
+        strcmp(cmd, "mode dualpro2") == 0) {
+        esp_err_t err = device_config_save_mode(DUAL_PRO2_EXPERIMENT_MODE);
+        if (err != ESP_OK) {
+            return json_error(reply, reply_len, "mode", "failed to save dual Pro2 mode");
+        }
+        return json_ok(reply, reply_len, "mode", "\"mode\":\"dual_pro2\",\"saved\":true,\"experimental\":true,\"reboot_required\":true,\"note\":\"run reboot, then replug native USB if needed\"");
     }
     if (strcmp(cmd, "start") == 0) {
         device_config_set_bridge_running(true);
@@ -381,18 +543,37 @@ esp_err_t control_protocol_handle_line(const char *line, char *reply, int reply_
         return json_ok(reply, reply_len, "ble connect", "\"ble\":\"connecting\"");
     }
     if (strcmp(cmd, "ble reconnect") == 0 || strcmp(cmd, "ble auto connect") == 0) {
+        if (device_config_get_mode() == DUAL_PRO2_EXPERIMENT_MODE) {
+            esp_err_t err = ble_dual_probe_start();
+            if (err != ESP_OK) {
+                return json_error(reply, reply_len, "ble reconnect", "dual Pro2 probe start failed");
+            }
+            return json_ok(reply, reply_len, "ble reconnect", "\"dual_pro2\":\"scanning\"");
+        }
         esp_err_t err = ble_central_reconnect_saved_or_scan();
         if (err != ESP_OK) {
             return json_error(reply, reply_len, "ble reconnect", "reconnect start failed");
         }
         return json_ok(reply, reply_len, "ble reconnect", "\"ble\":\"connecting\"");
     }
-    if (strcmp(cmd, "ble fast") == 0 || strcmp(cmd, "ble interval fast") == 0) {
-        esp_err_t err = ble_central_request_fast_params();
+    if (strcmp(cmd, "ble multiprobe") == 0 ||
+        strcmp(cmd, "ble multi probe") == 0 ||
+        strcmp(cmd, "ble fast") == 0 ||
+        strcmp(cmd, "ble interval fast") == 0 ||
+        strcmp(cmd, "ble event probe") == 0) {
+        esp_err_t err = ble_central_start_multi_report_probe();
         if (err != ESP_OK) {
-            return json_error(reply, reply_len, "ble fast", "fast connection-parameter request failed or BLE is not connected");
+            return json_error(reply, reply_len, "ble multiprobe", "multi-report probe requires an active BLE connection");
         }
-        return json_ok(reply, reply_len, "ble fast", "\"ble_conn_request\":\"fast\"");
+        return json_ok(reply,
+                       reply_len,
+                       "ble multiprobe",
+                       "\"ble_multi_probe\":\"started\",\"interval_request\":\"fast_7p5ms\",\"note\":\"move sticks hard; inspect sub_control_unique and gap buckets\"");
+    }
+    if (strcmp(cmd, "ble multiprobe reset") == 0 ||
+        strcmp(cmd, "ble probe reset") == 0) {
+        ble_central_reset_multi_probe_metrics();
+        return json_ok(reply, reply_len, "ble multiprobe reset", "\"ble_multi_probe\":\"reset\"");
     }
     if (strcmp(cmd, "ble auto on") == 0 || strcmp(cmd, "ble autoconnect on") == 0) {
         esp_err_t err = device_config_save_ble_autoconnect(true);
@@ -431,8 +612,70 @@ esp_err_t control_protocol_handle_line(const char *line, char *reply, int reply_
         return json_ok(reply, reply_len, "ble target", extra);
     }
     if (strcmp(cmd, "ble disconnect") == 0) {
+        if (device_config_get_mode() == DUAL_PRO2_EXPERIMENT_MODE) {
+            ble_dual_probe_stop();
+            return json_ok(reply, reply_len, "ble disconnect", "\"dual_pro2\":\"stopped\"");
+        }
         ble_central_disconnect();
         return json_ok(reply, reply_len, "ble disconnect", "\"ble\":\"idle\"");
+    }
+    if (strcmp(cmd, "dual start") == 0 ||
+        strcmp(cmd, "dual pro2 start") == 0 ||
+        strcmp(cmd, "dual scan") == 0) {
+        esp_err_t err = ble_dual_probe_start();
+        if (err != ESP_OK) {
+            return json_error(reply, reply_len, "dual start", "dual Pro2 probe start failed");
+        }
+        return json_ok(reply, reply_len, "dual start", "\"dual_pro2\":\"scanning\"");
+    }
+    if (strcmp(cmd, "dual stop") == 0 ||
+        strcmp(cmd, "dual pro2 stop") == 0) {
+        ble_dual_probe_stop();
+        return json_ok(reply, reply_len, "dual stop", "\"dual_pro2\":\"stopped\"");
+    }
+    if (strcmp(cmd, "dual sim off") == 0 ||
+        strcmp(cmd, "dual simulation off") == 0) {
+        esp_err_t err = ble_dual_probe_set_simulation(BLE_DUAL_PROBE_SIM_OFF, 0);
+        if (err != ESP_OK) {
+            return json_error(reply, reply_len, "dual sim", "failed to disable simulation");
+        }
+        return json_ok(reply, reply_len, "dual sim", "\"dual_sim_mode\":\"off\"");
+    }
+    if (strcmp(cmd, "dual sim mirror") == 0 ||
+        strcmp(cmd, "dual simulation mirror") == 0 ||
+        strcmp(cmd, "dual mirror") == 0) {
+        esp_err_t err = ble_dual_probe_set_simulation(BLE_DUAL_PROBE_SIM_MIRROR, 0);
+        if (err != ESP_OK) {
+            return json_error(reply, reply_len, "dual sim", "failed to enable mirror simulation");
+        }
+        return json_ok(reply, reply_len, "dual sim", "\"dual_sim_mode\":\"mirror\",\"note\":\"pad1 mirrors the first real Pro2 notify stream\"");
+    }
+    if (strncmp(cmd, "dual sim synthetic", 18) == 0 ||
+        strncmp(cmd, "dual simulation synthetic", 25) == 0 ||
+        strncmp(cmd, "dual synthetic", 14) == 0) {
+        const char *p = strncmp(cmd, "dual simulation synthetic", 25) == 0 ? cmd + 25 :
+                        strncmp(cmd, "dual sim synthetic", 18) == 0 ? cmd + 18 :
+                        cmd + 14;
+        long rate = 133;
+        while (*p && isspace((unsigned char)*p)) {
+            p++;
+        }
+        if (*p && (!parse_long_token(&p, &rate) || *p || rate < 20 || rate > 250)) {
+            return json_error(reply, reply_len, "dual sim", "usage: dual sim synthetic [20..250]");
+        }
+        esp_err_t err = ble_dual_probe_set_simulation(BLE_DUAL_PROBE_SIM_SYNTHETIC, (uint16_t)rate);
+        if (err != ESP_OK) {
+            return json_error(reply, reply_len, "dual sim", "failed to enable synthetic simulation");
+        }
+        char extra[96];
+        snprintf(extra, sizeof(extra), "\"dual_sim_mode\":\"synthetic\",\"dual_sim_rate_hz\":%ld", rate);
+        return json_ok(reply, reply_len, "dual sim", extra);
+    }
+    if (strcmp(cmd, "dual status") == 0 ||
+        strcmp(cmd, "dual pro2 status") == 0) {
+        static char dual_extra[2400];
+        ble_dual_probe_format_status_json(dual_extra, sizeof(dual_extra));
+        return json_ok(reply, reply_len, "dual status", dual_extra);
     }
     if (strncmp(cmd, "imu debug on", 12) == 0 || strncmp(cmd, "ble raw on", 10) == 0) {
         const char *p = cmd[0] == 'i' ? cmd + 12 : cmd + 10;
@@ -766,6 +1009,104 @@ esp_err_t control_protocol_handle_line(const char *line, char *reply, int reply_
         usb_switch2_vendor_stop_hd_rumble();
         return json_ok(reply, reply_len, "rumble stop", "\"rumble\":\"stopping\"");
     }
+    if (strcmp(cmd, "xbox paddle status") == 0) {
+        char extra[512];
+        xbox_paddle_status_json(extra, sizeof(extra));
+        return json_ok(reply, reply_len, "xbox paddle status", extra);
+    }
+    if (strcmp(cmd, "xbox paddle reset") == 0) {
+        esp_err_t err = xbox_paddle_mapper_reset();
+        if (err != ESP_OK) {
+            return json_error(reply, reply_len, "xbox paddle reset", esp_err_to_name(err));
+        }
+        char extra[512];
+        xbox_paddle_status_json(extra, sizeof(extra));
+        return json_ok(reply, reply_len, "xbox paddle reset", extra);
+    }
+    if (strncmp(cmd, "xbox paddle ", 12) == 0) {
+        const char *cursor = cmd + 12;
+        char side_text[16];
+        char action_text[16];
+        xbox_paddle_side_t side;
+        xbox_paddle_action_t action;
+
+        if (!read_token(&cursor, side_text, sizeof(side_text)) ||
+            !xbox_paddle_mapper_parse_side(side_text, &side)) {
+            return json_error(reply, reply_len, "xbox paddle", "usage: xbox paddle <left|right|gl|gr> <off|hold|tap|turbo> <targets> [tap_ms|on_ms off_ms]");
+        }
+
+        if (!read_token(&cursor, action_text, sizeof(action_text))) {
+            return json_error(reply, reply_len, "xbox paddle", "usage: xbox paddle <side> <off|hold|tap|turbo> <targets>");
+        }
+
+        xbox_paddle_binding_t binding;
+        xbox_paddle_mapper_get(side, &binding);
+
+        if (token_equals_ci(action_text, "off") ||
+            token_equals_ci(action_text, "disable") ||
+            token_equals_ci(action_text, "disabled")) {
+            binding.enabled = false;
+            binding.target_mask = 0;
+            esp_err_t err = xbox_paddle_mapper_set(side, &binding);
+            if (err != ESP_OK) {
+                return json_error(reply, reply_len, "xbox paddle", esp_err_to_name(err));
+            }
+            char extra[512];
+            xbox_paddle_status_json(extra, sizeof(extra));
+            return json_ok(reply, reply_len, "xbox paddle", extra);
+        }
+
+        if (!xbox_paddle_mapper_parse_action(action_text, &action)) {
+            return json_error(reply, reply_len, "xbox paddle", "action must be hold, tap, single, turbo, repeat, or off");
+        }
+
+        char targets_text[96];
+        uint64_t target_mask = 0;
+        if (!read_token(&cursor, targets_text, sizeof(targets_text)) ||
+            !xbox_paddle_mapper_parse_targets(targets_text, &target_mask)) {
+            return json_error(reply, reply_len, "xbox paddle", "target must use Pro2 keys, e.g. B, A, ZR, B+A, ZR+B");
+        }
+
+        binding.enabled = target_mask != 0;
+        binding.action = action;
+        binding.target_mask = target_mask;
+
+        if (action == XBOX_PADDLE_ACTION_TAP) {
+            if (*cursor) {
+                long tap_ms = 0;
+                if (!parse_long_token(&cursor, &tap_ms) || tap_ms < 20 || tap_ms > 1000) {
+                    return json_error(reply, reply_len, "xbox paddle", "tap_ms must be 20..1000");
+                }
+                binding.tap_ms = (uint16_t)tap_ms;
+            }
+        } else if (action == XBOX_PADDLE_ACTION_TURBO) {
+            if (*cursor) {
+                long on_ms = 0;
+                long off_ms = 0;
+                if (!parse_long_token(&cursor, &on_ms) ||
+                    !parse_long_token(&cursor, &off_ms) ||
+                    on_ms < 20 || on_ms > 1000 ||
+                    off_ms < 20 || off_ms > 1000) {
+                    return json_error(reply, reply_len, "xbox paddle", "turbo timings must be on_ms off_ms, both 20..1000");
+                }
+                binding.turbo_on_ms = (uint16_t)on_ms;
+                binding.turbo_off_ms = (uint16_t)off_ms;
+            }
+        }
+
+        if (*cursor) {
+            return json_error(reply, reply_len, "xbox paddle", "too many arguments");
+        }
+
+        esp_err_t err = xbox_paddle_mapper_set(side, &binding);
+        if (err != ESP_OK) {
+            return json_error(reply, reply_len, "xbox paddle", esp_err_to_name(err));
+        }
+
+        char extra[512];
+        xbox_paddle_status_json(extra, sizeof(extra));
+        return json_ok(reply, reply_len, "xbox paddle", extra);
+    }
     if (strcmp(cmd, "hid test_a") == 0) {
         device_config_set_hid_test_mode(HID_TEST_A_HELD);
         return json_ok(reply, reply_len, "hid test_a", "\"test_mode\":\"a_held\"");
@@ -786,3 +1127,5 @@ esp_err_t control_protocol_handle_line(const char *line, char *reply, int reply_
 
     return json_error(reply, reply_len, cmd[0] ? cmd : "empty", "unknown command");
 }
+
+

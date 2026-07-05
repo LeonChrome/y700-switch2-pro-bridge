@@ -113,6 +113,8 @@ void dualsense_report_mapper_from_internal(
 
     if (internal_gamepad_state_get_button(state, INTERNAL_GAMEPAD_BUTTON_HOME)) report[9] |= 1u << 0;
     if (internal_gamepad_state_get_button(state, INTERNAL_GAMEPAD_BUTTON_CAPTURE)) report[9] |= 1u << 1;
+    if (internal_gamepad_state_get_button(state, INTERNAL_GAMEPAD_BUTTON_PADDLE_LEFT)) report[9] |= 1u << 6;
+    if (internal_gamepad_state_get_button(state, INTERNAL_GAMEPAD_BUTTON_PADDLE_RIGHT)) report[9] |= 1u << 7;
 
     int16_t accel[3] = {0, 0, 0};
     int16_t gyro[3] = {0, 0, 0};

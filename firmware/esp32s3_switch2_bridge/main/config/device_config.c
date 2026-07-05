@@ -57,7 +57,7 @@ void device_config_init(void)
         uint8_t stored_mode = (uint8_t)DEVICE_DEFAULT_MODE;
         err = nvs_get_u8(handle, NVS_KEY_MODE, &stored_mode);
 
-        if (err == ESP_OK && stored_mode <= XINPUT_EXPERIMENT_MODE) {
+        if (err == ESP_OK && stored_mode <= DUAL_PRO2_EXPERIMENT_MODE) {
             s_mode = (device_mode_t)stored_mode;
         } else if (err == ESP_ERR_NVS_NOT_FOUND) {
             APP_LOGI(TAG, "no persisted mode; defaulting to %s", device_mode_to_string(s_mode));
@@ -135,7 +135,8 @@ esp_err_t device_config_save_mode(device_mode_t mode)
 {
     if (mode != GENERIC_HID_MODE &&
         mode != NINTENDO_EXPERIMENT_MODE &&
-        mode != XINPUT_EXPERIMENT_MODE) {
+        mode != XINPUT_EXPERIMENT_MODE &&
+        mode != DUAL_PRO2_EXPERIMENT_MODE) {
         return ESP_ERR_INVALID_ARG;
     }
 
@@ -181,6 +182,8 @@ const char *device_mode_to_string(device_mode_t mode)
         return "nintendo";
     case XINPUT_EXPERIMENT_MODE:
         return "xinput";
+    case DUAL_PRO2_EXPERIMENT_MODE:
+        return "dual_pro2";
     default:
         return "unknown";
     }
@@ -326,5 +329,8 @@ esp_err_t device_config_save_ble_target(const char *target)
 
 const char *device_config_get_version(void)
 {
-    return "5.9.2";
+    return "5.9.13";
 }
+
+
+

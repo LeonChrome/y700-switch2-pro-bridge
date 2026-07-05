@@ -45,7 +45,13 @@
 #endif
 
 #define DS5_USB_VID 0x054c
+#ifndef DS5_USB_PID
 #define DS5_USB_PID 0x0ce6
+#endif
+
+#ifndef DS5_USB_PRODUCT
+#define DS5_USB_PRODUCT "DualSense Wireless Controller"
+#endif
 
 #if DS5_ENABLE_USB_AUDIO
 #define DS5_AUDIO_CONTROL_INTERFACE 0
@@ -405,7 +411,7 @@ static const uint8_t s_ds5_configuration_descriptor[] = {
 static const char *s_ds5_string_descriptors[] = {
     "",
     "Sony Interactive Entertainment",
-    "DualSense Wireless Controller",
+    DS5_USB_PRODUCT,
     DS5_PROFILE_SERIAL,
 #if DS5_ENABLE_USB_AUDIO
     "Wireless Controller Audio",

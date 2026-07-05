@@ -1,10 +1,11 @@
-﻿using Microsoft.Win32;
+using Microsoft.Win32;
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -14,6 +15,12 @@ using System.Windows;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Threading;
+using Brush = System.Windows.Media.Brush;
+using Brushes = System.Windows.Media.Brushes;
+using Color = System.Windows.Media.Color;
+using MessageBox = System.Windows.MessageBox;
+using SaveFileDialog = Microsoft.Win32.SaveFileDialog;
+using SolidColorBrush = System.Windows.Media.SolidColorBrush;
 
 namespace Y700Switch2V55Manager;
 
@@ -30,6 +37,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         Unknown,
         DualSense,
         Pro2,
+        DualPro2Probe,
         Xbox,
         XboxElite,
         Recovery
@@ -63,7 +71,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private string bleStatus = "尚未读取 BLE 状态。";
     private string bleCandidates = "尚未加载 BLE 候选列表。";
     private string hapticStatus = "默认状态：实时转发已关闭，试运行已开启。";
-    private string nextAction = "请先从三模切换台选择目标模式。即使没有连接 ESP32，程序也会保持离线可操作。";
+    private string nextAction = "请先从四模式烧录台选择目标模式。即使没有连接 ESP32，程序也会保持离线可操作。";
     private string overallStatus = "就绪";
     private string modeSwitchStatus = "尚未执行模式切换。";
     private string customCommand = "status";
@@ -76,6 +84,18 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private string xInputProbeSeconds = "8";
     private string xInputProbeLow = "32000";
     private string xInputProbeHigh = "52000";
+    private bool xboxPaddleLeftEnabled;
+    private bool xboxPaddleRightEnabled;
+    private string xboxPaddleLeftMode = "hold";
+    private string xboxPaddleRightMode = "hold";
+    private string xboxPaddleLeftTargets = "B";
+    private string xboxPaddleRightTargets = "A";
+    private string xboxPaddleLeftTapMs = "70";
+    private string xboxPaddleRightTapMs = "70";
+    private string xboxPaddleLeftTurboOnMs = "45";
+    private string xboxPaddleLeftTurboOffMs = "45";
+    private string xboxPaddleRightTurboOnMs = "45";
+    private string xboxPaddleRightTurboOffMs = "45";
     private string pro2RumbleScale = "140";
     private string pro2RumbleHoldMs = "220";
     private string pro2RumbleTickMs = "12";
@@ -83,6 +103,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private string monitorStatus = "诊断未启动。开始后会持续记录 BLE、USB、HID、音频、震动和 Windows PnP 状态，并自动保存到日志文件。";
     private string xboxStatus = "Xbox / XInput 模式会枚举为 045E:028E，并将普通双马达震动回传到真实 Pro2。";
     private string pro2RumbleStatus = "这里提供 Pro2 / Nintendo 固件的普通震动自检。先确认 BLE 已连接，再做轻震、重震和停止。";
+    private string dualNs2ProHostStatus = "主机侧双二代 Pro2 未启动。这个入口会用 VIIPER/USBIP 创建两个独立 057E:2069 设备地址。";
+    private Process? dualNs2ProHostProcess;
+    private string? dualNs2ProHostStopFile;
     private DeviceUiMode currentMode = DeviceUiMode.Unknown;
     private OutputModeId desiredMode = OutputModeId.Pro2;
     private bool usbDetected;
@@ -97,6 +120,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private bool gameMonitorRunning;
     private bool shutdownStarted;
     private bool logUiDirty;
+    private Task? initializeTask;
     private BleScanItem? selectedBleDevice;
 
     public ObservableCollection<PortItem> Ports { get; } = new();
@@ -104,6 +128,10 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public ObservableCollection<string> AudioPatterns { get; } = new(new[]
     {
         "ch2_tick", "ch3_tick", "both_tick", "ch2_punch", "ch3_punch", "both_punch", "texture", "continuous", "sweep", "silence"
+    });
+    public ObservableCollection<string> XboxPaddleModes { get; } = new(new[]
+    {
+        "hold", "tap", "turbo"
     });
 
     public PortItem? SelectedPort
@@ -128,6 +156,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             OnPropertyChanged(nameof(CanUsePro2ToolButtons));
             OnPropertyChanged(nameof(CanUseDualSenseToolButtons));
             OnPropertyChanged(nameof(CanUseXboxToolButtons));
+            OnPropertyChanged(nameof(CanUseXboxPaddleButtons));
             OnPropertyChanged(nameof(CanUseMonitorButtons));
             OnPropertyChanged(nameof(CanStartMonitorButton));
             OnPropertyChanged(nameof(CanStopMonitorButton));
@@ -202,6 +231,138 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public string XInputProbeSeconds { get => xInputProbeSeconds; set { xInputProbeSeconds = value; OnPropertyChanged(); } }
     public string XInputProbeLow { get => xInputProbeLow; set { xInputProbeLow = value; OnPropertyChanged(); } }
     public string XInputProbeHigh { get => xInputProbeHigh; set { xInputProbeHigh = value; OnPropertyChanged(); } }
+    public bool XboxPaddleLeftEnabled
+    {
+        get => xboxPaddleLeftEnabled;
+        set
+        {
+            xboxPaddleLeftEnabled = value;
+            settings.XboxPaddleLeftEnabled = value;
+            ManagerSettingsStore.Save(settings);
+            OnPropertyChanged();
+        }
+    }
+    public bool XboxPaddleRightEnabled
+    {
+        get => xboxPaddleRightEnabled;
+        set
+        {
+            xboxPaddleRightEnabled = value;
+            settings.XboxPaddleRightEnabled = value;
+            ManagerSettingsStore.Save(settings);
+            OnPropertyChanged();
+        }
+    }
+    public string XboxPaddleLeftMode
+    {
+        get => xboxPaddleLeftMode;
+        set
+        {
+            xboxPaddleLeftMode = NormalizeXboxPaddleMode(value);
+            settings.XboxPaddleLeftMode = xboxPaddleLeftMode;
+            ManagerSettingsStore.Save(settings);
+            OnPropertyChanged();
+        }
+    }
+    public string XboxPaddleRightMode
+    {
+        get => xboxPaddleRightMode;
+        set
+        {
+            xboxPaddleRightMode = NormalizeXboxPaddleMode(value);
+            settings.XboxPaddleRightMode = xboxPaddleRightMode;
+            ManagerSettingsStore.Save(settings);
+            OnPropertyChanged();
+        }
+    }
+    public string XboxPaddleLeftTargets
+    {
+        get => xboxPaddleLeftTargets;
+        set
+        {
+            xboxPaddleLeftTargets = value ?? "";
+            settings.XboxPaddleLeftTargets = xboxPaddleLeftTargets;
+            ManagerSettingsStore.Save(settings);
+            OnPropertyChanged();
+        }
+    }
+    public string XboxPaddleRightTargets
+    {
+        get => xboxPaddleRightTargets;
+        set
+        {
+            xboxPaddleRightTargets = value ?? "";
+            settings.XboxPaddleRightTargets = xboxPaddleRightTargets;
+            ManagerSettingsStore.Save(settings);
+            OnPropertyChanged();
+        }
+    }
+    public string XboxPaddleLeftTapMs
+    {
+        get => xboxPaddleLeftTapMs;
+        set
+        {
+            xboxPaddleLeftTapMs = value ?? "";
+            settings.XboxPaddleLeftTapMs = xboxPaddleLeftTapMs;
+            ManagerSettingsStore.Save(settings);
+            OnPropertyChanged();
+        }
+    }
+    public string XboxPaddleRightTapMs
+    {
+        get => xboxPaddleRightTapMs;
+        set
+        {
+            xboxPaddleRightTapMs = value ?? "";
+            settings.XboxPaddleRightTapMs = xboxPaddleRightTapMs;
+            ManagerSettingsStore.Save(settings);
+            OnPropertyChanged();
+        }
+    }
+    public string XboxPaddleLeftTurboOnMs
+    {
+        get => xboxPaddleLeftTurboOnMs;
+        set
+        {
+            xboxPaddleLeftTurboOnMs = value ?? "";
+            settings.XboxPaddleLeftTurboOnMs = xboxPaddleLeftTurboOnMs;
+            ManagerSettingsStore.Save(settings);
+            OnPropertyChanged();
+        }
+    }
+    public string XboxPaddleLeftTurboOffMs
+    {
+        get => xboxPaddleLeftTurboOffMs;
+        set
+        {
+            xboxPaddleLeftTurboOffMs = value ?? "";
+            settings.XboxPaddleLeftTurboOffMs = xboxPaddleLeftTurboOffMs;
+            ManagerSettingsStore.Save(settings);
+            OnPropertyChanged();
+        }
+    }
+    public string XboxPaddleRightTurboOnMs
+    {
+        get => xboxPaddleRightTurboOnMs;
+        set
+        {
+            xboxPaddleRightTurboOnMs = value ?? "";
+            settings.XboxPaddleRightTurboOnMs = xboxPaddleRightTurboOnMs;
+            ManagerSettingsStore.Save(settings);
+            OnPropertyChanged();
+        }
+    }
+    public string XboxPaddleRightTurboOffMs
+    {
+        get => xboxPaddleRightTurboOffMs;
+        set
+        {
+            xboxPaddleRightTurboOffMs = value ?? "";
+            settings.XboxPaddleRightTurboOffMs = xboxPaddleRightTurboOffMs;
+            ManagerSettingsStore.Save(settings);
+            OnPropertyChanged();
+        }
+    }
     public string Pro2RumbleScale { get => pro2RumbleScale; set { pro2RumbleScale = value; OnPropertyChanged(); } }
     public string Pro2RumbleHoldMs { get => pro2RumbleHoldMs; set { pro2RumbleHoldMs = value; OnPropertyChanged(); } }
     public string Pro2RumbleTickMs { get => pro2RumbleTickMs; set { pro2RumbleTickMs = value; OnPropertyChanged(); } }
@@ -209,6 +370,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public string MonitorStatus { get => monitorStatus; set { monitorStatus = value; OnPropertyChanged(); } }
     public string XboxStatus { get => xboxStatus; set { xboxStatus = value; OnPropertyChanged(); } }
     public string Pro2RumbleStatus { get => pro2RumbleStatus; set { pro2RumbleStatus = value; OnPropertyChanged(); } }
+    public string DualNs2ProHostStatus { get => dualNs2ProHostStatus; set { dualNs2ProHostStatus = value; OnPropertyChanged(); } }
     public bool Busy
     {
         get => busy;
@@ -236,7 +398,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         }
     }
 
-    public string FirmwareSummary => "V5.9.3 新和联胜版本内置：新和联胜 / PS5、Pro2 / Nintendo、Xbox / XInput、HID 恢复固件和嵌入式 esptool。";
+    public string FirmwareSummary => "V5.9.13 ESP 控制台内置：新和联胜 / PS5、Pro2 / Nintendo、Xbox / XInput、新和联胜 / PS5 Edge 四个烧录模式，另保留 Dual Pro2 Probe 双 BLE 能力探针、HID 恢复固件、BLE MultiProbe、read-poll 探针、Xbox 背键映射和嵌入式 esptool。";
     public string SafetySummary => "Live 转发默认不自动开启。游戏监听会保持 HD-only 过滤，普通 PCM 只计入 blocked_pcm，不会被盲目推送。";
     public string LogText
     {
@@ -264,36 +426,46 @@ public sealed class MainViewModel : INotifyPropertyChanged
                 : new SolidColorBrush(Color.FromRgb(22, 101, 52));
     public Brush OverallStatusForegroundBrush => Brushes.White;
     public bool HasUsableSerialCandidate => SelectedPort != null && SelectedPort.CanOpen;
-    public bool IsDualSenseToolsEnabled => desiredMode == OutputModeId.DualSenseLike;
+    public bool IsDualSenseToolsEnabled => IsPs5FamilyMode(desiredMode);
     public bool IsPro2ToolsEnabled => desiredMode == OutputModeId.Pro2;
     public bool IsXboxToolsEnabled => IsXboxLikeMode(desiredMode);
     public bool IsUnknownMode => currentMode == DeviceUiMode.Unknown || currentMode == DeviceUiMode.Recovery;
     public bool CanSwitchModes => !Busy && !flashInProgress && !GameMonitorRunning;
     public bool CanUseBleButtons => HasUsableSerialCandidate && !Busy && !flashInProgress && !GameMonitorRunning;
     public bool CanUsePro2ToolButtons => HasUsableSerialCandidate && desiredMode == OutputModeId.Pro2 && currentMode == DeviceUiMode.Pro2 && !Busy && !flashInProgress && !GameMonitorRunning;
-    public bool CanUseDualSenseToolButtons => HasUsableSerialCandidate && desiredMode == OutputModeId.DualSenseLike && currentMode == DeviceUiMode.DualSense && !Busy && !flashInProgress && !GameMonitorRunning;
+    public bool CanUseDualSenseToolButtons => HasUsableSerialCandidate && IsPs5FamilyMode(desiredMode) && currentMode == DeviceUiMode.DualSense && !Busy && !flashInProgress && !GameMonitorRunning;
     public bool CanUseXboxToolButtons => HasUsableSerialCandidate &&
         desiredMode == OutputModeId.Xbox && currentMode == DeviceUiMode.Xbox &&
         !Busy && !flashInProgress && !GameMonitorRunning;
-    public bool CanUseMonitorButtons => HasUsableSerialCandidate && desiredMode == OutputModeId.DualSenseLike;
-    public bool CanStartMonitorButton => HasUsableSerialCandidate && desiredMode == OutputModeId.DualSenseLike && currentMode == DeviceUiMode.DualSense && !Busy && !flashInProgress && !GameMonitorRunning;
-    public bool CanStopMonitorButton => HasUsableSerialCandidate && desiredMode == OutputModeId.DualSenseLike && GameMonitorRunning;
-    public bool CanUseAudioPatternButton => HasUsableSerialCandidate && desiredMode == OutputModeId.DualSenseLike && currentMode == DeviceUiMode.DualSense && !Busy && !flashInProgress && !GameMonitorRunning;
+    public bool CanUseXboxPaddleButtons => CanUseXboxToolButtons;
+    public bool CanUseDualProbeButtons => HasUsableSerialCandidate &&
+        desiredMode == OutputModeId.DualPro2Probe &&
+        !Busy && !flashInProgress && !GameMonitorRunning;
+    public bool DualNs2ProHostRunning => dualNs2ProHostProcess is { HasExited: false };
+    public bool CanStartDualNs2ProHost => !Busy && !flashInProgress && !GameMonitorRunning && !DualNs2ProHostRunning;
+    public bool CanStopDualNs2ProHost => DualNs2ProHostRunning;
+    public bool CanUseMonitorButtons => HasUsableSerialCandidate && IsPs5FamilyMode(desiredMode);
+    public bool CanStartMonitorButton => HasUsableSerialCandidate && IsPs5FamilyMode(desiredMode) && currentMode == DeviceUiMode.DualSense && !Busy && !flashInProgress && !GameMonitorRunning;
+    public bool CanStopMonitorButton => HasUsableSerialCandidate && IsPs5FamilyMode(desiredMode) && GameMonitorRunning;
+    public bool CanUseAudioPatternButton => HasUsableSerialCandidate && IsPs5FamilyMode(desiredMode) && currentMode == DeviceUiMode.DualSense && !Busy && !flashInProgress && !GameMonitorRunning;
     public bool CanSendCustomSerialCommand => HasUsableSerialCandidate && !Busy && !flashInProgress && !GameMonitorRunning;
     public bool CanRepairCh343Driver => HasUsableSerialCandidate && !Busy && !flashInProgress && !GameMonitorRunning;
     public string DesiredModeLabel => GetModeLabel(desiredMode);
     public string DesiredModeDescription => GetModeDescription(desiredMode);
     public string ModeDeckHint => desiredMode switch
     {
-        OutputModeId.DualSenseLike => "点击卡片可切换到新和联胜模式。刷写后管理器会等待 PS5 USB 身份重新枚举并校验音频与 HID 链路。",
+        OutputModeId.DualSenseStandard => "点击卡片会刷入标准 PS5 / DualSense 身份。刷写后管理器会等待 054C:0CE6 重新枚举。",
+        OutputModeId.DualSenseLike => "点击卡片会刷入 PS5 Edge / DualSense Edge 身份。刷写后管理器会等待 054C:0DF2 重新枚举。",
         OutputModeId.Pro2 => "点击卡片可切换到 Pro2 / Nintendo 模式。这是当前最稳定的原始 HID 0x02 震动优先路线。",
         OutputModeId.Xbox => "点击卡片可切换到 Xbox / XInput 模式。刷写后 USB 应枚举为 045E:028E，普通震动会回传到 Pro2。",
-        _ => "点击手柄卡片即可设置目标模式；如果校验失败，界面会保留回退提示。"
+        OutputModeId.DualPro2Probe => "Dual Pro2 Probe 是高级探针，不属于四个日常烧录模式。它只用于验证 ESP32-S3 双 BLE 吞吐与稳定性。",
+        _ => "点击四个模式卡片即可烧录对应固件；如果校验失败，界面会保留回退提示。"
     };
     public string CurrentModeLabel => currentMode switch
     {
-        DeviceUiMode.DualSense => "新和联胜 / PS5 模式",
+        DeviceUiMode.DualSense => "新和联胜 / PS5 系模式",
         DeviceUiMode.Pro2 => "Pro2 / Nintendo 模式",
+        DeviceUiMode.DualPro2Probe => "Dual Pro2 Probe 模式",
         DeviceUiMode.Xbox => "Xbox / XInput 模式",
         DeviceUiMode.XboxElite => "旧版 Xbox Elite 2 实验固件",
         DeviceUiMode.Recovery => "HID 纯恢复模式",
@@ -301,10 +473,11 @@ public sealed class MainViewModel : INotifyPropertyChanged
     };
     public string CurrentModeDescription => currentMode switch
     {
-        DeviceUiMode.DualSense => "USB 当前已枚举为 PS5 / DualSense，可使用新和联胜 HD 震动与普通震动调度工具。",
+        DeviceUiMode.DualSense => "USB 当前已枚举为 PS5 / PS5 Edge 家族，可使用新和联胜 HD 震动、普通震动调度与 PS5 IMU 路线。",
         DeviceUiMode.Pro2 => "USB 当前已枚举为 Pro2 / Nintendo，适合稳定输入和原始/普通震动测试。",
+        DeviceUiMode.DualPro2Probe => "串口状态确认当前是 Dual Pro2 Probe。USB 仍复用 Pro2/Nintendo 身份，重点观察双 BLE 能力指标。",
         DeviceUiMode.Xbox => "USB 当前已枚举为 Xbox / XInput，适合 Steam、Apex 和普通双马达震动兼容性测试。",
-        DeviceUiMode.XboxElite => "检测到旧版 Elite 2 实验固件。V5.9.3 不再提供这个模式，请切换到新和联胜或 Xbox。",
+        DeviceUiMode.XboxElite => "检测到旧版 Elite 2 实验固件。V5.9.13 不再提供这个模式，请切换到新和联胜或 Xbox。",
         DeviceUiMode.Recovery => "当前看起来是最小化 HID 恢复固件，用于救援重刷和枚举恢复。",
         _ => "请先执行 USB 检查。在确认模式前，所有真实震动发送都会保持保守策略。"
     };
@@ -313,25 +486,30 @@ public sealed class MainViewModel : INotifyPropertyChanged
         : currentMode == DeviceUiMode.Unknown ? "USB 未检测到" : "USB 未校验：" + CurrentModeLabel;
     public string BleLightText => bleConnected ? "BLE 已连接" : "BLE 离线";
     public string DualSenseToolStateText => DescribeToolState(
-        OutputModeId.DualSenseLike,
+        desiredMode,
         currentMode == DeviceUiMode.DualSense,
         "当前 USB 身份支持新和联胜的 PS5 HID、普通震动与四声道 HD 震动链路。",
-        "已选新和联胜面板，但 USB 还没有切到 PS5 身份。");
+        "已选 PS5 系面板，但 USB 还没有切到对应 PS5 身份。");
     public string Pro2ToolStateText => DescribeToolState(
         OutputModeId.Pro2,
         currentMode == DeviceUiMode.Pro2,
         "当前 USB 身份就是 Pro2 / Nintendo 原始 0x02 + 普通兼容震动桥接。",
         "已选 Pro2 / Nintendo 面板，但 USB 还没有切到 Pro2 / Nintendo。");
-    public string DualSenseCardStateText => GetModeStateText(OutputModeId.DualSenseLike, managerReady: true);
+    public string DualSenseCardStateText => GetModeStateText(OutputModeId.DualSenseStandard, managerReady: true);
+    public string DualSenseEdgeCardStateText => GetModeStateText(OutputModeId.DualSenseLike, managerReady: true);
     public string Pro2CardStateText => GetModeStateText(OutputModeId.Pro2, managerReady: true);
     public string XboxCardStateText => GetModeStateText(OutputModeId.Xbox, managerReady: true);
-    public string DualSenseCardTooltip => "点击切换到新和联胜 / PS5 模式";
+    public string DualPro2ProbeCardStateText => GetModeStateText(OutputModeId.DualPro2Probe, managerReady: true);
+    public string DualSenseCardTooltip => "点击刷入新和联胜 / PS5 标准 DualSense 模式";
+    public string DualSenseEdgeCardTooltip => "点击刷入新和联胜 / PS5 Edge 模式";
     public string Pro2CardTooltip => "点击切换到 Pro2 / Nintendo 模式";
     public string XboxCardTooltip => "点击切换到 Xbox / XInput 模式";
+    public string DualPro2ProbeCardTooltip => "点击刷入 Dual Pro2 BLE 能力探针";
     public Brush UsbIndicatorBrush => currentMode switch
     {
         DeviceUiMode.DualSense => new SolidColorBrush(Color.FromRgb(29, 78, 216)),
         DeviceUiMode.Pro2 => new SolidColorBrush(Color.FromRgb(190, 24, 93)),
+        DeviceUiMode.DualPro2Probe => new SolidColorBrush(Color.FromRgb(126, 34, 206)),
         DeviceUiMode.Xbox => new SolidColorBrush(Color.FromRgb(22, 101, 52)),
         DeviceUiMode.XboxElite => new SolidColorBrush(Color.FromRgb(21, 128, 61)),
         DeviceUiMode.Recovery => new SolidColorBrush(Color.FromRgb(71, 85, 105)),
@@ -375,6 +553,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     {
         DeviceUiMode.DualSense => new SolidColorBrush(Color.FromRgb(235, 245, 255)),
         DeviceUiMode.Pro2 => new SolidColorBrush(Color.FromRgb(255, 241, 242)),
+        DeviceUiMode.DualPro2Probe => new SolidColorBrush(Color.FromRgb(250, 245, 255)),
         DeviceUiMode.Xbox => new SolidColorBrush(Color.FromRgb(236, 252, 233)),
         DeviceUiMode.XboxElite => new SolidColorBrush(Color.FromRgb(236, 253, 245)),
         _ => Brushes.White
@@ -383,20 +562,27 @@ public sealed class MainViewModel : INotifyPropertyChanged
     {
         DeviceUiMode.DualSense => new SolidColorBrush(Color.FromRgb(29, 78, 216)),
         DeviceUiMode.Pro2 => new SolidColorBrush(Color.FromRgb(190, 24, 93)),
+        DeviceUiMode.DualPro2Probe => new SolidColorBrush(Color.FromRgb(126, 34, 206)),
         DeviceUiMode.Xbox => new SolidColorBrush(Color.FromRgb(22, 101, 52)),
         DeviceUiMode.XboxElite => new SolidColorBrush(Color.FromRgb(21, 128, 61)),
         _ => new SolidColorBrush(Color.FromRgb(148, 163, 184))
     };
-    public Brush DualSenseCardBackground => GetModeCardBackground(OutputModeId.DualSenseLike);
+    public Brush DualSenseCardBackground => GetModeCardBackground(OutputModeId.DualSenseStandard);
+    public Brush DualSenseEdgeCardBackground => GetModeCardBackground(OutputModeId.DualSenseLike);
     public Brush Pro2CardBackground => GetModeCardBackground(OutputModeId.Pro2);
     public Brush XboxCardBackground => GetModeCardBackground(OutputModeId.Xbox);
-    public Brush DualSenseCardBorderBrush => GetModeCardBorderBrush(OutputModeId.DualSenseLike, managerReady: true);
+    public Brush DualPro2ProbeCardBackground => GetModeCardBackground(OutputModeId.DualPro2Probe);
+    public Brush DualSenseCardBorderBrush => GetModeCardBorderBrush(OutputModeId.DualSenseStandard, managerReady: true);
+    public Brush DualSenseEdgeCardBorderBrush => GetModeCardBorderBrush(OutputModeId.DualSenseLike, managerReady: true);
     public Brush Pro2CardBorderBrush => GetModeCardBorderBrush(OutputModeId.Pro2, managerReady: true);
     public Brush XboxCardBorderBrush => GetModeCardBorderBrush(OutputModeId.Xbox, managerReady: true);
-    public Brush DualSenseCardBadgeBrush => GetModeBadgeBrush(OutputModeId.DualSenseLike, managerReady: true);
+    public Brush DualPro2ProbeCardBorderBrush => GetModeCardBorderBrush(OutputModeId.DualPro2Probe, managerReady: true);
+    public Brush DualSenseCardBadgeBrush => GetModeBadgeBrush(OutputModeId.DualSenseStandard, managerReady: true);
+    public Brush DualSenseEdgeCardBadgeBrush => GetModeBadgeBrush(OutputModeId.DualSenseLike, managerReady: true);
     public Brush Pro2CardBadgeBrush => GetModeBadgeBrush(OutputModeId.Pro2, managerReady: true);
     public Brush XboxCardBadgeBrush => GetModeBadgeBrush(OutputModeId.Xbox, managerReady: true);
-    public Visibility DualSenseLabVisibility => desiredMode == OutputModeId.DualSenseLike ? Visibility.Visible : Visibility.Collapsed;
+    public Brush DualPro2ProbeCardBadgeBrush => GetModeBadgeBrush(OutputModeId.DualPro2Probe, managerReady: true);
+    public Visibility DualSenseLabVisibility => IsPs5FamilyMode(desiredMode) ? Visibility.Visible : Visibility.Collapsed;
     public Visibility Pro2LabVisibility => desiredMode == OutputModeId.Pro2 ? Visibility.Visible : Visibility.Collapsed;
     public Visibility DualSenseLabDisabledVisibility => desiredMode == OutputModeId.Unknown || desiredMode == OutputModeId.Recovery ? Visibility.Visible : Visibility.Collapsed;
     public Visibility XboxLabVisibility => desiredMode == OutputModeId.Xbox ? Visibility.Visible : Visibility.Collapsed;
@@ -433,8 +619,10 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public ICommand FlashPro2Command { get; }
     public ICommand EraseFirmwareCommand { get; }
     public ICommand ActivateDualSenseModeCommand { get; }
+    public ICommand ActivateDualSenseEdgeModeCommand { get; }
     public ICommand ActivatePro2ModeCommand { get; }
     public ICommand ActivateXboxModeCommand { get; }
+    public ICommand ActivateDualPro2ProbeModeCommand { get; }
     public ICommand CheckUsbCommand { get; }
     public ICommand ListAudioCommand { get; }
     public ICommand OpenJoyCommand { get; }
@@ -465,6 +653,16 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public ICommand StartGameMonitorCommand { get; }
     public ICommand StopGameMonitorCommand { get; }
     public ICommand RunXInputProbeCommand { get; }
+    public ICommand DualProbeRealCommand { get; }
+    public ICommand DualProbeMirrorCommand { get; }
+    public ICommand DualProbeSyntheticCommand { get; }
+    public ICommand DualProbeStatusCommand { get; }
+    public ICommand StartDualNs2ProHostCommand { get; }
+    public ICommand StartDualNs2ProHostSyntheticCommand { get; }
+    public ICommand StopDualNs2ProHostCommand { get; }
+    public ICommand XboxPaddleRefreshCommand { get; }
+    public ICommand XboxPaddleApplyCommand { get; }
+    public ICommand XboxPaddleResetCommand { get; }
     public ICommand Pro2RumbleStatusCommand { get; }
     public ICommand Pro2RumbleLightCommand { get; }
     public ICommand Pro2RumbleStrongCommand { get; }
@@ -485,14 +683,28 @@ public sealed class MainViewModel : INotifyPropertyChanged
             settings.DesiredModeId = desiredMode.ToString();
             ManagerSettingsStore.Save(settings);
         }
+        xboxPaddleLeftEnabled = settings.XboxPaddleLeftEnabled;
+        xboxPaddleRightEnabled = settings.XboxPaddleRightEnabled;
+        xboxPaddleLeftMode = NormalizeXboxPaddleMode(settings.XboxPaddleLeftMode);
+        xboxPaddleRightMode = NormalizeXboxPaddleMode(settings.XboxPaddleRightMode);
+        xboxPaddleLeftTargets = string.IsNullOrWhiteSpace(settings.XboxPaddleLeftTargets) ? "B" : settings.XboxPaddleLeftTargets;
+        xboxPaddleRightTargets = string.IsNullOrWhiteSpace(settings.XboxPaddleRightTargets) ? "A" : settings.XboxPaddleRightTargets;
+        xboxPaddleLeftTapMs = string.IsNullOrWhiteSpace(settings.XboxPaddleLeftTapMs) ? "70" : settings.XboxPaddleLeftTapMs;
+        xboxPaddleRightTapMs = string.IsNullOrWhiteSpace(settings.XboxPaddleRightTapMs) ? "70" : settings.XboxPaddleRightTapMs;
+        xboxPaddleLeftTurboOnMs = string.IsNullOrWhiteSpace(settings.XboxPaddleLeftTurboOnMs) ? "45" : settings.XboxPaddleLeftTurboOnMs;
+        xboxPaddleLeftTurboOffMs = string.IsNullOrWhiteSpace(settings.XboxPaddleLeftTurboOffMs) ? "45" : settings.XboxPaddleLeftTurboOffMs;
+        xboxPaddleRightTurboOnMs = string.IsNullOrWhiteSpace(settings.XboxPaddleRightTurboOnMs) ? "45" : settings.XboxPaddleRightTurboOnMs;
+        xboxPaddleRightTurboOffMs = string.IsNullOrWhiteSpace(settings.XboxPaddleRightTurboOffMs) ? "45" : settings.XboxPaddleRightTurboOffMs;
         RefreshPortsCommand = new RelayCommand(async _ => await RefreshPortsAsync());
-        FlashHapticCommand = new RelayCommand(async _ => await FlashAsync("hid_audio_uac1_4ch_ds5like", FlashMode.Upgrade));
+        FlashHapticCommand = new RelayCommand(async _ => await FlashAsync("hid_audio_uac1_4ch_dualsense", FlashMode.Upgrade));
         FlashHidOnlyCommand = new RelayCommand(async _ => await FlashAsync("hid_only", FlashMode.Repair));
         FlashPro2Command = new RelayCommand(async _ => await FlashAsync("pro2_bridge_v5_5", FlashMode.Upgrade));
         EraseFirmwareCommand = new RelayCommand(async _ => await EraseFirmwareAsync());
-        ActivateDualSenseModeCommand = new RelayCommand(async _ => await ActivateModeAsync(OutputModeCatalog.DualSenseLike));
+        ActivateDualSenseModeCommand = new RelayCommand(async _ => await ActivateModeAsync(OutputModeCatalog.DualSenseStandard));
+        ActivateDualSenseEdgeModeCommand = new RelayCommand(async _ => await ActivateModeAsync(OutputModeCatalog.DualSenseLike));
         ActivatePro2ModeCommand = new RelayCommand(async _ => await ActivateModeAsync(OutputModeCatalog.Pro2));
         ActivateXboxModeCommand = new RelayCommand(async _ => await ActivateModeAsync(OutputModeCatalog.Xbox));
+        ActivateDualPro2ProbeModeCommand = new RelayCommand(async _ => await ActivateModeAsync(OutputModeCatalog.DualPro2Probe));
         CheckUsbCommand = new RelayCommand(async _ => await CheckUsbAsync());
         ListAudioCommand = new RelayCommand(async _ => await ListAudioAsync());
         OpenJoyCommand = new RelayCommand(_ => StartShell("joy.cpl"));
@@ -523,6 +735,16 @@ public sealed class MainViewModel : INotifyPropertyChanged
         StartGameMonitorCommand = new RelayCommand(async _ => await StartGameMonitorAsync());
         StopGameMonitorCommand = new RelayCommand(async _ => await StopGameMonitorAsync());
         RunXInputProbeCommand = new RelayCommand(async _ => await RunXInputProbeAsync());
+        DualProbeRealCommand = new RelayCommand(async _ => await SendSerialAsync("dual sim off", 5, s => BleStatus = SummarizeDualProbeStatus(s)));
+        DualProbeMirrorCommand = new RelayCommand(async _ => await SendSerialAsync("dual sim mirror", 5, s => BleStatus = SummarizeDualProbeStatus(s)));
+        DualProbeSyntheticCommand = new RelayCommand(async _ => await SendSerialAsync("dual sim synthetic 133", 5, s => BleStatus = SummarizeDualProbeStatus(s)));
+        DualProbeStatusCommand = new RelayCommand(async _ => await SendSerialAsync("dual status", 5, s => BleStatus = SummarizeDualProbeStatus(s)));
+        StartDualNs2ProHostCommand = new RelayCommand(async _ => await StartDualNs2ProHostAsync(synthetic: false));
+        StartDualNs2ProHostSyntheticCommand = new RelayCommand(async _ => await StartDualNs2ProHostAsync(synthetic: true));
+        StopDualNs2ProHostCommand = new RelayCommand(async _ => await StopDualNs2ProHostAsync());
+        XboxPaddleRefreshCommand = new RelayCommand(async _ => await RefreshXboxPaddleMappingAsync());
+        XboxPaddleApplyCommand = new RelayCommand(async _ => await ApplyXboxPaddleMappingAsync());
+        XboxPaddleResetCommand = new RelayCommand(async _ => await ResetXboxPaddleMappingAsync());
         Pro2RumbleStatusCommand = new RelayCommand(async _ => await RefreshPro2RumbleStatusAsync());
         Pro2RumbleLightCommand = new RelayCommand(async _ => await RunPro2RumblePresetAsync("轻震", 120, 160, 10, 2));
         Pro2RumbleStrongCommand = new RelayCommand(async _ => await RunPro2RumblePresetAsync("重震", 185, 280, 12, 4));
@@ -538,7 +760,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
         logUiTimer.Tick += (_, _) => FlushLogTextToUi();
         logUiTimer.Start();
 
-        AppendLog("PRO2 手柄无线接收器控制板 V5.9.3 新和联胜版本已就绪。此 EXE 内置 PS5 HD 震动固件与连接向导。");
+        AppendLog("PRO2 手柄无线接收器控制板 V5.9.13 ESP 控制台已就绪。此 EXE 用于四模式固件烧录、连接检测、Pro2 BLE 手动绑定、快捷诊断和日志查看。");
+        AppendLog("[STARTUP] desired_mode=" + desiredMode);
         if (!string.IsNullOrWhiteSpace(settings.LastBleTarget))
         {
             bleTarget = settings.LastBleTarget;
@@ -548,7 +771,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             audioDeviceName = settings.LastAudioDeviceName;
         }
 
-        _ = InitializeAsync();
+        initializeTask = InitializeAsync();
         stateTimer.Interval = TimeSpan.FromSeconds(3);
         stateTimer.Tick += async (_, _) => await AutoRefreshStateAsync();
         stateTimer.Start();
@@ -806,7 +1029,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             MessageBox.Show(
                 owner,
                 profile.Label + " 目前还是预留位，暂时没有接入完整后端。\n\n管理器已经保留好了模式位和切换语义，后续补固件时不需要再重做界面。",
-                "V5.9.3 模式预留",
+                "V5.9.13 模式预留",
                 MessageBoxButton.OK,
                 MessageBoxImage.Information);
             return;
@@ -848,12 +1071,20 @@ public sealed class MainViewModel : INotifyPropertyChanged
             Enum.TryParse(stored, ignoreCase: true, out OutputModeId parsed) &&
             parsed != OutputModeId.Unknown)
         {
-            return parsed == OutputModeId.XboxElite ? OutputModeId.DualSenseLike : parsed;
+            return parsed == OutputModeId.XboxElite ? OutputModeId.Xbox : parsed;
         }
 
-        return string.Equals(fallbackProfileId, "xinput_elite_bridge_v5_9", StringComparison.OrdinalIgnoreCase)
-            ? OutputModeId.DualSenseLike
-            : OutputModeCatalog.FindByProfileId(fallbackProfileId)?.ModeId ?? OutputModeId.Pro2;
+        if (string.Equals(fallbackProfileId, "xinput_elite_bridge_v5_9", StringComparison.OrdinalIgnoreCase))
+        {
+            return OutputModeId.Xbox;
+        }
+
+        if (string.Equals(fallbackProfileId, "hid_audio_uac1_4ch_ds5like", StringComparison.OrdinalIgnoreCase))
+        {
+            return OutputModeId.DualSenseLike;
+        }
+
+        return OutputModeCatalog.FindByProfileId(fallbackProfileId)?.ModeId ?? OutputModeId.Pro2;
     }
 
 #pragma warning disable CS0162
@@ -1115,7 +1346,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
         {
             NextAction = "当前是 Xbox / XInput 模式。可以先用网页 tester 或 Steam 验证输入，再运行 XInput 普通震动探针。";
         }
-        else if (UsbStatus.Contains("VID_054C&PID_0CE6", StringComparison.OrdinalIgnoreCase) ||
+        else if (UsbStatus.Contains("VID_054C&PID_0DF2", StringComparison.OrdinalIgnoreCase) ||
+                 UsbStatus.Contains("VID_054C&PID_0CE6", StringComparison.OrdinalIgnoreCase) ||
                  UsbStatus.Contains("Wireless", StringComparison.OrdinalIgnoreCase))
         {
             NextAction = "如果音频端点显示为 4 声道，可以先做一次 dry-run 图样测试。";
@@ -1432,7 +1664,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     {
         if (!CanUseAudioPatternButton)
         {
-            AudioStatus = "当前不是可用的新和联胜 / PS5 模式，或已有任务正在运行，已拒绝发送 PCM / 图样自测。";
+            AudioStatus = "当前不是可用的新和联胜 / PS5 / PS5 Edge 模式，或已有任务正在运行，已拒绝发送 PCM / 图样自测。";
             NextAction = "请先切到新和联胜，确认 USB 和串口状态后再发送图样。";
             return;
         }
@@ -1510,7 +1742,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         }
         if (!CanStartMonitorButton)
         {
-            MonitorStatus = "当前不是可用的新和联胜 / PS5 模式，或已有任务正在运行，已拒绝开始监听。";
+            MonitorStatus = "当前不是可用的新和联胜 / PS5 / PS5 Edge 模式，或已有任务正在运行，已拒绝开始监听。";
             NextAction = "请先切到新和联胜，确认 USB 和串口状态后再开始监听。";
             return;
         }
@@ -2154,9 +2386,15 @@ public sealed class MainViewModel : INotifyPropertyChanged
         string mode = ReadJsonString(text, "mode");
         string profile = ReadJsonString(text, "profile");
         DeviceUiMode previousMode = currentMode;
-        if (string.Equals(mode, "dualsense", StringComparison.OrdinalIgnoreCase) ||
+        if (string.Equals(mode, "dual_pro2", StringComparison.OrdinalIgnoreCase) ||
+            profile.Contains("dual_pro2", StringComparison.OrdinalIgnoreCase))
+        {
+            SetCurrentMode(DeviceUiMode.DualPro2Probe);
+        }
+        else if (string.Equals(mode, "dualsense", StringComparison.OrdinalIgnoreCase) ||
             profile.Contains("ds5", StringComparison.OrdinalIgnoreCase) ||
             profile.Contains("dualsense", StringComparison.OrdinalIgnoreCase) ||
+            lower.Contains("vid_054c&pid_0df2") ||
             lower.Contains("vid_054c&pid_0ce6"))
         {
             SetCurrentMode(DeviceUiMode.DualSense);
@@ -2220,7 +2458,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
             return;
         }
 
-        bool dualSense = summary.Contains("VID_054C&PID_0CE6", StringComparison.OrdinalIgnoreCase);
+        bool dualSense = summary.Contains("VID_054C&PID_0DF2", StringComparison.OrdinalIgnoreCase) ||
+            summary.Contains("VID_054C&PID_0CE6", StringComparison.OrdinalIgnoreCase);
         bool pro2 = summary.Contains("VID_057E&PID_2069", StringComparison.OrdinalIgnoreCase);
         bool xboxElite = summary.Contains("VID_045E&PID_0B00", StringComparison.OrdinalIgnoreCase) ||
                          summary.Contains("VID_045E&PID_02E3", StringComparison.OrdinalIgnoreCase);
@@ -2314,9 +2553,11 @@ public sealed class MainViewModel : INotifyPropertyChanged
     {
         return mode switch
         {
-            OutputModeId.DualSenseLike => "新和联胜 / PS5",
+            OutputModeId.DualSenseStandard => "新和联胜 / PS5",
+            OutputModeId.DualSenseLike => "新和联胜 / PS5 Edge",
             OutputModeId.Pro2 => "Pro2 / Nintendo",
             OutputModeId.Xbox => "Xbox / XInput",
+            OutputModeId.DualPro2Probe => "Dual Pro2 Probe",
             OutputModeId.XboxElite => "旧版 Xbox Elite 2 实验固件",
             OutputModeId.Recovery => "HID 纯恢复",
             _ => "未知"
@@ -2327,10 +2568,12 @@ public sealed class MainViewModel : INotifyPropertyChanged
     {
         return mode switch
         {
-            OutputModeId.DualSenseLike => "严格 PS5 / DualSense USB 身份，协调普通震动和四声道 HD 音频转震动链路。",
+            OutputModeId.DualSenseStandard => "标准 DualSense USB 身份，协调普通震动、四声道 HD 音频转震动链路和 PS5 IMU。",
+            OutputModeId.DualSenseLike => "PS5 Edge / DualSense Edge USB 身份，协调普通震动、四声道 HD 音频转震动链路和 Edge 背键。",
             OutputModeId.Pro2 => "面向原始 HID 0x02 震动优先路线调好的 Nintendo-like / Pro2 桥接。",
             OutputModeId.Xbox => "真实 Xbox 360 / XInput 风格 USB 后端，普通震动会回传到 Pro2 BLE。",
-            OutputModeId.XboxElite => "旧版 Elite 2 枚举实验固件，V5.9.3 已停止发行。",
+            OutputModeId.DualPro2Probe => "第四实验固件。ESP32-S3 同时连接两只 Pro2，只测 BLE 双连接通知频率、去重率、断连和总吞吐。",
+            OutputModeId.XboxElite => "旧版 Elite 2 枚举实验固件，V5.9.13 已停止发行。",
             OutputModeId.Recovery => "用于重刷与 USB 救援的最小恢复固件。",
             _ => "尚未选择目标模式。"
         };
@@ -2387,9 +2630,11 @@ public sealed class MainViewModel : INotifyPropertyChanged
         {
             return mode switch
             {
-                OutputModeId.DualSenseLike => new SolidColorBrush(Color.FromRgb(231, 244, 255)),
+                OutputModeId.DualSenseStandard => new SolidColorBrush(Color.FromRgb(231, 244, 255)),
+                OutputModeId.DualSenseLike => new SolidColorBrush(Color.FromRgb(238, 242, 255)),
                 OutputModeId.Pro2 => new SolidColorBrush(Color.FromRgb(255, 241, 242)),
                 OutputModeId.Xbox => new SolidColorBrush(Color.FromRgb(236, 252, 233)),
+                OutputModeId.DualPro2Probe => new SolidColorBrush(Color.FromRgb(250, 245, 255)),
                 OutputModeId.XboxElite => new SolidColorBrush(Color.FromRgb(236, 253, 245)),
                 _ => Brushes.White
             };
@@ -2457,9 +2702,11 @@ public sealed class MainViewModel : INotifyPropertyChanged
     {
         return mode switch
         {
-            OutputModeId.DualSenseLike => new SolidColorBrush(Color.FromRgb(37, 99, 235)),
+            OutputModeId.DualSenseStandard => new SolidColorBrush(Color.FromRgb(37, 99, 235)),
+            OutputModeId.DualSenseLike => new SolidColorBrush(Color.FromRgb(79, 70, 229)),
             OutputModeId.Pro2 => new SolidColorBrush(Color.FromRgb(225, 29, 72)),
             OutputModeId.Xbox => new SolidColorBrush(Color.FromRgb(22, 163, 74)),
+            OutputModeId.DualPro2Probe => new SolidColorBrush(Color.FromRgb(126, 34, 206)),
             OutputModeId.XboxElite => new SolidColorBrush(Color.FromRgb(21, 128, 61)),
             _ => new SolidColorBrush(Color.FromRgb(100, 116, 139))
         };
@@ -2468,6 +2715,12 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private static bool IsXboxLikeMode(OutputModeId mode)
     {
         return mode == OutputModeId.Xbox;
+    }
+
+    private static bool IsPs5FamilyMode(OutputModeId mode)
+    {
+        return mode == OutputModeId.DualSenseStandard ||
+               mode == OutputModeId.DualSenseLike;
     }
 
     private bool IsXboxLikeCurrentMode()
@@ -2479,9 +2732,11 @@ public sealed class MainViewModel : INotifyPropertyChanged
     {
         return mode switch
         {
+            OutputModeId.DualSenseStandard => currentMode == DeviceUiMode.DualSense,
             OutputModeId.DualSenseLike => currentMode == DeviceUiMode.DualSense,
             OutputModeId.Pro2 => currentMode == DeviceUiMode.Pro2,
             OutputModeId.Xbox => currentMode == DeviceUiMode.Xbox,
+            OutputModeId.DualPro2Probe => currentMode == DeviceUiMode.DualPro2Probe,
             OutputModeId.XboxElite => currentMode == DeviceUiMode.XboxElite,
             OutputModeId.Recovery => currentMode == DeviceUiMode.Recovery,
             _ => false
@@ -2492,8 +2747,11 @@ public sealed class MainViewModel : INotifyPropertyChanged
     {
         return currentMode switch
         {
-            DeviceUiMode.DualSense => OutputModeId.DualSenseLike,
+            DeviceUiMode.DualSense => desiredMode == OutputModeId.DualSenseLike
+                ? OutputModeId.DualSenseLike
+                : OutputModeId.DualSenseStandard,
             DeviceUiMode.Pro2 => OutputModeId.Pro2,
+            DeviceUiMode.DualPro2Probe => OutputModeId.DualPro2Probe,
             DeviceUiMode.Xbox => OutputModeId.Xbox,
             DeviceUiMode.XboxElite => OutputModeId.Xbox,
             DeviceUiMode.Recovery => OutputModeId.Recovery,
@@ -2536,6 +2794,11 @@ public sealed class MainViewModel : INotifyPropertyChanged
         OnPropertyChanged(nameof(CanUsePro2ToolButtons));
         OnPropertyChanged(nameof(CanUseDualSenseToolButtons));
         OnPropertyChanged(nameof(CanUseXboxToolButtons));
+        OnPropertyChanged(nameof(CanUseXboxPaddleButtons));
+        OnPropertyChanged(nameof(CanUseDualProbeButtons));
+        OnPropertyChanged(nameof(DualNs2ProHostRunning));
+        OnPropertyChanged(nameof(CanStartDualNs2ProHost));
+        OnPropertyChanged(nameof(CanStopDualNs2ProHost));
         OnPropertyChanged(nameof(CanUseMonitorButtons));
         OnPropertyChanged(nameof(CanStartMonitorButton));
         OnPropertyChanged(nameof(CanStopMonitorButton));
@@ -2555,17 +2818,25 @@ public sealed class MainViewModel : INotifyPropertyChanged
         OnPropertyChanged(nameof(Pro2ToolStateText));
         OnPropertyChanged(nameof(Pro2LabVisibility));
         OnPropertyChanged(nameof(DualSenseCardStateText));
+        OnPropertyChanged(nameof(DualSenseEdgeCardStateText));
         OnPropertyChanged(nameof(Pro2CardStateText));
         OnPropertyChanged(nameof(XboxCardStateText));
+        OnPropertyChanged(nameof(DualPro2ProbeCardStateText));
         OnPropertyChanged(nameof(DualSenseCardBackground));
+        OnPropertyChanged(nameof(DualSenseEdgeCardBackground));
         OnPropertyChanged(nameof(Pro2CardBackground));
         OnPropertyChanged(nameof(XboxCardBackground));
+        OnPropertyChanged(nameof(DualPro2ProbeCardBackground));
         OnPropertyChanged(nameof(DualSenseCardBorderBrush));
+        OnPropertyChanged(nameof(DualSenseEdgeCardBorderBrush));
         OnPropertyChanged(nameof(Pro2CardBorderBrush));
         OnPropertyChanged(nameof(XboxCardBorderBrush));
+        OnPropertyChanged(nameof(DualPro2ProbeCardBorderBrush));
         OnPropertyChanged(nameof(DualSenseCardBadgeBrush));
+        OnPropertyChanged(nameof(DualSenseEdgeCardBadgeBrush));
         OnPropertyChanged(nameof(Pro2CardBadgeBrush));
         OnPropertyChanged(nameof(XboxCardBadgeBrush));
+        OnPropertyChanged(nameof(DualPro2ProbeCardBadgeBrush));
         OnPropertyChanged(nameof(DualSenseLabVisibility));
         OnPropertyChanged(nameof(DualSenseLabDisabledVisibility));
         OnPropertyChanged(nameof(XboxLabVisibility));
@@ -2611,10 +2882,42 @@ public sealed class MainViewModel : INotifyPropertyChanged
         return matches.Count == 0 ? "" : matches[^1].Groups[1].Value.ToLowerInvariant();
     }
 
+    private static string NormalizeXboxPaddleMode(string? value)
+    {
+        string mode = (value ?? "").Trim().ToLowerInvariant();
+        return mode is "tap" or "single" or "once" ? "tap" :
+               mode is "turbo" or "repeat" or "rapid" ? "turbo" :
+               "hold";
+    }
+
     private static string ShortHex(string text)
     {
         if (string.IsNullOrWhiteSpace(text)) return "无";
         return text.Length <= 12 ? text : text[..12] + "...";
+    }
+
+    private static string SummarizeDualProbeStatus(string status)
+    {
+        string mode = ReadJsonString(status, "dual_sim_mode");
+        string probe = ReadJsonString(status, "dual_pro2");
+        long simHz = ReadJsonCounter(status, "dual_sim_rate_hz");
+        long targets = ReadJsonCounter(status, "dual_targets");
+        long totalHz = ReadJsonCounter(status, "dual_total_notify_hz");
+        long p0Hz = ReadJsonCounter(status, "dual_pad0_notify_hz");
+        long p1Hz = ReadJsonCounter(status, "dual_pad1_notify_hz");
+        long p0Unique = ReadJsonCounter(status, "dual_pad0_unique_hz");
+        long p1Unique = ReadJsonCounter(status, "dual_pad1_unique_hz");
+        string p0Sim = ReadJsonBoolString(status, "dual_pad0_simulated") == "true" ? "模拟" : "真实";
+        string p1Sim = ReadJsonBoolString(status, "dual_pad1_simulated") == "true" ? "模拟" : "真实";
+        return $"Dual Probe：state={BlankDash(probe)}, sim={BlankDash(mode)}" +
+               (simHz >= 0 ? $"@{simHz}Hz" : "") +
+               $", targets={targets}, total={totalHz}Hz, " +
+               $"P0({p0Sim})={p0Hz}Hz/u{p0Unique}, P1({p1Sim})={p1Hz}Hz/u{p1Unique}";
+    }
+
+    private static string BlankDash(string value)
+    {
+        return string.IsNullOrWhiteSpace(value) ? "-" : value;
     }
 
     private static string DescribeFirmwareIdentity(string statusText)
@@ -3019,6 +3322,443 @@ public sealed class MainViewModel : INotifyPropertyChanged
         }
     }
 
+    private async Task RefreshXboxPaddleMappingAsync()
+    {
+        if (!CanUseXboxPaddleButtons)
+        {
+            XboxStatus = "当前不是可用的 Xbox / XInput 模式，或串口/任务状态不允许读取背键映射。";
+            NextAction = "请先切到 Xbox / XInput，并确认 USB 已枚举为 045E:028E。";
+            return;
+        }
+
+        try
+        {
+            Busy = true;
+            string output = await SendSerialCoreAsync("xbox paddle status", 4);
+            ApplyXboxPaddleStatusFromJson(output);
+            XboxStatus = "已读取固件侧 Pro2 背键映射：" + SummarizeXboxPaddleStatus(output);
+            OverallStatus = "背键映射";
+        }
+        catch (Exception ex)
+        {
+            OverallStatus = IsBoardUnavailableException(ex) ? "离线" : "错误";
+            XboxStatus = "读取背键映射失败：" + FirstLine(ex.Message);
+            AppendLog("ERROR xbox paddle refresh: " + ex);
+        }
+        finally
+        {
+            Busy = false;
+        }
+    }
+
+    private async Task ApplyXboxPaddleMappingAsync()
+    {
+        if (!CanUseXboxPaddleButtons)
+        {
+            XboxStatus = "当前不是可用的 Xbox / XInput 模式，或串口/任务状态不允许应用背键映射。";
+            NextAction = "请先切到 Xbox / XInput，并确认 USB 已枚举为 045E:028E。";
+            return;
+        }
+
+        try
+        {
+            Busy = true;
+            OverallStatus = "背键映射";
+            string leftCommand = BuildXboxPaddleCommand(
+                "left",
+                XboxPaddleLeftEnabled,
+                XboxPaddleLeftMode,
+                XboxPaddleLeftTargets,
+                XboxPaddleLeftTapMs,
+                XboxPaddleLeftTurboOnMs,
+                XboxPaddleLeftTurboOffMs);
+            string rightCommand = BuildXboxPaddleCommand(
+                "right",
+                XboxPaddleRightEnabled,
+                XboxPaddleRightMode,
+                XboxPaddleRightTargets,
+                XboxPaddleRightTapMs,
+                XboxPaddleRightTurboOnMs,
+                XboxPaddleRightTurboOffMs);
+
+            AppendLog("[XBOX_PADDLE_APPLY] " + leftCommand);
+            await SendSerialCoreAsync(leftCommand, 4);
+            AppendLog("[XBOX_PADDLE_APPLY] " + rightCommand);
+            await SendSerialCoreAsync(rightCommand, 4);
+            string status = await SendSerialCoreAsync("xbox paddle status", 4);
+            ApplyXboxPaddleStatusFromJson(status);
+            XboxStatus = "已应用 Pro2 背键映射：" + SummarizeXboxPaddleStatus(status);
+            NextAction = "现在按 Pro2 的 GL/GR 背键即可在 Xbox 模式下输出配置好的目标键。";
+        }
+        catch (Exception ex)
+        {
+            OverallStatus = IsBoardUnavailableException(ex) ? "离线" : "错误";
+            XboxStatus = "应用背键映射失败：" + FirstLine(ex.Message);
+            AppendLog("ERROR xbox paddle apply: " + ex);
+        }
+        finally
+        {
+            Busy = false;
+        }
+    }
+
+    private async Task ResetXboxPaddleMappingAsync()
+    {
+        if (!CanUseXboxPaddleButtons)
+        {
+            XboxStatus = "当前不是可用的 Xbox / XInput 模式，或串口/任务状态不允许关闭背键映射。";
+            NextAction = "请先切到 Xbox / XInput，并确认 USB 已枚举为 045E:028E。";
+            return;
+        }
+
+        try
+        {
+            Busy = true;
+            string status = await SendSerialCoreAsync("xbox paddle reset", 4);
+            ApplyXboxPaddleStatusFromJson(status);
+            XboxStatus = "已关闭固件侧 Pro2 背键映射：" + SummarizeXboxPaddleStatus(status);
+            OverallStatus = "背键关闭";
+        }
+        catch (Exception ex)
+        {
+            OverallStatus = IsBoardUnavailableException(ex) ? "离线" : "错误";
+            XboxStatus = "关闭背键映射失败：" + FirstLine(ex.Message);
+            AppendLog("ERROR xbox paddle reset: " + ex);
+        }
+        finally
+        {
+            Busy = false;
+        }
+    }
+
+    private static string BuildXboxPaddleCommand(
+        string side,
+        bool enabled,
+        string mode,
+        string targets,
+        string tapMs,
+        string turboOnMs,
+        string turboOffMs)
+    {
+        if (!enabled)
+        {
+            return "xbox paddle " + side + " off";
+        }
+
+        string normalizedMode = NormalizeXboxPaddleMode(mode);
+        string normalizedTargets = NormalizeXboxPaddleTargets(targets);
+        if (string.IsNullOrWhiteSpace(normalizedTargets))
+        {
+            throw new InvalidOperationException("已开启背键映射，但目标键为空。可填写 B、A、ZR、B+A 等。");
+        }
+
+        return normalizedMode switch
+        {
+            "tap" => "xbox paddle " + side + " tap " + normalizedTargets + " " +
+                     ParseIntOrDefault(tapMs, 70, 20, 1000),
+            "turbo" => "xbox paddle " + side + " turbo " + normalizedTargets + " " +
+                       ParseIntOrDefault(turboOnMs, 45, 20, 1000) + " " +
+                       ParseIntOrDefault(turboOffMs, 45, 20, 1000),
+            _ => "xbox paddle " + side + " hold " + normalizedTargets
+        };
+    }
+
+    private static string NormalizeXboxPaddleTargets(string? text)
+    {
+        string compact = Regex.Replace(text ?? "", "\\s+", "").Trim().ToUpperInvariant();
+        if (compact.Length == 0)
+        {
+            return "";
+        }
+        if (!Regex.IsMatch(compact, "^[A-Z0-9_+,&|\\-]+$"))
+        {
+            throw new InvalidOperationException("背键目标键只能使用字母数字以及 + , | & - _ 组合符。");
+        }
+        return compact;
+    }
+
+    private void ApplyXboxPaddleStatusFromJson(string status)
+    {
+        string leftEnabled = ReadJsonBoolString(status, "xbox_paddle_left_enabled");
+        string rightEnabled = ReadJsonBoolString(status, "xbox_paddle_right_enabled");
+        if (!string.IsNullOrWhiteSpace(leftEnabled)) XboxPaddleLeftEnabled = leftEnabled == "true";
+        if (!string.IsNullOrWhiteSpace(rightEnabled)) XboxPaddleRightEnabled = rightEnabled == "true";
+
+        string leftMode = ReadJsonString(status, "xbox_paddle_left_mode");
+        string rightMode = ReadJsonString(status, "xbox_paddle_right_mode");
+        if (!string.IsNullOrWhiteSpace(leftMode)) XboxPaddleLeftMode = leftMode;
+        if (!string.IsNullOrWhiteSpace(rightMode)) XboxPaddleRightMode = rightMode;
+
+        string leftTargets = ReadJsonString(status, "xbox_paddle_left_targets");
+        string rightTargets = ReadJsonString(status, "xbox_paddle_right_targets");
+        if (!string.IsNullOrWhiteSpace(leftTargets)) XboxPaddleLeftTargets = leftTargets;
+        if (!string.IsNullOrWhiteSpace(rightTargets)) XboxPaddleRightTargets = rightTargets;
+
+        long leftTap = ReadJsonCounter(status, "xbox_paddle_left_tap_ms");
+        long rightTap = ReadJsonCounter(status, "xbox_paddle_right_tap_ms");
+        long leftOn = ReadJsonCounter(status, "xbox_paddle_left_turbo_on_ms");
+        long leftOff = ReadJsonCounter(status, "xbox_paddle_left_turbo_off_ms");
+        long rightOn = ReadJsonCounter(status, "xbox_paddle_right_turbo_on_ms");
+        long rightOff = ReadJsonCounter(status, "xbox_paddle_right_turbo_off_ms");
+        if (leftTap >= 0) XboxPaddleLeftTapMs = leftTap.ToString();
+        if (rightTap >= 0) XboxPaddleRightTapMs = rightTap.ToString();
+        if (leftOn >= 0) XboxPaddleLeftTurboOnMs = leftOn.ToString();
+        if (leftOff >= 0) XboxPaddleLeftTurboOffMs = leftOff.ToString();
+        if (rightOn >= 0) XboxPaddleRightTurboOnMs = rightOn.ToString();
+        if (rightOff >= 0) XboxPaddleRightTurboOffMs = rightOff.ToString();
+    }
+
+    private static string SummarizeXboxPaddleStatus(string status)
+    {
+        string leftEnabled = ReadJsonBoolString(status, "xbox_paddle_left_enabled") == "true" ? "开" : "关";
+        string rightEnabled = ReadJsonBoolString(status, "xbox_paddle_right_enabled") == "true" ? "开" : "关";
+        string leftMode = ReadJsonString(status, "xbox_paddle_left_mode");
+        string rightMode = ReadJsonString(status, "xbox_paddle_right_mode");
+        string leftTargets = ReadJsonString(status, "xbox_paddle_left_targets");
+        string rightTargets = ReadJsonString(status, "xbox_paddle_right_targets");
+        return "GL=" + leftEnabled + "/" + (string.IsNullOrWhiteSpace(leftMode) ? "-" : leftMode) +
+               "/" + (string.IsNullOrWhiteSpace(leftTargets) ? "NONE" : leftTargets) +
+               "；GR=" + rightEnabled + "/" + (string.IsNullOrWhiteSpace(rightMode) ? "-" : rightMode) +
+               "/" + (string.IsNullOrWhiteSpace(rightTargets) ? "NONE" : rightTargets);
+    }
+
+    private Task StartDualNs2ProHostAsync(bool synthetic)
+    {
+        if (DualNs2ProHostRunning)
+        {
+            DualNs2ProHostStatus = "主机侧双二代 Pro2 已经在运行。";
+            return Task.CompletedTask;
+        }
+
+        Busy = true;
+        try
+        {
+            FirmwarePackage package = EmbeddedAssets.EnsurePackage();
+            if (!File.Exists(package.DualNs2ProHostPath))
+            {
+                throw new FileNotFoundException(
+                    "内置 DualNs2ProHost.exe 不存在。请重新打包 V5.9 管理器。",
+                    package.DualNs2ProHostPath);
+            }
+
+            Directory.CreateDirectory(DualNs2ProHostLogRootDirectory);
+            string stopFile = Path.Combine(
+                DualNs2ProHostLogRootDirectory,
+                "dual_ns2pro_stop_" + DateTime.Now.ToString("yyyyMMdd_HHmmssfff") + ".signal");
+            TryDeleteFile(stopFile);
+
+            string viiperExe = Path.Combine(package.ToolsRoot, "viiper", "haptic-v0.8.0", "viiper-haptic.exe");
+            string arguments =
+                "--hz 125 " +
+                (synthetic ? "--synthetic " : "--neutral ") +
+                "--stop-file " + QuoteArgument(stopFile) + " " +
+                "--log-root " + QuoteArgument(DualNs2ProHostLogRootDirectory);
+            if (File.Exists(viiperExe))
+            {
+                arguments += " --viiper " + QuoteArgument(viiperExe);
+            }
+
+            var psi = new ProcessStartInfo(package.DualNs2ProHostPath, arguments)
+            {
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                CreateNoWindow = true,
+                WorkingDirectory = Path.GetDirectoryName(package.DualNs2ProHostPath) ?? package.ToolsRoot,
+                WindowStyle = ProcessWindowStyle.Hidden
+            };
+
+            Process process = Process.Start(psi) ??
+                              throw new InvalidOperationException("无法启动 DualNs2ProHost.exe。");
+            process.EnableRaisingEvents = true;
+            process.Exited += (_, _) => OnDualNs2ProHostExited(process);
+            dualNs2ProHostProcess = process;
+            dualNs2ProHostStopFile = stopFile;
+            NotifyModeStateChanged();
+
+            _ = Task.Run(() => PumpDualNs2ProHostOutputAsync(process.StandardOutput, "[DUAL_NS2PRO_HOST]"));
+            _ = Task.Run(() => PumpDualNs2ProHostOutputAsync(process.StandardError, "[DUAL_NS2PRO_HOST_ERR]"));
+
+            string mode = synthetic ? "合成压力测试" : "中性保持";
+            DualNs2ProHostStatus = "主机侧双二代 Pro2 正在启动：" + mode + "，目标 125Hz。";
+            AppendLog("[DUAL_NS2PRO_HOST_START] pid=" + process.Id +
+                      " mode=" + (synthetic ? "synthetic" : "neutral") +
+                      " exe=" + package.DualNs2ProHostPath +
+                      " stop_file=" + stopFile);
+        }
+        catch (Exception ex)
+        {
+            DualNs2ProHostStatus = "主机侧双二代 Pro2 启动失败：" + FirstLine(ex.Message);
+            AppendLog("ERROR dual ns2pro host start: " + ex);
+        }
+        finally
+        {
+            Busy = false;
+            NotifyModeStateChanged();
+        }
+
+        return Task.CompletedTask;
+    }
+
+    private async Task StopDualNs2ProHostAsync()
+    {
+        Process? process = dualNs2ProHostProcess;
+        if (process == null || process.HasExited)
+        {
+            DualNs2ProHostStatus = "主机侧双二代 Pro2 没有运行。";
+            dualNs2ProHostProcess = null;
+            dualNs2ProHostStopFile = null;
+            NotifyModeStateChanged();
+            return;
+        }
+
+        try
+        {
+            string stopFile = dualNs2ProHostStopFile ??
+                              Path.Combine(DualNs2ProHostLogRootDirectory, "dual_ns2pro_stop_manual.signal");
+            Directory.CreateDirectory(Path.GetDirectoryName(stopFile)!);
+            File.WriteAllText(stopFile, "stop " + DateTime.Now.ToString("O"), Encoding.UTF8);
+            DualNs2ProHostStatus = "正在停止主机侧双二代 Pro2，并等待 helper 清理两个 USBIP 设备。";
+            AppendLog("[DUAL_NS2PRO_HOST_STOP] stop_file=" + stopFile);
+
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(8));
+            try
+            {
+                await process.WaitForExitAsync(timeout.Token);
+            }
+            catch (OperationCanceledException)
+            {
+                AppendLog("[DUAL_NS2PRO_HOST_STOP] graceful stop timed out; killing process tree.");
+                process.Kill(entireProcessTree: true);
+                await process.WaitForExitAsync();
+            }
+
+            ClearDualNs2ProHostProcess(process, "主机侧双二代 Pro2 已停止，两个 057E:2069 设备已请求清理。");
+        }
+        catch (Exception ex)
+        {
+            DualNs2ProHostStatus = "停止主机侧双二代 Pro2 失败：" + FirstLine(ex.Message);
+            AppendLog("ERROR dual ns2pro host stop: " + ex);
+        }
+        finally
+        {
+            NotifyModeStateChanged();
+        }
+    }
+
+    private async Task PumpDualNs2ProHostOutputAsync(StreamReader reader, string prefix)
+    {
+        try
+        {
+            while (await reader.ReadLineAsync() is { } line)
+            {
+                AppendLog(prefix + " " + line);
+                if (line.Contains("[READY]", StringComparison.OrdinalIgnoreCase) &&
+                    line.Contains("VID_057E PID_2069", StringComparison.OrdinalIgnoreCase))
+                {
+                    SetDualNs2ProHostStatusFromAnyThread(
+                        "主机侧双二代 Pro2 已立起：A/B 两个独立 057E:2069，Steam 应按两只 Switch 2 Pro 管理。");
+                }
+                else if (line.Contains("[ERROR]", StringComparison.OrdinalIgnoreCase))
+                {
+                    SetDualNs2ProHostStatusFromAnyThread("主机侧双二代 Pro2 报错：" + FirstLine(line));
+                }
+            }
+        }
+        catch (ObjectDisposedException)
+        {
+        }
+        catch (Exception ex)
+        {
+            AppendLog(prefix + " reader failed: " + ex.Message);
+        }
+    }
+
+    private void OnDualNs2ProHostExited(Process process)
+    {
+        try
+        {
+            owner.Dispatcher.BeginInvoke(new Action(() =>
+            {
+                if (!ReferenceEquals(dualNs2ProHostProcess, process))
+                {
+                    return;
+                }
+
+                string status = process.ExitCode == 0
+                    ? "主机侧双二代 Pro2 已退出。"
+                    : "主机侧双二代 Pro2 异常退出，exit=" + process.ExitCode + "。请看 [DUAL_NS2PRO_HOST] 日志。";
+                ClearDualNs2ProHostProcess(process, status);
+            }));
+        }
+        catch
+        {
+        }
+    }
+
+    private void ClearDualNs2ProHostProcess(Process process, string status)
+    {
+        if (!ReferenceEquals(dualNs2ProHostProcess, process))
+        {
+            return;
+        }
+
+        dualNs2ProHostProcess = null;
+        TryDeleteFile(dualNs2ProHostStopFile);
+        dualNs2ProHostStopFile = null;
+        DualNs2ProHostStatus = status;
+        NotifyModeStateChanged();
+        try
+        {
+            process.Dispose();
+        }
+        catch
+        {
+        }
+    }
+
+    private void SetDualNs2ProHostStatusFromAnyThread(string status)
+    {
+        if (owner.Dispatcher.CheckAccess())
+        {
+            DualNs2ProHostStatus = status;
+            return;
+        }
+
+        try
+        {
+            owner.Dispatcher.BeginInvoke(new Action(() => DualNs2ProHostStatus = status));
+        }
+        catch
+        {
+        }
+    }
+
+    private void StopDualNs2ProHostOnShutdown()
+    {
+        Process? process = dualNs2ProHostProcess;
+        if (process == null || process.HasExited)
+        {
+            return;
+        }
+
+        try
+        {
+            string stopFile = dualNs2ProHostStopFile ??
+                              Path.Combine(DualNs2ProHostLogRootDirectory, "dual_ns2pro_stop_shutdown.signal");
+            Directory.CreateDirectory(Path.GetDirectoryName(stopFile)!);
+            File.WriteAllText(stopFile, "shutdown " + DateTime.Now.ToString("O"), Encoding.UTF8);
+            if (!process.WaitForExit(2500))
+            {
+                process.Kill(entireProcessTree: true);
+                process.WaitForExit(1500);
+            }
+        }
+        catch
+        {
+        }
+    }
+
     private async Task<string> RunProcessAsync(string fileName, string arguments)
     {
         var psi = new ProcessStartInfo(fileName, arguments)
@@ -3055,6 +3795,34 @@ public sealed class MainViewModel : INotifyPropertyChanged
             "PRO2WirelessReceiverControlBoard",
             "logs");
 
+    private static string DualNs2ProHostLogRootDirectory =>
+        Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "PRO2WirelessReceiverControlBoard",
+            "dual_ns2pro_logs");
+
+    private static string QuoteArgument(string value) =>
+        "\"" + value.Replace("\"", "\\\"") + "\"";
+
+    private static void TryDeleteFile(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return;
+        }
+
+        try
+        {
+            if (File.Exists(path))
+            {
+                File.Delete(path);
+            }
+        }
+        catch
+        {
+        }
+    }
+
     private void BeginDiagnosticCapture()
     {
         firmwareCriticalLinesSeen.Clear();
@@ -3064,7 +3832,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             Directory.CreateDirectory(LogRootDirectory);
             diagnosticLogPath = Path.Combine(
                 LogRootDirectory,
-                "xin_heliansheng_v5.9.3_" + DateTime.Now.ToString("yyyyMMdd_HHmmss") + ".log");
+                "xin_heliansheng_v5.9.13_" + DateTime.Now.ToString("yyyyMMdd_HHmmss") + ".log");
             diagnosticWriter = new StreamWriter(
                 diagnosticLogPath,
                 append: false,
@@ -3078,12 +3846,14 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private void AppendDiagnosticHeader(int seconds)
     {
         FirmwarePackage package = EmbeddedAssets.EnsurePackage();
-        FirmwareProfile profile = package.GetProfile("hid_audio_uac1_4ch_ds5like");
+        FirmwareProfile profile = package.GetProfile(desiredMode == OutputModeId.DualSenseLike
+            ? "hid_audio_uac1_4ch_edge"
+            : "hid_audio_uac1_4ch_dualsense");
         FirmwareAsset? app = profile.Assets.FirstOrDefault(asset =>
             asset.Path.EndsWith(".bin", StringComparison.OrdinalIgnoreCase) &&
             !asset.Path.Contains("bootloader", StringComparison.OrdinalIgnoreCase) &&
             !asset.Path.Contains("partition", StringComparison.OrdinalIgnoreCase));
-        AppendLog("[DIAG_SESSION_START] app=5.9.3 duration_seconds=" + seconds +
+        AppendLog("[DIAG_SESSION_START] app=5.9.13 duration_seconds=" + seconds +
                   " local_time=" + DateTime.Now.ToString("O") +
                   " utc_time=" + DateTime.UtcNow.ToString("O"));
         AppendLog("[DIAG_PACKAGE] package=" + package.Manifest.PackageVersion +
@@ -3340,6 +4110,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
         shutdownStarted = true;
         gameMonitorCts?.Cancel();
+        StopDualNs2ProHostOnShutdown();
         EndDiagnosticCapture("application_closed");
         stateTimer.Stop();
         logUiTimer.Stop();
@@ -3638,6 +4409,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
         public bool InputLive { get; init; }
         public string Ble { get; init; } = "";
         public long BleConnIntervalUs { get; init; }
+        public long BleFastDropCount { get; init; }
+        public long BleFastBlockMs { get; init; }
         public bool BleReconnectTask { get; init; }
         public long BleScanStarts { get; init; }
         public long BleReconnectAttempts { get; init; }
@@ -3655,9 +4428,57 @@ public sealed class MainViewModel : INotifyPropertyChanged
         public long BleNotifyActualMilliHz { get; init; }
         public long BleNotifyLastGapUs { get; init; }
         public long BleNotifyMaxGapUs { get; init; }
+        public long BleNotifyMinGapUs { get; init; }
+        public long BleNotifyShortGapCount { get; init; }
+        public long BleNotifySubIntervalCount { get; init; }
+        public long BleNotifyGapLt3Ms { get; init; }
+        public long BleNotifyGap3To6P5Ms { get; init; }
+        public long BleNotifyGap6P5To10Ms { get; init; }
+        public long BleNotifyGapGe10Ms { get; init; }
+        public long BleNotifySubRawUnique { get; init; }
+        public long BleNotifySubControlUnique { get; init; }
+        public long BleNotifySubMotionUnique { get; init; }
+        public long BleNotifyRawUnique { get; init; }
+        public long BleNotifyRawRepeat { get; init; }
+        public long BleNotifyRawRepeatStreak { get; init; }
+        public long BleNotifyRawRepeatStreakMax { get; init; }
+        public long BleNotifyRawUniqueMilliHz { get; init; }
+        public long BleNotifyRawUniqueGapUs { get; init; }
+        public long BleNotifyRawUniqueMaxGapUs { get; init; }
         public long BleNotifyParsedActualMilliHz { get; init; }
         public long BleNotifyParsedLastGapUs { get; init; }
         public long BleNotifyParsedMaxGapUs { get; init; }
+        public long BleNotifyControlUnique { get; init; }
+        public long BleNotifyControlRepeat { get; init; }
+        public long BleNotifyControlUniqueMilliHz { get; init; }
+        public long BleNotifyControlUniqueGapUs { get; init; }
+        public long BleNotifyControlUniqueMaxGapUs { get; init; }
+        public long BleNotifyMotionUnique { get; init; }
+        public long BleNotifyMotionRepeat { get; init; }
+        public long BleNotifyMotionUniqueMilliHz { get; init; }
+        public long BleNotifyMotionUniqueGapUs { get; init; }
+        public long BleNotifyMotionUniqueMaxGapUs { get; init; }
+        public bool BleReadPollActive { get; init; }
+        public long BleReadPollRateHz { get; init; }
+        public long BleReadPollStartRc { get; init; }
+        public long BleReadPollStatus { get; init; }
+        public long BleReadPollStarts { get; init; }
+        public long BleReadPollStartFails { get; init; }
+        public long BleReadPollResponses { get; init; }
+        public long BleReadPollErrors { get; init; }
+        public long BleReadPollActualMilliHz { get; init; }
+        public long BleReadPollLastGapUs { get; init; }
+        public long BleReadPollMaxGapUs { get; init; }
+        public long BleReadPollRawUnique { get; init; }
+        public long BleReadPollRawRepeat { get; init; }
+        public long BleReadPollControlUnique { get; init; }
+        public long BleReadPollControlRepeat { get; init; }
+        public long BleReadPollControlUniqueMilliHz { get; init; }
+        public long BleReadPollControlUniqueGapUs { get; init; }
+        public long BleReadPollControlUniqueMaxGapUs { get; init; }
+        public long BleReadPollMotionUnique { get; init; }
+        public long BleReadPollMotionRepeat { get; init; }
+        public long BleReadPollMotionUniqueMilliHz { get; init; }
         public bool UsbMounted { get; init; }
         public bool UsbSuspended { get; init; }
         public bool UsbConfigurationReady { get; init; }
@@ -3739,6 +4560,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
                 InputLive = Bool(status, "input_live"),
                 Ble = ReadJsonString(status, "ble"),
                 BleConnIntervalUs = Counter(status, "ble_conn_interval_us"),
+                BleFastDropCount = Counter(status, "ble_fast_drop_count"),
+                BleFastBlockMs = Counter(status, "ble_fast_block_ms"),
                 BleReconnectTask = Bool(status, "ble_reconnect_task"),
                 BleScanStarts = Counter(status, "ble_scan_starts"),
                 BleReconnectAttempts = Counter(status, "ble_reconnect_attempts"),
@@ -3756,9 +4579,57 @@ public sealed class MainViewModel : INotifyPropertyChanged
                 BleNotifyActualMilliHz = Counter(status, "ble_notify_actual_mhz"),
                 BleNotifyLastGapUs = Counter(status, "ble_notify_last_gap_us"),
                 BleNotifyMaxGapUs = Counter(status, "ble_notify_max_gap_us"),
+                BleNotifyMinGapUs = Counter(status, "ble_notify_min_gap_us"),
+                BleNotifyShortGapCount = Counter(status, "ble_notify_short_gap_count"),
+                BleNotifySubIntervalCount = Counter(status, "ble_notify_sub_interval_count"),
+                BleNotifyGapLt3Ms = Counter(status, "ble_notify_gap_lt3ms"),
+                BleNotifyGap3To6P5Ms = Counter(status, "ble_notify_gap_3_6p5ms"),
+                BleNotifyGap6P5To10Ms = Counter(status, "ble_notify_gap_6p5_10ms"),
+                BleNotifyGapGe10Ms = Counter(status, "ble_notify_gap_ge10ms"),
+                BleNotifySubRawUnique = Counter(status, "ble_notify_sub_raw_unique"),
+                BleNotifySubControlUnique = Counter(status, "ble_notify_sub_control_unique"),
+                BleNotifySubMotionUnique = Counter(status, "ble_notify_sub_motion_unique"),
+                BleNotifyRawUnique = Counter(status, "ble_notify_raw_unique"),
+                BleNotifyRawRepeat = Counter(status, "ble_notify_raw_repeat"),
+                BleNotifyRawRepeatStreak = Counter(status, "ble_notify_raw_repeat_streak"),
+                BleNotifyRawRepeatStreakMax = Counter(status, "ble_notify_raw_repeat_streak_max"),
+                BleNotifyRawUniqueMilliHz = Counter(status, "ble_notify_raw_unique_mhz"),
+                BleNotifyRawUniqueGapUs = Counter(status, "ble_notify_raw_unique_gap_us"),
+                BleNotifyRawUniqueMaxGapUs = Counter(status, "ble_notify_raw_unique_max_gap_us"),
                 BleNotifyParsedActualMilliHz = Counter(status, "ble_notify_parsed_actual_mhz"),
                 BleNotifyParsedLastGapUs = Counter(status, "ble_notify_parsed_last_gap_us"),
                 BleNotifyParsedMaxGapUs = Counter(status, "ble_notify_parsed_max_gap_us"),
+                BleNotifyControlUnique = Counter(status, "ble_notify_control_unique"),
+                BleNotifyControlRepeat = Counter(status, "ble_notify_control_repeat"),
+                BleNotifyControlUniqueMilliHz = Counter(status, "ble_notify_control_unique_mhz"),
+                BleNotifyControlUniqueGapUs = Counter(status, "ble_notify_control_unique_gap_us"),
+                BleNotifyControlUniqueMaxGapUs = Counter(status, "ble_notify_control_unique_max_gap_us"),
+                BleNotifyMotionUnique = Counter(status, "ble_notify_motion_unique"),
+                BleNotifyMotionRepeat = Counter(status, "ble_notify_motion_repeat"),
+                BleNotifyMotionUniqueMilliHz = Counter(status, "ble_notify_motion_unique_mhz"),
+                BleNotifyMotionUniqueGapUs = Counter(status, "ble_notify_motion_unique_gap_us"),
+                BleNotifyMotionUniqueMaxGapUs = Counter(status, "ble_notify_motion_unique_max_gap_us"),
+                BleReadPollActive = Bool(status, "ble_read_poll_active"),
+                BleReadPollRateHz = Counter(status, "ble_read_poll_rate_hz"),
+                BleReadPollStartRc = ReadJsonCounter(status, "ble_read_poll_start_rc"),
+                BleReadPollStatus = ReadJsonCounter(status, "ble_read_poll_status"),
+                BleReadPollStarts = Counter(status, "ble_read_poll_starts"),
+                BleReadPollStartFails = Counter(status, "ble_read_poll_start_fails"),
+                BleReadPollResponses = Counter(status, "ble_read_poll_rsp"),
+                BleReadPollErrors = Counter(status, "ble_read_poll_errors"),
+                BleReadPollActualMilliHz = Counter(status, "ble_read_poll_actual_mhz"),
+                BleReadPollLastGapUs = Counter(status, "ble_read_poll_gap_us"),
+                BleReadPollMaxGapUs = Counter(status, "ble_read_poll_max_gap_us"),
+                BleReadPollRawUnique = Counter(status, "ble_read_poll_raw_unique"),
+                BleReadPollRawRepeat = Counter(status, "ble_read_poll_raw_repeat"),
+                BleReadPollControlUnique = Counter(status, "ble_read_poll_control_unique"),
+                BleReadPollControlRepeat = Counter(status, "ble_read_poll_control_repeat"),
+                BleReadPollControlUniqueMilliHz = Counter(status, "ble_read_poll_control_unique_mhz"),
+                BleReadPollControlUniqueGapUs = Counter(status, "ble_read_poll_control_unique_gap_us"),
+                BleReadPollControlUniqueMaxGapUs = Counter(status, "ble_read_poll_control_unique_max_gap_us"),
+                BleReadPollMotionUnique = Counter(status, "ble_read_poll_motion_unique"),
+                BleReadPollMotionRepeat = Counter(status, "ble_read_poll_motion_repeat"),
+                BleReadPollMotionUniqueMilliHz = Counter(status, "ble_read_poll_motion_unique_mhz"),
                 UsbMounted = Bool(status, "usb_mounted"),
                 UsbSuspended = Bool(status, "usb_suspended"),
                 UsbConfigurationReady = Bool(status, "usb_configuration_ready"),
@@ -3853,6 +4724,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
                 HidRumbleBleErrors = Math.Max(0, HidRumbleBleErrors - previous.HidRumbleBleErrors),
                 BleScanStarts = Math.Max(0, BleScanStarts - previous.BleScanStarts),
                 BleReconnectAttempts = Math.Max(0, BleReconnectAttempts - previous.BleReconnectAttempts),
+                BleFastDropCount = Math.Max(0, BleFastDropCount - previous.BleFastDropCount),
                 BleConnectSuccesses = Math.Max(0, BleConnectSuccesses - previous.BleConnectSuccesses),
                 BleConnectFailures = Math.Max(0, BleConnectFailures - previous.BleConnectFailures),
                 BleDisconnects = Math.Max(0, BleDisconnects - previous.BleDisconnects),
@@ -3868,6 +4740,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
                    " reset_reason=" + ResetReason + "/" + ResetReasonName +
                    " ble=" + Ble +
                    " ble_interval_us=" + BleConnIntervalUs +
+                   " ble_fast_drops=" + BleFastDropCount +
+                   " ble_fast_block_ms=" + BleFastBlockMs +
                    " reconnect_task=" + BleReconnectTask.ToString().ToLowerInvariant() +
                    " reconnect_attempts=" + BleReconnectAttempts +
                    " scan_starts=" + BleScanStarts +
@@ -3882,8 +4756,27 @@ public sealed class MainViewModel : INotifyPropertyChanged
                    " notify_parsed_age_ms=" + BleNotifyParsedAgeMs +
                    " notify_rate_millihz=" + BleNotifyActualMilliHz +
                    " notify_gap_us=" + BleNotifyLastGapUs + "/" + BleNotifyMaxGapUs +
+                   " notify_min_gap_us=" + BleNotifyMinGapUs +
+                   " notify_short_gap_count=" + BleNotifyShortGapCount +
+                   " notify_sub_interval_count=" + BleNotifySubIntervalCount +
+                   " notify_gap_buckets=" + BleNotifyGapLt3Ms + "/" + BleNotifyGap3To6P5Ms + "/" + BleNotifyGap6P5To10Ms + "/" + BleNotifyGapGe10Ms +
+                   " sub_unique_raw/control/motion=" + BleNotifySubRawUnique + "/" + BleNotifySubControlUnique + "/" + BleNotifySubMotionUnique +
+                   " raw_unique=" + BleNotifyRawUnique +
+                   " raw_repeat=" + BleNotifyRawRepeat +
+                   " raw_repeat_streak=" + BleNotifyRawRepeatStreak +
+                   " raw_repeat_streak_max=" + BleNotifyRawRepeatStreakMax +
+                   " raw_unique_millihz=" + BleNotifyRawUniqueMilliHz +
+                   " raw_unique_gap_us=" + BleNotifyRawUniqueGapUs + "/" + BleNotifyRawUniqueMaxGapUs +
                    " parsed_notify_rate_millihz=" + BleNotifyParsedActualMilliHz +
                    " parsed_notify_gap_us=" + BleNotifyParsedLastGapUs + "/" + BleNotifyParsedMaxGapUs +
+                   " control_unique=" + BleNotifyControlUnique +
+                   " control_repeat=" + BleNotifyControlRepeat +
+                   " control_unique_millihz=" + BleNotifyControlUniqueMilliHz +
+                   " control_unique_gap_us=" + BleNotifyControlUniqueGapUs + "/" + BleNotifyControlUniqueMaxGapUs +
+                   " motion_unique=" + BleNotifyMotionUnique +
+                   " motion_repeat=" + BleNotifyMotionRepeat +
+                   " motion_unique_millihz=" + BleNotifyMotionUniqueMilliHz +
+                   " motion_unique_gap_us=" + BleNotifyMotionUniqueGapUs + "/" + BleNotifyMotionUniqueMaxGapUs +
                    " usb_mounted=" + UsbMounted.ToString().ToLowerInvariant() +
                    " usb_suspended=" + UsbSuspended.ToString().ToLowerInvariant() +
                    " usb_configuration_ready=" + UsbConfigurationReady.ToString().ToLowerInvariant() +
@@ -3987,6 +4880,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         public long HidRumbleBleErrors { get; init; }
         public long BleScanStarts { get; init; }
         public long BleReconnectAttempts { get; init; }
+        public long BleFastDropCount { get; init; }
         public long BleConnectSuccesses { get; init; }
         public long BleConnectFailures { get; init; }
         public long BleDisconnects { get; init; }
@@ -4023,6 +4917,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
                    " hid_rumble_errors=+" + HidRumbleBleErrors +
                    " scans=+" + BleScanStarts +
                    " reconnect_attempts=+" + BleReconnectAttempts +
+                   " fast_drops=+" + BleFastDropCount +
                    " connect_ok=+" + BleConnectSuccesses +
                    " connect_fail=+" + BleConnectFailures +
                    " disconnects=+" + BleDisconnects +
@@ -4038,3 +4933,6 @@ public sealed class MainViewModel : INotifyPropertyChanged
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
     }
 }
+
+
+

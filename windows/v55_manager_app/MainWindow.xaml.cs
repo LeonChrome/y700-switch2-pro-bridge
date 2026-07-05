@@ -1,6 +1,6 @@
+using System.ComponentModel;
 using System.Windows;
 using System.Windows.Controls;
-using System.ComponentModel;
 using System.Windows.Threading;
 
 namespace Y700Switch2V55Manager;
@@ -27,12 +27,16 @@ public partial class MainWindow : Window
 
     private void MainWindow_Closed(object? sender, EventArgs e)
     {
-        Application.Current.Shutdown(0);
+        System.Windows.Application.Current.Shutdown(0);
     }
 
     private void LogBox_TextChanged(object sender, TextChangedEventArgs e)
     {
-        if (sender is not TextBox textBox) return;
+        if (sender is not TextBox textBox)
+        {
+            return;
+        }
+
         if (logScrollPending || textBox.Text.Length == 0)
         {
             return;

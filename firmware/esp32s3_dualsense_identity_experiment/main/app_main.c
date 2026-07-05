@@ -29,6 +29,12 @@
 #ifndef DS5_PROFILE_NAME
 #define DS5_PROFILE_NAME "unknown"
 #endif
+#ifndef DS5_USB_PID
+#define DS5_USB_PID 0x0ce6
+#endif
+#ifndef DS5_USB_PRODUCT
+#define DS5_USB_PRODUCT "DualSense Wireless Controller"
+#endif
 
 #ifndef DS5_ENABLE_USB_AUDIO
 #define DS5_ENABLE_USB_AUDIO 0
@@ -445,7 +451,7 @@ static void control_task(void *arg)
     uint8_t rx[64];
     size_t line_len = 0;
     bool overflow = false;
-    static char reply[6144];
+    static char reply[16384];
 
     while (true) {
         int rx_len = read(STDIN_FILENO, rx, sizeof(rx));
@@ -808,7 +814,9 @@ void app_main(void)
     ESP_LOGI(TAG, "[DS5_IDENTITY] enabled=true mode=dualsense_experimental profile=%s",
              DS5_PROFILE_NAME);
     ESP_LOGI(TAG,
-             "[DS5_IDENTITY] vid=0x054c pid=0x0ce6 product=DualSense Wireless Controller");
+             "[DS5_IDENTITY] vid=0x054c pid=0x%04x product=%s",
+             DS5_USB_PID,
+             DS5_USB_PRODUCT);
     ESP_LOGI(TAG,
              "[DS5_IDENTITY] audio=%s ble_input=true rumble_compat=true raw02_forwarding=true",
              DS5_ENABLE_UAC1_CONTROL_ONLY ? "uac1_control_only" :
@@ -867,3 +875,5 @@ void app_main(void)
                                 &s_input_task_handle) == pdPASS ?
                                     ESP_OK : ESP_FAIL);
 }
+
+

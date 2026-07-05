@@ -29,6 +29,14 @@ if ($LASTEXITCODE -ne 0) {
     throw "Firmware build failed: xinput_bridge_v5_8"
 }
 
+Write-Host "[Y700_BUILD_ALL] profile=dual_pro2_probe_v5_9"
+& (Join-Path $RepoRoot "tools\esp32s3\build.ps1") @common `
+    -BuildDir "work\b\dual_pro2" `
+    -DeviceDefaultMode DUAL_PRO2_EXPERIMENT_MODE
+if ($LASTEXITCODE -ne 0) {
+    throw "Firmware build failed: dual_pro2_probe_v5_9"
+}
+
 $dualSenseBuild = Join-Path $RepoRoot "tools\esp32s3\build_v5_5_dualsense_identity.ps1"
 foreach ($profile in @("hid_audio_uac1_4ch_ds5like", "hid_only")) {
     Write-Host "[Y700_BUILD_ALL] profile=$profile"
@@ -39,7 +47,7 @@ foreach ($profile in @("hid_audio_uac1_4ch_ds5like", "hid_only")) {
 }
 
 if ($Package) {
-    Write-Host "[Y700_BUILD_ALL] package=v5.9.3"
+    Write-Host "[Y700_BUILD_ALL] package=v5.9.8"
     & (Join-Path $RepoRoot "tools\package_v5_9_manager.ps1") `
         -IdfPath $IdfPath `
         -SkipFirmwareBuild
@@ -49,3 +57,4 @@ if ($Package) {
 }
 
 Write-Host "[Y700_BUILD_ALL] result=passed"
+

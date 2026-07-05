@@ -53,10 +53,10 @@ public sealed class FirmwareFlasher
 
         FirmwarePackage package = EmbeddedAssets.EnsurePackage();
         FirmwareProfile profile = package.GetProfile(profileId);
-        int firstBaud = mode == FlashMode.Repair ? 115200 : 460800;
-        bool firstNoStub = mode == FlashMode.Repair;
-
-        await PreparePortAsync(package.EsptoolPath, port, progress, cancellationToken);
+        bool useConservativeEsptool =
+            await PreparePortAsync(package.EsptoolPath, port, progress, cancellationToken);
+        int firstBaud = mode == FlashMode.Repair || useConservativeEsptool ? 115200 : 460800;
+        bool firstNoStub = mode == FlashMode.Repair || useConservativeEsptool;
 
         progress.Report("内置固件: " + package.Manifest.FirmwareVersion + " / " + profile.Label);
         progress.Report("工具: " + package.EsptoolPath);
@@ -101,7 +101,8 @@ public sealed class FirmwareFlasher
         }
 
         FirmwarePackage package = EmbeddedAssets.EnsurePackage();
-        await PreparePortAsync(package.EsptoolPath, port, progress, cancellationToken);
+        bool useConservativeEsptool =
+            await PreparePortAsync(package.EsptoolPath, port, progress, cancellationToken);
 
         progress.Report("清理目标: " + port);
         progress.Report("正在确认 ESP32-S3 芯片。");
@@ -115,13 +116,13 @@ public sealed class FirmwareFlasher
         progress.Report("正在整片擦除 Flash。固件、NVS、BLE 配对和模式设置都会被清空。");
         await RunEsptoolAsync(
             package.EsptoolPath,
-            CommonArgs(port, 115200, false, "erase_flash"),
+            CommonArgs(port, 115200, useConservativeEsptool, "erase_flash"),
             progress,
             cancellationToken);
         progress.Report("Flash 已完整清理。控制板现在没有应用固件，可作为全新 ESP32-S3 演示。");
     }
 
-    private static async Task PreparePortAsync(
+    private static async Task<bool> PreparePortAsync(
         string esptoolPath,
         string port,
         IProgress<string> progress,
@@ -134,16 +135,18 @@ public sealed class FirmwareFlasher
                 "。请等待当前串口操作结束，或关闭串口监视器后重试。");
         }
 
-        await CheckPortDriverAsync(port, progress, cancellationToken);
+        bool useConservativeEsptool =
+            await CheckPortDriverAsync(port, progress, cancellationToken);
         await CleanupKnownSerialConsumersAsync(port, progress);
         await CleanupStaleEsptoolProcessesAsync(esptoolPath, port, progress);
         progress.Report(
             "[FLASH_PORT] 已完成 " + port +
             " 的项目进程清理，等待 CH343 驱动稳定后交给 esptool 探测。");
         await Task.Delay(PortDriverSettleDelay, cancellationToken);
+        return useConservativeEsptool;
     }
 
-    private static async Task CheckPortDriverAsync(
+    private static async Task<bool> CheckPortDriverAsync(
         string port,
         IProgress<string> progress,
         CancellationToken cancellationToken)
@@ -159,7 +162,7 @@ public sealed class FirmwareFlasher
             progress.Report(
                 "[FLASH_DRIVER] " + port +
                 " driver query timed out; continuing with process safeguards.");
-            return;
+            return false;
         }
 
         PortDriverInfo? driver = await query;
@@ -168,19 +171,21 @@ public sealed class FirmwareFlasher
             progress.Report(
                 "[FLASH_DRIVER] " + port +
                 " driver metadata unavailable; continuing with process safeguards.");
-            return;
+            return false;
         }
 
         progress.Report("[FLASH_DRIVER] " + driver.Summary);
         if (driver.IsKnownKernelHangRisk)
         {
-            throw new DriverCompatibilityException(
-                "检测到 Windows build " + driver.WindowsBuild +
+            progress.Report(
+                "[FLASH_DRIVER_WARN] 检测到 Windows build " + driver.WindowsBuild +
                 " 与 WCH CH343 驱动 " + driver.Version +
-                " 的高风险组合。本机实测该组合会让刷写器卡在内核且无法结束。" +
-                "为避免再次锁死串口，本次尚未启动 esptool。" +
-                "请在设备管理器中为 CH343 选择“USB 串行设备 (Microsoft usbser)”后重新插拔控制口，再重试。");
+                " 的高风险组合。本次不再硬拦截刷写，但会自动切换到 115200 + --no-stub 保守路径。" +
+                "若仍出现串口占用或 esptool 无法结束，请点击“修复 CH343 驱动”切换到 Microsoft usbser 后重新插拔控制口。");
+            return true;
         }
+
+        return false;
     }
 
     private static async Task<string> ProbeChipAsync(

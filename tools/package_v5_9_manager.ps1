@@ -11,13 +11,12 @@ $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $ManagerRoot = Join-Path $RepoRoot "windows\v55_manager_app"
 $ReleaseRoot = Join-Path $RepoRoot "release\v5.9"
 $PublishRoot = Join-Path $ReleaseRoot "publish"
-$SingleExeName = [System.Text.Encoding]::UTF8.GetString([byte[]](
-    0xE6,0x96,0xB0,0xE5,0x92,0x8C,0xE8,0x81,0x94,0xE8,0x83,0x9C,0xE7,0x89,0x88,
-    0xE6,0x9C,0xAC,0x2D,0x61,0x69,0x6F,0x2D,0x76,0x35,0x2E,0x39,0x2E,0x33,0x2E,
-    0x65,0x78,0x65))
+$PackageVersion = "5.9.13"
+$PackageTag = "v$PackageVersion"
+$SingleExeName = "新和联胜版本-aio-$PackageTag.exe"
 $SingleExe = Join-Path $ReleaseRoot $SingleExeName
-$LegacySingleExe = Join-Path $ReleaseRoot "Y700Switch2V55Manager-aio-v5.9.3.exe"
-$HashFile = Join-Path $ReleaseRoot "SHA256SUMS-v5.9.3.txt"
+$LegacySingleExe = Join-Path $ReleaseRoot "Y700Switch2V55Manager-aio-$PackageTag.exe"
+$HashFile = Join-Path $ReleaseRoot "SHA256SUMS-$PackageTag.txt"
 $DotnetRoot = Join-Path $RepoRoot "work\dotnet"
 . (Join-Path $RepoRoot "tools\esp32s3\idf_environment.ps1")
 
@@ -41,6 +40,25 @@ function Remove-TreeWithRetry([string]$Path, [switch]$Required) {
         throw "Unable to remove directory after retries: $Path"
     }
     Write-Step "cleanup_deferred" $Path
+}
+
+function Remove-FileWithRetry([string]$Path, [switch]$Required) {
+    if (!(Test-Path -LiteralPath $Path)) { return $true }
+    for ($attempt = 1; $attempt -le 6; $attempt++) {
+        try {
+            Remove-Item -LiteralPath $Path -Force -ErrorAction Stop
+            return $true
+        } catch {
+            if ($attempt -lt 6) {
+                Start-Sleep -Milliseconds 300
+            }
+        }
+    }
+    if ($Required) {
+        throw "Unable to remove file after retries: $Path"
+    }
+    Write-Step "cleanup_skip_locked" $Path
+    return $false
 }
 
 function Get-CSharpCompiler {
@@ -101,6 +119,38 @@ function Ensure-Dotnet {
     return $local
 }
 
+function Publish-DualNs2ProHostTool([string]$ToolsRoot) {
+    $dotnet = Ensure-Dotnet
+    $publishRoot = Join-Path $RepoRoot "work\dual_ns2pro_host_publish"
+    Write-Step "dual_ns2pro_host" "publish"
+    if (!$DryRun) {
+        Remove-TreeWithRetry $publishRoot
+        $env:DOTNET_ROOT = Split-Path -Parent $dotnet
+        $env:PATH = "$env:DOTNET_ROOT;$env:PATH"
+        & $dotnet publish (Join-Path $RepoRoot "windows\dual_ns2pro_host\DualNs2ProHost.csproj") `
+            -c Release -r win-x64 --self-contained true -o $publishRoot `
+            /p:PublishSingleFile=true `
+            /p:IncludeNativeLibrariesForSelfExtract=true `
+            /p:EnableCompressionInSingleFile=true `
+            /p:RestoreIgnoreFailedSources=true
+        if ($LASTEXITCODE -ne 0) { throw "DualNs2ProHost publish failed" }
+
+        $hostExe = Join-Path $publishRoot "DualNs2ProHost.exe"
+        if (!(Test-Path -LiteralPath $hostExe)) {
+            throw "Published DualNs2ProHost.exe not found: $hostExe"
+        }
+        Copy-Item -LiteralPath $hostExe -Destination (Join-Path $ToolsRoot "DualNs2ProHost.exe") -Force
+
+        $viiperSource = Join-Path $RepoRoot "tools\viiper\haptic-v0.8.0\viiper-haptic.exe"
+        if (!(Test-Path -LiteralPath $viiperSource)) {
+            throw "Missing VIIPER haptic server: $viiperSource"
+        }
+        $viiperTargetRoot = Join-Path $ToolsRoot "viiper\haptic-v0.8.0"
+        New-Item -ItemType Directory -Force -Path $viiperTargetRoot | Out-Null
+        Copy-Item -LiteralPath $viiperSource -Destination (Join-Path $viiperTargetRoot "viiper-haptic.exe") -Force
+    }
+}
+
 function Add-FirmwareProfilePayload([string]$Profile, [string]$TargetRoot) {
     $buildDir = Join-Path $RepoRoot "work\b\ds5\$Profile"
     if (!(Test-Path -LiteralPath $buildDir)) {
@@ -131,7 +181,12 @@ function Add-FirmwareProfilePayload([string]$Profile, [string]$TargetRoot) {
         }
     }
 
-    $label = if ($Profile -eq "hid_only") { "HID-only recovery" } else { "DualSense-like bridge + audio lab" }
+    $label = switch ($Profile) {
+        "hid_only" { "HID-only recovery"; break }
+        "hid_audio_uac1_4ch_dualsense" { "Xin He Lian Sheng / PS5 standard"; break }
+        "hid_audio_uac1_4ch_edge" { "Xin He Lian Sheng / PS5 Edge"; break }
+        default { "DualSense-like bridge + audio lab"; break }
+    }
     return [ordered]@{
         id = $Profile
         label = $label
@@ -227,6 +282,14 @@ function Add-XInputBridgeProfilePayload(
     }
 }
 
+function Add-DualPro2ProbeProfilePayload([string]$TargetRoot) {
+    return Add-XInputBridgeProfilePayload `
+        -TargetRoot $TargetRoot `
+        -Profile "dual_pro2_probe_v5_9" `
+        -BuildDirRelative "work\b\dual_pro2" `
+        -Label "Dual Pro2 BLE capacity probe"
+}
+
 function Refresh-EmbeddedAssets {
     Write-Step "embedded_assets" "refresh"
     if ($DryRun) { return }
@@ -240,21 +303,23 @@ function Refresh-EmbeddedAssets {
     New-Item -ItemType Directory -Force -Path $toolsRoot | Out-Null
 
     $profiles = @()
-    $profiles += Add-FirmwareProfilePayload "hid_audio_uac1_4ch_ds5like" $firmwareRoot
+    $profiles += Add-FirmwareProfilePayload "hid_audio_uac1_4ch_dualsense" $firmwareRoot
+    $profiles += Add-FirmwareProfilePayload "hid_audio_uac1_4ch_edge" $firmwareRoot
     $profiles += Add-FirmwareProfilePayload "hid_only" $firmwareRoot
     $profiles += Add-Pro2BridgeProfilePayload $firmwareRoot
     $profiles += Add-XInputBridgeProfilePayload $firmwareRoot
+    $profiles += Add-DualPro2ProbeProfilePayload $firmwareRoot
 
     $manifest = [ordered]@{
-        packageVersion = "v5.9.3-aio"
-        firmwareVersion = "5.9.3-manager"
+        packageVersion = "$PackageTag-aio"
+        firmwareVersion = "$PackageVersion-manager"
         target = "esp32s3"
         flashMode = "dio"
         flashFreq = "80m"
         flashSize = "16MB"
         defaultProfile = "pro2_bridge_v5_5"
         profiles = $profiles
-        notes = "V5.9.3 Xin He Lian Sheng bundle: PS5-compatible HID and four-channel HD haptics, ordinary-rumble arbitration, guided first pairing/reconnect/controller replacement, Pro2/Nintendo, Xbox/XInput, embedded esptool, XInput probe, CH343 driver repair, serial watchdogs, and UI log throttling."
+        notes = "V5.9.13 ESP control console bundle: four click-to-flash profiles for PS5 standard (054C:0CE6), Pro2/Nintendo (057E:2069), Xbox/XInput (045E:028E), and PS5 Edge (054C:0DF2); HD haptics, ordinary-rumble arbitration, guided first pairing/reconnect/controller replacement, Xbox GL/GR mapping, embedded esptool, CH343 driver repair, serial watchdogs, UI log throttling, BLE stable-first connect policy, turbo 7.5ms connection-parameter auto fallback, BLE MultiProbe telemetry, and a Dual Pro2 BLE capacity probe profile. No launch-at-login or startup auto reconnect UI is exposed in the ESP manager."
     }
     $manifest | ConvertTo-Json -Depth 8 | Set-Content -Encoding UTF8 -Path (Join-Path $firmwareRoot "firmware_manifest.json")
 
@@ -267,6 +332,7 @@ function Refresh-EmbeddedAssets {
     $xinputProbeExe = Join-Path $RepoRoot "tools\SteamXInputRumbleProbe.exe"
     Build-CSharpTool $xinputProbeSource $xinputProbeExe
     Copy-Item -LiteralPath $xinputProbeExe -Destination (Join-Path $toolsRoot "SteamXInputRumbleProbe.exe") -Force
+    Publish-DualNs2ProHostTool $toolsRoot
 
     $icon = Join-Path $ManagerRoot "assets\icon.ico"
     if (!(Test-Path -LiteralPath $icon)) { throw "Missing manager icon: $icon" }
@@ -291,8 +357,17 @@ if (!$SkipFirmwareBuild) {
         if ($LASTEXITCODE -ne 0) { throw "Firmware build failed: xinput_bridge_v5_8" }
     }
 
+    Write-Step "firmware_build" "dual_pro2_probe_v5_9"
+    if (!$DryRun) {
+        & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $RepoRoot "tools\esp32s3\build.ps1") `
+            -IdfPath $IdfPath `
+            -BuildDir "work\b\dual_pro2" `
+            -DeviceDefaultMode DUAL_PRO2_EXPERIMENT_MODE
+        if ($LASTEXITCODE -ne 0) { throw "Firmware build failed: dual_pro2_probe_v5_9" }
+    }
+
     $buildScript = Join-Path $RepoRoot "tools\esp32s3\build_v5_5_dualsense_identity.ps1"
-    foreach ($profile in @("hid_audio_uac1_4ch_ds5like", "hid_only")) {
+    foreach ($profile in @("hid_audio_uac1_4ch_dualsense", "hid_audio_uac1_4ch_edge", "hid_only")) {
         Write-Step "firmware_build" $profile
         if (!$DryRun) {
             & powershell -NoProfile -ExecutionPolicy Bypass -File $buildScript -IdfPath $IdfPath -Profile $profile
@@ -313,14 +388,14 @@ Write-Step "dotnet" $dotnet
 if (!$DryRun) {
     New-Item -ItemType Directory -Force -Path $ReleaseRoot | Out-Null
     Remove-TreeWithRetry $PublishRoot -Required
-    if (Test-Path -LiteralPath $SingleExe) { Remove-Item -LiteralPath $SingleExe -Force }
-    if (Test-Path -LiteralPath $LegacySingleExe) { Remove-Item -LiteralPath $LegacySingleExe -Force }
-    Get-ChildItem -LiteralPath $ReleaseRoot -Filter "*aio-v5.9.*.exe" -ErrorAction SilentlyContinue |
+    [void](Remove-FileWithRetry $SingleExe -Required)
+    [void](Remove-FileWithRetry $LegacySingleExe -Required)
+    Get-ChildItem -LiteralPath $ReleaseRoot -Filter "*aio-$PackageTag.exe" -ErrorAction SilentlyContinue |
         Where-Object { $_.FullName -ne $SingleExe -and $_.FullName -ne $LegacySingleExe } |
-        Remove-Item -Force
-    Get-ChildItem -LiteralPath $ReleaseRoot -Filter "SHA256SUMS-v5.9.*.txt" -ErrorAction SilentlyContinue |
+        ForEach-Object { [void](Remove-FileWithRetry $_.FullName) }
+    Get-ChildItem -LiteralPath $ReleaseRoot -Filter "SHA256SUMS-$PackageTag*.txt" -ErrorAction SilentlyContinue |
         Where-Object { $_.FullName -ne $HashFile } |
-        Remove-Item -Force
+        ForEach-Object { [void](Remove-FileWithRetry $_.FullName) }
 
     $env:DOTNET_ROOT = Split-Path -Parent $dotnet
     $env:PATH = "$env:DOTNET_ROOT;$env:PATH"
@@ -328,7 +403,8 @@ if (!$DryRun) {
         -c Release -r win-x64 --self-contained true -o $PublishRoot `
         /p:PublishSingleFile=true `
         /p:IncludeNativeLibrariesForSelfExtract=true `
-        /p:EnableCompressionInSingleFile=true
+        /p:EnableCompressionInSingleFile=true `
+        /p:RestoreIgnoreFailedSources=true
     if ($LASTEXITCODE -ne 0) { throw "dotnet publish failed" }
 
     $publishedExe = Join-Path $PublishRoot "Y700Switch2V55Manager.exe"
@@ -336,8 +412,9 @@ if (!$DryRun) {
         throw "Published exe not found: $publishedExe"
     }
     Copy-Item -LiteralPath $publishedExe -Destination $SingleExe -Force
+    Copy-Item -LiteralPath $publishedExe -Destination $LegacySingleExe -Force
 
-    $verifyLog = Join-Path $RepoRoot "work\v5_9_3_manager_package_verify.txt"
+    $verifyLog = Join-Path $RepoRoot "work\v5_9_9_manager_package_verify.txt"
     Remove-Item -LiteralPath $verifyLog -Force -ErrorAction SilentlyContinue
     $verifyProcess = Start-Process -FilePath $SingleExe `
         -ArgumentList @("--verify-package", ('"{0}"' -f $verifyLog)) `
@@ -359,16 +436,24 @@ if (!$DryRun) {
         }
     }
     if ($verifyData["result"] -ne "passed" -or
-        $verifyData["profiles"] -ne "hid_audio_uac1_4ch_ds5like,hid_only,pro2_bridge_v5_5,xinput_bridge_v5_8" -or
-        $verifyData["asset_count"] -ne "12") {
+        $verifyData["profiles"] -ne "hid_audio_uac1_4ch_dualsense,hid_audio_uac1_4ch_edge,hid_only,pro2_bridge_v5_5,xinput_bridge_v5_8,dual_pro2_probe_v5_9" -or
+        $verifyData["asset_count"] -ne "18" -or
+        $verifyData["dual_ns2pro_host_exists"] -ne "true") {
         throw "Published manager package verification returned unexpected data:`n$verifyDetails"
     }
     Write-Step "package_verify" "passed"
 
-    $hash = Get-FileHash -Algorithm SHA256 -LiteralPath $SingleExe
-    $hashLine = "{0}  {1}`r`n" -f $hash.Hash.ToLowerInvariant(), (Split-Path -Leaf $SingleExe)
-    [System.IO.File]::WriteAllText($HashFile, $hashLine, [System.Text.Encoding]::UTF8)
+    $hashTargets = @($SingleExe, $LegacySingleExe)
+    $hashLines = foreach ($target in $hashTargets) {
+        $hash = Get-FileHash -Algorithm SHA256 -LiteralPath $target
+        "{0}  {1}" -f $hash.Hash.ToLowerInvariant(), (Split-Path -Leaf $target)
+    }
+    [System.IO.File]::WriteAllText($HashFile, (($hashLines -join "`r`n") + "`r`n"), [System.Text.Encoding]::UTF8)
     Remove-TreeWithRetry $PublishRoot
     Write-Step "exe" (($SingleExe.Substring($RepoRoot.Length + 1)) -replace '\\','/')
-    Write-Step "sha256" $hash.Hash.ToLowerInvariant()
+    Write-Step "github_exe" (($LegacySingleExe.Substring($RepoRoot.Length + 1)) -replace '\\','/')
+    Write-Step "sha256_file" (($HashFile.Substring($RepoRoot.Length + 1)) -replace '\\','/')
 }
+
+
+

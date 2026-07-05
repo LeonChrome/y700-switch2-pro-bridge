@@ -5,5 +5,8 @@ if(NOT DEFINED V5_5_DS5_PROFILE)
 endif()
 
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
-set(PROJECT_VER "5.9.2-${V5_5_DS5_PROFILE}")
+set(PROJECT_VER "5.9.13-${V5_5_DS5_PROFILE}")
 project(esp32s3_dualsense_identity_experiment)
+
+
+

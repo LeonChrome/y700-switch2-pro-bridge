@@ -219,6 +219,7 @@ static void append_runtime_diagnostics(char *out,
              "\"ble_reconnect_task\":%s,\"ble_auto_scan\":%s,"
              "\"ble_conn_interval_units\":%u,\"ble_conn_interval_us\":%lu,"
              "\"ble_conn_latency\":%u,\"ble_conn_supervision\":%u,"
+             "\"ble_fast_drop_count\":%lu,\"ble_fast_block_ms\":%lu,"
              "\"ble_scan_starts\":%lu,\"ble_scan_completes\":%lu,"
              "\"ble_scan_last_rc\":%d,\"ble_scan_last_reason\":%d,"
              "\"ble_reconnect_schedules\":%lu,\"ble_reconnect_attempts\":%lu,"
@@ -231,8 +232,58 @@ static void append_runtime_diagnostics(char *out,
              "\"ble_notify_parsed_age_ms\":%lld,"
              "\"ble_notify_actual_hz\":%lu,\"ble_notify_actual_mhz\":%lu,"
              "\"ble_notify_last_gap_us\":%lu,\"ble_notify_max_gap_us\":%lu,"
+             "\"ble_notify_min_gap_us\":%lu,"
+             "\"ble_notify_short_gap_count\":%lu,"
+             "\"ble_notify_sub_interval_count\":%lu,"
+             "\"ble_notify_gap_lt3ms\":%lu,"
+             "\"ble_notify_gap_3_6p5ms\":%lu,"
+             "\"ble_notify_gap_6p5_10ms\":%lu,"
+             "\"ble_notify_gap_ge10ms\":%lu,"
+             "\"ble_notify_sub_raw_unique\":%lu,"
+             "\"ble_notify_sub_control_unique\":%lu,"
+             "\"ble_notify_sub_motion_unique\":%lu,"
+             "\"ble_notify_raw_unique\":%lu,\"ble_notify_raw_repeat\":%lu,"
+             "\"ble_notify_raw_repeat_streak\":%lu,"
+             "\"ble_notify_raw_repeat_streak_max\":%lu,"
+             "\"ble_notify_raw_unique_mhz\":%lu,"
+             "\"ble_notify_raw_unique_gap_us\":%lu,"
+             "\"ble_notify_raw_unique_max_gap_us\":%lu,"
              "\"ble_notify_parsed_actual_hz\":%lu,\"ble_notify_parsed_actual_mhz\":%lu,"
              "\"ble_notify_parsed_last_gap_us\":%lu,\"ble_notify_parsed_max_gap_us\":%lu,"
+             "\"ble_notify_control_unique\":%lu,"
+             "\"ble_notify_control_repeat\":%lu,"
+             "\"ble_notify_control_unique_mhz\":%lu,"
+             "\"ble_notify_control_unique_gap_us\":%lu,"
+             "\"ble_notify_control_unique_max_gap_us\":%lu,"
+             "\"ble_notify_motion_unique\":%lu,"
+             "\"ble_notify_motion_repeat\":%lu,"
+             "\"ble_notify_motion_unique_mhz\":%lu,"
+             "\"ble_notify_motion_unique_gap_us\":%lu,"
+             "\"ble_notify_motion_unique_max_gap_us\":%lu,"
+             "\"ble_read_poll_active\":%s,"
+             "\"ble_read_poll_rate_hz\":%u,"
+             "\"ble_read_poll_handle\":%u,"
+             "\"ble_read_poll_start_rc\":%d,"
+             "\"ble_read_poll_status\":%d,"
+             "\"ble_read_poll_starts\":%lu,"
+             "\"ble_read_poll_start_fails\":%lu,"
+             "\"ble_read_poll_rsp\":%lu,"
+             "\"ble_read_poll_errors\":%lu,"
+             "\"ble_read_poll_actual_mhz\":%lu,"
+             "\"ble_read_poll_gap_us\":%lu,"
+             "\"ble_read_poll_max_gap_us\":%lu,"
+             "\"ble_read_poll_raw_unique\":%lu,"
+             "\"ble_read_poll_raw_repeat\":%lu,"
+             "\"ble_read_poll_control_unique\":%lu,"
+             "\"ble_read_poll_control_repeat\":%lu,"
+             "\"ble_read_poll_control_unique_mhz\":%lu,"
+             "\"ble_read_poll_control_unique_gap_us\":%lu,"
+             "\"ble_read_poll_control_unique_max_gap_us\":%lu,"
+             "\"ble_read_poll_motion_unique\":%lu,"
+             "\"ble_read_poll_motion_repeat\":%lu,"
+             "\"ble_read_poll_motion_unique_mhz\":%lu,"
+             "\"ble_read_poll_motion_unique_gap_us\":%lu,"
+             "\"ble_read_poll_motion_unique_max_gap_us\":%lu,"
              "\"ble_stale_recoveries\":%lu,\"ble_stale_recovery_age_ms\":%lld",
              (long long)(now_us / 1000),
              (int)esp_reset_reason(),
@@ -287,6 +338,8 @@ static void append_runtime_diagnostics(char *out,
              (unsigned long)ble->interval_units * 1250UL,
              (unsigned)ble->latency,
              (unsigned)ble->supervision_timeout,
+             (unsigned long)ble->fast_param_drop_count,
+             (unsigned long)ble->fast_param_block_remaining_ms,
              (unsigned long)ble->scan_start_count,
              (unsigned long)ble->scan_complete_count,
              ble->last_scan_start_rc,
@@ -310,10 +363,61 @@ static void append_runtime_diagnostics(char *out,
              (unsigned long)ble->notify_actual_millihz,
              (unsigned long)ble->notify_last_gap_us,
              (unsigned long)ble->notify_max_gap_us,
+             (unsigned long)ble->notify_min_gap_us,
+             (unsigned long)ble->notify_short_gap_count,
+             (unsigned long)ble->notify_sub_interval_count,
+             (unsigned long)ble->notify_gap_lt3ms_count,
+             (unsigned long)ble->notify_gap_3_6p5ms_count,
+             (unsigned long)ble->notify_gap_6p5_10ms_count,
+             (unsigned long)ble->notify_gap_ge10ms_count,
+             (unsigned long)ble->notify_sub_interval_raw_unique_count,
+             (unsigned long)ble->notify_sub_interval_control_unique_count,
+             (unsigned long)ble->notify_sub_interval_motion_unique_count,
+             (unsigned long)ble->notify_raw_unique_count,
+             (unsigned long)ble->notify_raw_repeat_count,
+             (unsigned long)ble->notify_raw_repeat_streak,
+             (unsigned long)ble->notify_raw_repeat_streak_max,
+             (unsigned long)ble->notify_raw_unique_actual_millihz,
+             (unsigned long)ble->notify_raw_unique_last_gap_us,
+             (unsigned long)ble->notify_raw_unique_max_gap_us,
              (unsigned long)((ble->notify_parsed_actual_millihz + 500u) / 1000u),
              (unsigned long)ble->notify_parsed_actual_millihz,
              (unsigned long)ble->notify_parsed_last_gap_us,
              (unsigned long)ble->notify_parsed_max_gap_us,
+             (unsigned long)ble->notify_control_unique_count,
+             (unsigned long)ble->notify_control_repeat_count,
+             (unsigned long)ble->notify_control_unique_actual_millihz,
+             (unsigned long)ble->notify_control_unique_last_gap_us,
+             (unsigned long)ble->notify_control_unique_max_gap_us,
+             (unsigned long)ble->notify_motion_unique_count,
+             (unsigned long)ble->notify_motion_repeat_count,
+             (unsigned long)ble->notify_motion_unique_actual_millihz,
+             (unsigned long)ble->notify_motion_unique_last_gap_us,
+             (unsigned long)ble->notify_motion_unique_max_gap_us,
+             ble->read_poll_active ? "true" : "false",
+             (unsigned)ble->read_poll_rate_hz,
+             (unsigned)ble->read_poll_handle,
+             ble->read_poll_last_start_rc,
+             ble->read_poll_last_status,
+             (unsigned long)ble->read_poll_start_count,
+             (unsigned long)ble->read_poll_start_fail_count,
+             (unsigned long)ble->read_poll_rsp_count,
+             (unsigned long)ble->read_poll_error_count,
+             (unsigned long)ble->read_poll_actual_millihz,
+             (unsigned long)ble->read_poll_last_gap_us,
+             (unsigned long)ble->read_poll_max_gap_us,
+             (unsigned long)ble->read_poll_raw_unique_count,
+             (unsigned long)ble->read_poll_raw_repeat_count,
+             (unsigned long)ble->read_poll_control_unique_count,
+             (unsigned long)ble->read_poll_control_repeat_count,
+             (unsigned long)ble->read_poll_control_unique_actual_millihz,
+             (unsigned long)ble->read_poll_control_unique_last_gap_us,
+             (unsigned long)ble->read_poll_control_unique_max_gap_us,
+             (unsigned long)ble->read_poll_motion_unique_count,
+             (unsigned long)ble->read_poll_motion_repeat_count,
+             (unsigned long)ble->read_poll_motion_unique_actual_millihz,
+             (unsigned long)ble->read_poll_motion_unique_last_gap_us,
+             (unsigned long)ble->read_poll_motion_unique_max_gap_us,
              (unsigned long)ble->stale_recovery_count,
              runtime_age_ms(now_us, ble->last_stale_recovery_us));
 }
@@ -329,7 +433,7 @@ static void format_status_extra(char *out, size_t out_len)
 
     snprintf(out,
              out_len,
-             "\"mode\":\"dualsense\",\"profile\":\"%s\",\"usb_audio\":\"uac1_4ch\",\"ble\":\"%s\",\"ble_auto\":\"%s\",\"ble_target\":\"%s\",\"ble_conn_interval_units\":%u,\"ble_conn_interval_us\":%lu,\"audio_streaming\":%s,\"audio_alt\":%u,\"audio_submitted\":%lu,\"audio_dropped\":%lu,\"audio_queue_depth\":%u,\"audio_queue_high\":%u,\"audio_packets\":%lu,\"audio_active\":%lu,\"audio_silence\":%lu,\"audio_parser\":\"%s\",\"audio_pair\":\"%s\",\"hd_candidate\":%s,\"front_rms_l\":%u,\"front_rms_r\":%u,\"rear_rms_l\":%u,\"rear_rms_r\":%u,\"front_peak_l\":%u,\"front_peak_r\":%u,\"rear_peak_l\":%u,\"rear_peak_r\":%u,\"front_env_l\":%u,\"front_env_r\":%u,\"rear_env_l\":%u,\"rear_env_r\":%u,\"transient_l\":%u,\"transient_r\":%u,\"haptic\":\"%s\",\"haptic_live\":%s,\"haptic_dry_run\":%s,\"haptic_mode\":\"%s\",\"haptic_source\":\"%s\",\"haptic_max\":%u,\"haptic_gain\":%.3f,\"haptic_transient_gain\":%.3f,\"haptic_interval_ms\":%u,\"haptic_activity_threshold\":%u,\"haptic_silence_timeout_ms\":%u,\"raw02_hd_candidate_packets\":%lu,\"raw02_dry_packets\":%lu,\"raw02_live_packets\":%lu,\"raw02_dropped_rate\":%lu,\"raw02_dropped_no_ble\":%lu,\"raw02_dropped_silence\":%lu,\"raw02_dropped_pcm\":%lu,\"raw02_ble_writes\":%lu,\"raw02_ble_errors\":%lu,\"raw02_last_mode\":\"%s\",\"raw02_left\":\"%s\",\"raw02_right\":\"%s\",\"raw02_error\":\"%s\",\"version\":\"v5.9.2-dualsense\"",
+             "\"mode\":\"dualsense\",\"profile\":\"%s\",\"usb_audio\":\"uac1_4ch\",\"ble\":\"%s\",\"ble_auto\":\"%s\",\"ble_target\":\"%s\",\"ble_conn_interval_units\":%u,\"ble_conn_interval_us\":%lu,\"audio_streaming\":%s,\"audio_alt\":%u,\"audio_submitted\":%lu,\"audio_dropped\":%lu,\"audio_queue_depth\":%u,\"audio_queue_high\":%u,\"audio_packets\":%lu,\"audio_active\":%lu,\"audio_silence\":%lu,\"audio_parser\":\"%s\",\"audio_pair\":\"%s\",\"hd_candidate\":%s,\"front_rms_l\":%u,\"front_rms_r\":%u,\"rear_rms_l\":%u,\"rear_rms_r\":%u,\"front_peak_l\":%u,\"front_peak_r\":%u,\"rear_peak_l\":%u,\"rear_peak_r\":%u,\"front_env_l\":%u,\"front_env_r\":%u,\"rear_env_l\":%u,\"rear_env_r\":%u,\"transient_l\":%u,\"transient_r\":%u,\"haptic\":\"%s\",\"haptic_live\":%s,\"haptic_dry_run\":%s,\"haptic_mode\":\"%s\",\"haptic_source\":\"%s\",\"haptic_max\":%u,\"haptic_gain\":%.3f,\"haptic_transient_gain\":%.3f,\"haptic_interval_ms\":%u,\"haptic_activity_threshold\":%u,\"haptic_silence_timeout_ms\":%u,\"raw02_hd_candidate_packets\":%lu,\"raw02_dry_packets\":%lu,\"raw02_live_packets\":%lu,\"raw02_dropped_rate\":%lu,\"raw02_dropped_no_ble\":%lu,\"raw02_dropped_silence\":%lu,\"raw02_dropped_pcm\":%lu,\"raw02_ble_writes\":%lu,\"raw02_ble_errors\":%lu,\"raw02_last_mode\":\"%s\",\"raw02_left\":\"%s\",\"raw02_right\":\"%s\",\"raw02_error\":\"%s\",\"version\":\"v5.9.13-ps5-family\"",
              DS5_PROFILE_NAME,
              pro2_input_backend_state(),
              device_config_get_ble_autoconnect() ? "on" : "off",
@@ -408,7 +512,7 @@ static void format_status_lite_extra(char *out, size_t out_len)
 
     snprintf(out,
              out_len,
-             "\"mode\":\"dualsense\",\"profile\":\"%s\",\"ble\":\"%s\",\"audio_streaming\":%s,\"audio_alt\":%u,\"audio_submitted\":%lu,\"audio_dropped\":%lu,\"audio_queue_depth\":%u,\"audio_queue_high\":%u,\"audio_packets\":%lu,\"audio_active\":%lu,\"audio_silence\":%lu,\"audio_parser\":\"%s\",\"audio_pair\":\"%s\",\"hd_candidate\":%s,\"front_env_l\":%u,\"front_env_r\":%u,\"rear_env_l\":%u,\"rear_env_r\":%u,\"front_peak_l\":%u,\"front_peak_r\":%u,\"rear_peak_l\":%u,\"rear_peak_r\":%u,\"haptic\":\"%s\",\"haptic_live\":%s,\"haptic_dry_run\":%s,\"haptic_mode\":\"%s\",\"haptic_source\":\"%s\",\"raw02_hd_candidate_packets\":%lu,\"raw02_live_packets\":%lu,\"raw02_dropped_rate\":%lu,\"raw02_dropped_silence\":%lu,\"raw02_dropped_pcm\":%lu,\"raw02_ble_writes\":%lu,\"raw02_ble_errors\":%lu,\"raw02_last_mode\":\"%s\",\"raw02_left\":\"%s\",\"raw02_right\":\"%s\",\"raw02_error\":\"%s\",\"input_live\":%s,\"input_updates\":%lu,\"input_age_ms\":%lld,\"input_rate_millihz\":%lu,\"input_last_gap_us\":%lu,\"input_max_gap_us\":%lu,\"input_lx\":%u,\"input_ly\":%u,\"input_rx\":%u,\"input_ry\":%u,\"version\":\"v5.9.2-dualsense\"",
+             "\"mode\":\"dualsense\",\"profile\":\"%s\",\"ble\":\"%s\",\"audio_streaming\":%s,\"audio_alt\":%u,\"audio_submitted\":%lu,\"audio_dropped\":%lu,\"audio_queue_depth\":%u,\"audio_queue_high\":%u,\"audio_packets\":%lu,\"audio_active\":%lu,\"audio_silence\":%lu,\"audio_parser\":\"%s\",\"audio_pair\":\"%s\",\"hd_candidate\":%s,\"front_env_l\":%u,\"front_env_r\":%u,\"rear_env_l\":%u,\"rear_env_r\":%u,\"front_peak_l\":%u,\"front_peak_r\":%u,\"rear_peak_l\":%u,\"rear_peak_r\":%u,\"haptic\":\"%s\",\"haptic_live\":%s,\"haptic_dry_run\":%s,\"haptic_mode\":\"%s\",\"haptic_source\":\"%s\",\"raw02_hd_candidate_packets\":%lu,\"raw02_live_packets\":%lu,\"raw02_dropped_rate\":%lu,\"raw02_dropped_silence\":%lu,\"raw02_dropped_pcm\":%lu,\"raw02_ble_writes\":%lu,\"raw02_ble_errors\":%lu,\"raw02_last_mode\":\"%s\",\"raw02_left\":\"%s\",\"raw02_right\":\"%s\",\"raw02_error\":\"%s\",\"input_live\":%s,\"input_updates\":%lu,\"input_age_ms\":%lld,\"input_rate_millihz\":%lu,\"input_last_gap_us\":%lu,\"input_max_gap_us\":%lu,\"input_lx\":%u,\"input_ly\":%u,\"input_rx\":%u,\"input_ry\":%u,\"version\":\"v5.9.13-ps5-family\"",
              DS5_PROFILE_NAME,
              pro2_input_backend_state(),
              audio.streaming ? "true" : "false",
@@ -531,7 +635,7 @@ static void format_status_diag_extra(char *out, size_t out_len)
              "\"rumble_hd_age_ms\":%lld,\"rumble_ordinary_age_ms\":%lld,"
              "\"rumble_stop_writes\":%lu,\"hid_non_rumble_updates\":%lu,"
              "\"rumble_stack_free\":%lu,\"input_stack_free\":%lu,"
-             "\"control_stack_free\":%lu,\"version\":\"v5.9.2-dualsense\"",
+             "\"control_stack_free\":%lu,\"version\":\"v5.9.13-ps5-family\"",
              DS5_PROFILE_NAME,
              (long long)(now_us / 1000),
              reset_reason_string(esp_reset_reason()),
@@ -627,12 +731,12 @@ static void format_status_diag_extra(char *out, size_t out_len)
 static esp_err_t handle_haptic_command(const char *cmd, char *reply, int reply_len)
 {
     if (strcmp(cmd, "haptic status lite") == 0 || strcmp(cmd, "haptic lite") == 0) {
-        static char extra[5120];
+        static char extra[16384];
         format_status_lite_extra(extra, sizeof(extra));
         return json_ok(reply, reply_len, "haptic status lite", extra);
     }
     if (strcmp(cmd, "haptic status") == 0 || strcmp(cmd, "haptic") == 0) {
-        static char extra[5120];
+        static char extra[16384];
         format_status_extra(extra, sizeof(extra));
         return json_ok(reply, reply_len, "haptic status", extra);
     }
@@ -794,7 +898,7 @@ static esp_err_t handle_audio_command(const char *cmd, char *reply, int reply_le
 
 void v55_control_protocol_init(void)
 {
-    ESP_LOGI(TAG, "[V55_CONTROL] serial control ready: status/status lite/status diag, BLE, haptic, audio parser, raw02, input recalibrate");
+    ESP_LOGI(TAG, "[V55_CONTROL] serial control ready: status/status lite/status diag, BLE, ble multiprobe, haptic, audio parser, raw02, input recalibrate");
 }
 
 esp_err_t v55_control_protocol_handle_line(const char *line, char *reply, int reply_len)
@@ -805,28 +909,28 @@ esp_err_t v55_control_protocol_handle_line(const char *line, char *reply, int re
     ESP_LOGI(TAG, "[V55_CONTROL] command=%s", cmd);
 
     if (strcmp(cmd, "status") == 0 || strcmp(cmd, "param get") == 0) {
-        static char extra[5120];
+        static char extra[16384];
         format_status_extra(extra, sizeof(extra));
         return json_ok(reply, reply_len, "status", extra);
     }
     if (strcmp(cmd, "status lite") == 0 || strcmp(cmd, "param get lite") == 0) {
-        static char extra[5120];
+        static char extra[16384];
         format_status_lite_extra(extra, sizeof(extra));
         return json_ok(reply, reply_len, "status lite", extra);
     }
     if (strcmp(cmd, "status diag") == 0 || strcmp(cmd, "diag") == 0) {
-        static char extra[5120];
+        static char extra[16384];
         format_status_diag_extra(extra, sizeof(extra));
         return json_ok(reply, reply_len, "status diag", extra);
     }
     if (strcmp(cmd, "version") == 0) {
-        return json_ok(reply, reply_len, "version", "\"version\":\"v5.9.2-dualsense\",\"profile\":\"" DS5_PROFILE_NAME "\"");
+        return json_ok(reply, reply_len, "version", "\"version\":\"v5.9.13-ps5-family\",\"profile\":\"" DS5_PROFILE_NAME "\"");
     }
     if (strcmp(cmd, "mode pro2") == 0) {
-        return json_ok(reply, reply_len, "mode", "\"mode\":\"pro2\",\"reflash_required\":true,\"note\":\"Flash V5.9.2 Pro2 / Nintendo bridge firmware, then replug native USB\"");
+        return json_ok(reply, reply_len, "mode", "\"mode\":\"pro2\",\"reflash_required\":true,\"note\":\"Flash V5.9.13 Pro2 / Nintendo bridge firmware, then replug native USB\"");
     }
     if (strcmp(cmd, "mode dualsense") == 0) {
-        return json_ok(reply, reply_len, "mode", "\"mode\":\"dualsense\",\"reflash_required\":false,\"note\":\"Already running V5.9.2 Xin He Lian Sheng PS5 identity\"");
+        return json_ok(reply, reply_len, "mode", "\"mode\":\"dualsense\",\"reflash_required\":false,\"note\":\"Already running V5.9.13 Xin He Lian Sheng PS5 family identity\"");
     }
     if (strcmp(cmd, "reboot") == 0) {
         json_ok(reply, reply_len, "reboot", "\"note\":\"restarting\"");
@@ -871,6 +975,21 @@ esp_err_t v55_control_protocol_handle_line(const char *line, char *reply, int re
         return err == ESP_OK ?
             json_ok(reply, reply_len, "ble reconnect", "\"ble\":\"connecting\"") :
             json_error(reply, reply_len, "ble reconnect", "reconnect start failed");
+    }
+    if (strcmp(cmd, "ble multiprobe") == 0 ||
+        strcmp(cmd, "ble multi probe") == 0 ||
+        strcmp(cmd, "ble fast") == 0 ||
+        strcmp(cmd, "ble interval fast") == 0 ||
+        strcmp(cmd, "ble event probe") == 0) {
+        esp_err_t err = ble_central_start_multi_report_probe();
+        return err == ESP_OK ?
+            json_ok(reply, reply_len, "ble multiprobe", "\"ble_multi_probe\":\"started\",\"interval_request\":\"fast_7p5ms\",\"note\":\"move sticks hard; inspect sub_control_unique and gap buckets\"") :
+            json_error(reply, reply_len, "ble multiprobe", "multi-report probe requires an active BLE connection");
+    }
+    if (strcmp(cmd, "ble multiprobe reset") == 0 ||
+        strcmp(cmd, "ble probe reset") == 0) {
+        ble_central_reset_multi_probe_metrics();
+        return json_ok(reply, reply_len, "ble multiprobe reset", "\"ble_multi_probe\":\"reset\"");
     }
     if (strcmp(cmd, "ble auto on") == 0 || strcmp(cmd, "ble autoconnect on") == 0) {
         esp_err_t err = device_config_save_ble_autoconnect(true);
@@ -941,5 +1060,9 @@ esp_err_t v55_control_protocol_handle_line(const char *line, char *reply, int re
         return json_ok(reply, reply_len, "param set", "\"saved\":false");
     }
 
-    return json_error(reply, reply_len, "unknown", "unknown V5.9.2 command");
+    return json_error(reply, reply_len, "unknown", "unknown V5.9.13 command");
 }
+
+
+
+

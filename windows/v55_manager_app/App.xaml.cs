@@ -6,10 +6,11 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Threading;
+using MessageBox = System.Windows.MessageBox;
 
 namespace Y700Switch2V55Manager;
 
-public partial class App : Application
+public partial class App : System.Windows.Application
 {
     private const string ManagerMutexName =
         @"Local\PRO2WirelessReceiverControlBoard.Manager";
@@ -90,7 +91,8 @@ public partial class App : Application
         try
         {
             FirmwarePackage package = EmbeddedAssets.EnsurePackage();
-            FirmwareProfile haptic = package.GetProfile("hid_audio_uac1_4ch_ds5like");
+            FirmwareProfile ps5 = package.GetProfile("hid_audio_uac1_4ch_dualsense");
+            FirmwareProfile edge = package.GetProfile("hid_audio_uac1_4ch_edge");
             FirmwareProfile recovery = package.GetProfile("hid_only");
             FirmwareProfile pro2 = package.GetProfile("pro2_bridge_v5_5");
             FirmwareProfile xinput = package.GetProfile("xinput_bridge_v5_8");
@@ -101,13 +103,16 @@ public partial class App : Application
                 "package=" + package.Manifest.PackageVersion,
                 "firmware=" + package.Manifest.FirmwareVersion,
                 "profiles=" + string.Join(",", package.Manifest.Profiles.Select(profile => profile.Id)),
-                "haptic_assets=" + haptic.Assets.Count,
+                "ps5_assets=" + ps5.Assets.Count,
+                "edge_assets=" + edge.Assets.Count,
                 "recovery_assets=" + recovery.Assets.Count,
                 "pro2_assets=" + pro2.Assets.Count,
                 "xinput_assets=" + xinput.Assets.Count,
                 "asset_count=" + assetCount,
                 "esptool=" + package.EsptoolPath,
-                "xinput_probe=" + package.XInputProbePath
+                "xinput_probe=" + package.XInputProbePath,
+                "dual_ns2pro_host=" + package.DualNs2ProHostPath,
+                "dual_ns2pro_host_exists=" + File.Exists(package.DualNs2ProHostPath).ToString().ToLowerInvariant()
             });
             WriteVerificationResult(outputPath, result);
             Shutdown(0);
@@ -169,3 +174,5 @@ public partial class App : Application
         }
     }
 }
+
+

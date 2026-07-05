@@ -10,8 +10,8 @@ namespace Y700Switch2V55Manager;
 
 public static class EmbeddedAssets
 {
-    public const string BundledPackageVersion = "v5.9.3-aio";
-    public const string BundledFirmwareVersion = "5.9.3-manager";
+    public const string BundledPackageVersion = "v5.9.13-aio";
+    public const string BundledFirmwareVersion = "5.9.13-manager";
     private static readonly object ExtractLock = new();
     private static readonly JsonSerializerOptions ManifestJsonOptions = new()
     {
@@ -83,7 +83,8 @@ public static class EmbeddedAssets
             throw new FileNotFoundException("Bundled XInput rumble probe is missing.", xinputProbe);
         }
 
-        return new FirmwarePackage(manifest, firmwareRoot, toolsRoot, esptool, audioSender, xinputProbe);
+        string dualNs2ProHost = Path.Combine(toolsRoot, "DualNs2ProHost.exe");
+        return new FirmwarePackage(manifest, firmwareRoot, toolsRoot, esptool, audioSender, xinputProbe, dualNs2ProHost);
     }
 
     private static void ExtractPrefix(string resourcePrefix, string destinationRoot)
@@ -221,7 +222,8 @@ public sealed record FirmwarePackage(
     string ToolsRoot,
     string EsptoolPath,
     string AudioSenderPath,
-    string XInputProbePath)
+    string XInputProbePath,
+    string DualNs2ProHostPath)
 {
     public FirmwareProfile GetProfile(string id)
     {
@@ -238,7 +240,7 @@ public sealed class FirmwareManifest
     public string FlashMode { get; set; } = "dio";
     public string FlashFreq { get; set; } = "80m";
     public string FlashSize { get; set; } = "16MB";
-    public string DefaultProfile { get; set; } = "hid_audio_uac1_4ch_ds5like";
+    public string DefaultProfile { get; set; } = "pro2_bridge_v5_5";
     public List<FirmwareProfile> Profiles { get; set; } = new();
     public string Notes { get; set; } = "";
 }
@@ -257,3 +259,6 @@ public sealed class FirmwareAsset
     public string Path { get; set; } = "";
     public string Sha256 { get; set; } = "";
 }
+
+
+
