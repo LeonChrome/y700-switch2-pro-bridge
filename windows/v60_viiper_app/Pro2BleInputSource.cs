@@ -1558,7 +1558,7 @@ public sealed class Pro2BleInputSource :
         BlePerformanceSnapshot failed = GetPerformanceSnapshot();
         if (HasUsableLivePerformance(failed))
         {
-            string warning = "BLE 输入保持 live，但没有达到 66.7 Hz 目标；V6.2.26 将自动降低虚拟 USB 输出刷新率：" +
+            string warning = "BLE 输入保持 live，但没有达到 66.7 Hz 目标；V6.2.27 将自动降低虚拟 USB 输出刷新率：" +
                              FormatPerformanceSnapshot(failed);
             lock (gate)
             {

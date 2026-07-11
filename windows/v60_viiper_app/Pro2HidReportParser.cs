@@ -378,28 +378,19 @@ public sealed class Pro2HidReportParser
 
     private sealed class MotionCalibration
     {
-        private const int SamplesRequired = 24;
-        private const int ExpectedAccelY = 8192;
-        private const int GyroStationaryMaxAbs = 1400;
-        private const int GyroFineDeadzone = 10;
-        private const int AccelRestTolerance = 3500;
-        private const int AccelMagnitudeMin = 5000;
-        private const int AccelMagnitudeMax = 12000;
+        private const int SamplesRequired = 64;
+        private const int GyroStationaryMaxAbs = 256;
+        private const int AccelMagnitudeMin = 3000;
+        private const int AccelMagnitudeMax = 5400;
 
         private long gyroXSum;
         private long gyroYSum;
         private long gyroZSum;
-        private long accelXSum;
-        private long accelYSum;
-        private long accelZSum;
         private int sampleCount;
         private bool calibrated;
         private int gyroXBias;
         private int gyroYBias;
         private int gyroZBias;
-        private int accelXOffset;
-        private int accelYOffset;
-        private int accelZOffset;
 
         public void Apply(GamepadState state)
         {
@@ -410,14 +401,19 @@ public sealed class Pro2HidReportParser
             int gyroY = state.GyroY;
             int gyroZ = state.GyroZ;
 
-            bool canLearn = IsStationaryFlat(accelX, accelY, accelZ, gyroX, gyroY, gyroZ);
-            if (canLearn)
+            if (!calibrated)
             {
-                Learn(accelX, accelY, accelZ, gyroX, gyroY, gyroZ);
-            }
-            else
-            {
-                ResetLearningWindow();
+                bool canLearn =
+                    ControlsAreIdle(state) &&
+                    IsStationary(accelX, accelY, accelZ, gyroX, gyroY, gyroZ);
+                if (canLearn)
+                {
+                    Learn(gyroX, gyroY, gyroZ);
+                }
+                else
+                {
+                    ResetLearningWindow();
+                }
             }
 
             if (!calibrated)
@@ -425,19 +421,22 @@ public sealed class Pro2HidReportParser
                 return;
             }
 
-            int outGyroX = ApplyGyroDeadzone(gyroX - gyroXBias);
-            int outGyroY = ApplyGyroDeadzone(gyroY - gyroYBias);
-            int outGyroZ = ApplyGyroDeadzone(gyroZ - gyroZBias);
-
-            state.GyroX = ClampInt16(outGyroX);
-            state.GyroY = ClampInt16(outGyroY);
-            state.GyroZ = ClampInt16(outGyroZ);
-            state.AccelX = ClampInt16(accelX - accelXOffset);
-            state.AccelY = ClampInt16(accelY - accelYOffset);
-            state.AccelZ = ClampInt16(accelZ - accelZOffset);
+            state.GyroX = ClampInt16(gyroX - gyroXBias);
+            state.GyroY = ClampInt16(gyroY - gyroYBias);
+            state.GyroZ = ClampInt16(gyroZ - gyroZBias);
         }
 
-        private static bool IsStationaryFlat(
+        private static bool ControlsAreIdle(GamepadState state)
+        {
+            const int axisTolerance = 128;
+            return state.Buttons == GamepadButtons.None &&
+                   Math.Abs(state.Lx - Center12) <= axisTolerance &&
+                   Math.Abs(state.Ly - Center12) <= axisTolerance &&
+                   Math.Abs(state.Rx - Center12) <= axisTolerance &&
+                   Math.Abs(state.Ry - Center12) <= axisTolerance;
+        }
+
+        private static bool IsStationary(
             int accelX,
             int accelY,
             int accelZ,
@@ -452,31 +451,18 @@ public sealed class Pro2HidReportParser
             bool plausibleGravity =
                 accelMagnitudeSquared >= (long)AccelMagnitudeMin * AccelMagnitudeMin &&
                 accelMagnitudeSquared <= (long)AccelMagnitudeMax * AccelMagnitudeMax;
-            bool nearExpectedRest =
-                Math.Abs(accelX) <= AccelRestTolerance &&
-                Math.Abs(accelY - ExpectedAccelY) <= AccelRestTolerance &&
-                Math.Abs(accelZ) <= AccelRestTolerance;
             bool gyroQuiet =
                 Math.Abs(gyroX) <= GyroStationaryMaxAbs &&
                 Math.Abs(gyroY) <= GyroStationaryMaxAbs &&
                 Math.Abs(gyroZ) <= GyroStationaryMaxAbs;
-            return plausibleGravity && nearExpectedRest && gyroQuiet;
+            return plausibleGravity && gyroQuiet;
         }
 
-        private void Learn(
-            int accelX,
-            int accelY,
-            int accelZ,
-            int gyroX,
-            int gyroY,
-            int gyroZ)
+        private void Learn(int gyroX, int gyroY, int gyroZ)
         {
             gyroXSum += gyroX;
             gyroYSum += gyroY;
             gyroZSum += gyroZ;
-            accelXSum += accelX;
-            accelYSum += accelY;
-            accelZSum += accelZ;
             sampleCount++;
             if (sampleCount < SamplesRequired)
             {
@@ -486,16 +472,8 @@ public sealed class Pro2HidReportParser
             gyroXBias = (int)(gyroXSum / sampleCount);
             gyroYBias = (int)(gyroYSum / sampleCount);
             gyroZBias = (int)(gyroZSum / sampleCount);
-            accelXOffset = (int)(accelXSum / sampleCount);
-            accelYOffset = (int)(accelYSum / sampleCount) - ExpectedAccelY;
-            accelZOffset = (int)(accelZSum / sampleCount);
             calibrated = true;
             ResetLearningWindow();
-        }
-
-        private static int ApplyGyroDeadzone(int value)
-        {
-            return Math.Abs(value) <= GyroFineDeadzone ? 0 : value;
         }
 
         private static short ClampInt16(int value)
@@ -510,9 +488,6 @@ public sealed class Pro2HidReportParser
             gyroXSum = 0;
             gyroYSum = 0;
             gyroZSum = 0;
-            accelXSum = 0;
-            accelYSum = 0;
-            accelZSum = 0;
             sampleCount = 0;
         }
     }

@@ -202,51 +202,29 @@ public sealed class DualSenseHapticAudioProcessor
             return false;
         }
 
-        long sumAbsFrontLeft = 0;
-        long sumAbsFrontRight = 0;
-        long sumAbsRearLeft = 0;
-        long sumAbsRearRight = 0;
-        int peakFrontLeft = 0;
-        int peakFrontRight = 0;
-        int peakRearLeft = 0;
-        int peakRearRight = 0;
+        long sumAbsLeft = 0;
+        long sumAbsRight = 0;
+        int peakLeft = 0;
+        int peakRight = 0;
         for (int frame = 0; frame < frames; frame++)
         {
             int offset = frame * FrameBytes;
-            int absFrontLeft = Absolute(BinaryPrimitives.ReadInt16LittleEndian(pcm.Slice(offset, 2)));
-            int absFrontRight = Absolute(BinaryPrimitives.ReadInt16LittleEndian(pcm.Slice(offset + 2, 2)));
-            int absRearLeft = Absolute(BinaryPrimitives.ReadInt16LittleEndian(pcm.Slice(offset + 4, 2)));
-            int absRearRight = Absolute(BinaryPrimitives.ReadInt16LittleEndian(pcm.Slice(offset + 6, 2)));
-            sumAbsFrontLeft += absFrontLeft;
-            sumAbsFrontRight += absFrontRight;
-            sumAbsRearLeft += absRearLeft;
-            sumAbsRearRight += absRearRight;
-            peakFrontLeft = Math.Max(peakFrontLeft, absFrontLeft);
-            peakFrontRight = Math.Max(peakFrontRight, absFrontRight);
-            peakRearLeft = Math.Max(peakRearLeft, absRearLeft);
-            peakRearRight = Math.Max(peakRearRight, absRearRight);
+            int absLeft = Absolute(BinaryPrimitives.ReadInt16LittleEndian(pcm.Slice(offset + 4, 2)));
+            int absRight = Absolute(BinaryPrimitives.ReadInt16LittleEndian(pcm.Slice(offset + 6, 2)));
+            sumAbsLeft += absLeft;
+            sumAbsRight += absRight;
+            peakLeft = Math.Max(peakLeft, absLeft);
+            peakRight = Math.Max(peakRight, absRight);
         }
-
-        int meanFrontLeft = (int)(sumAbsFrontLeft / frames);
-        int meanFrontRight = (int)(sumAbsFrontRight / frames);
-        int meanRearLeft = (int)(sumAbsRearLeft / frames);
-        int meanRearRight = (int)(sumAbsRearRight / frames);
-        bool frontActivity = HasActivity(meanFrontLeft, meanFrontRight, peakFrontLeft, peakFrontRight);
-        bool rearActivity = HasActivity(meanRearLeft, meanRearRight, peakRearLeft, peakRearRight);
-        bool useFrontPair = !rearActivity && frontActivity;
-        int leftOffset = useFrontPair ? 0 : 4;
-        int rightOffset = useFrontPair ? 2 : 6;
-        long sumAbsLeft = useFrontPair ? sumAbsFrontLeft : sumAbsRearLeft;
-        long sumAbsRight = useFrontPair ? sumAbsFrontRight : sumAbsRearRight;
-        int peakLeft = useFrontPair ? peakFrontLeft : peakRearLeft;
-        int peakRight = useFrontPair ? peakFrontRight : peakRearRight;
 
         bool spectralReady = false;
         for (int frame = 0; frame < frames; frame++)
         {
             int offset = frame * FrameBytes;
-            short left = BinaryPrimitives.ReadInt16LittleEndian(pcm.Slice(offset + leftOffset, 2));
-            short right = BinaryPrimitives.ReadInt16LittleEndian(pcm.Slice(offset + rightOffset, 2));
+            // DualSense channels 3/4 are the actuator pair. Channels 1/2 are
+            // ordinary audio and must never be promoted to haptics.
+            short left = BinaryPrimitives.ReadInt16LittleEndian(pcm.Slice(offset + 4, 2));
+            short right = BinaryPrimitives.ReadInt16LittleEndian(pcm.Slice(offset + 6, 2));
             downsampleSumLeft += left;
             downsampleSumRight += right;
             downsampleCount++;

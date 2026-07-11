@@ -35,7 +35,7 @@ public static class ControllerEnumerationDiagnostics
     {
         var lines = new List<string>
         {
-            "[DIAG] kind=controller_enumeration version=6.2.26 session_log=\"" + sessionLogPath + "\""
+            "[DIAG] kind=controller_enumeration version=6.2.27 session_log=\"" + sessionLogPath + "\""
         };
         await AppendViiperDumpAsync(client, lines, cancellationToken);
         await AppendUsbipPortDumpAsync(lines, cancellationToken);

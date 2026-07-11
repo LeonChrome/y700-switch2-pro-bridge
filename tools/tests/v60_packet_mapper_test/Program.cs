@@ -274,28 +274,28 @@ rawImuState.SwitchRawImuSamples =
 byte[] dsRawImu = VirtualPadPackets.FromGamepad(ViiperDeviceProfile.DualSenseLike, rawImuState);
 Expect(BinaryPrimitives.ReadInt16LittleEndian(dsRawImu.AsSpan(21, 2)) == 2300, "DualSense PS5 uses calibrated GamepadState gyro instead of bypassing parser bias with raw IMU samples");
 Expect(BinaryPrimitives.ReadInt16LittleEndian(dsRawImu.AsSpan(31, 2)) == -8192, "DualSense PS5 uses calibrated GamepadState accel instead of bypassing parser rest offset with raw IMU samples");
-var averagedRawImuState = GamepadState.Neutral();
-averagedRawImuState.GyroValid = true;
-averagedRawImuState.AccelValid = true;
-averagedRawImuState.GyroX = 290;
-averagedRawImuState.GyroY = 220;
-averagedRawImuState.GyroZ = -300;
-averagedRawImuState.AccelX = 10;
-averagedRawImuState.AccelY = 4096;
-averagedRawImuState.AccelZ = 20;
-averagedRawImuState.SwitchRawImuSamples =
+var latestRawImuState = GamepadState.Neutral();
+latestRawImuState.GyroValid = true;
+latestRawImuState.AccelValid = true;
+latestRawImuState.GyroX = 290;
+latestRawImuState.GyroY = 220;
+latestRawImuState.GyroZ = -300;
+latestRawImuState.AccelX = 10;
+latestRawImuState.AccelY = 4096;
+latestRawImuState.AccelZ = 20;
+latestRawImuState.SwitchRawImuSamples =
 [
     new SwitchImuRawSample(12, 3900, 30, 100, 80, -90, 0, 13, 0, 1),
     new SwitchImuRawSample(14, 4100, 50, 200, 160, -180, 1, 25, 0, 1),
     new SwitchImuRawSample(16, 4300, 70, 300, 240, -270, 2, 37, 0, 1)
 ];
-byte[] dsAveragedRawImu = VirtualPadPackets.FromGamepad(ViiperDeviceProfile.DualSenseLike, averagedRawImuState);
-Expect(BinaryPrimitives.ReadInt16LittleEndian(dsAveragedRawImu.AsSpan(21, 2)) == 218, "DualSense PS5 averages 3x5ms raw gyro X while preserving calibrated latest sample bias");
-Expect(BinaryPrimitives.ReadInt16LittleEndian(dsAveragedRawImu.AsSpan(23, 2)) == -241, "DualSense PS5 averages 3x5ms raw gyro Z into output yaw");
-Expect(BinaryPrimitives.ReadInt16LittleEndian(dsAveragedRawImu.AsSpan(25, 2)) == -161, "DualSense PS5 averages 3x5ms raw gyro Y into output roll");
-Expect(BinaryPrimitives.ReadInt16LittleEndian(dsAveragedRawImu.AsSpan(27, 2)) == 16, "DualSense PS5 averages 3x5ms accel X while preserving parser offset");
-Expect(BinaryPrimitives.ReadInt16LittleEndian(dsAveragedRawImu.AsSpan(29, 2)) == 0, "DualSense PS5 averages 3x5ms accel Z into output accel Y");
-Expect(BinaryPrimitives.ReadInt16LittleEndian(dsAveragedRawImu.AsSpan(31, 2)) == -7792, "DualSense PS5 averages 3x5ms accel Y into output accel Z");
+byte[] dsLatestRawImu = VirtualPadPackets.FromGamepad(ViiperDeviceProfile.DualSenseLike, latestRawImuState);
+Expect(BinaryPrimitives.ReadInt16LittleEndian(dsLatestRawImu.AsSpan(21, 2)) == 333, "DualSense PS5 uses freshest calibrated gyro X without 3-sample group delay");
+Expect(BinaryPrimitives.ReadInt16LittleEndian(dsLatestRawImu.AsSpan(23, 2)) == -345, "DualSense PS5 uses freshest calibrated gyro Z for yaw");
+Expect(BinaryPrimitives.ReadInt16LittleEndian(dsLatestRawImu.AsSpan(25, 2)) == -253, "DualSense PS5 uses freshest calibrated gyro Y for roll");
+Expect(BinaryPrimitives.ReadInt16LittleEndian(dsLatestRawImu.AsSpan(27, 2)) == 20, "DualSense PS5 uses freshest calibrated accel X");
+Expect(BinaryPrimitives.ReadInt16LittleEndian(dsLatestRawImu.AsSpan(29, 2)) == 40, "DualSense PS5 uses freshest calibrated accel Z");
+Expect(BinaryPrimitives.ReadInt16LittleEndian(dsLatestRawImu.AsSpan(31, 2)) == -8192, "DualSense PS5 uses freshest calibrated accel Y");
 Expect(
     Ps5ImuMappingOption.FromLabel("SDL/Nintendo 基线  G=-Y,+Z,-X  A=-Y,+Z,-X").Label ==
     Ps5ImuMappingOption.Default.Label,
@@ -735,17 +735,17 @@ var motionParser = new Pro2HidReportParser();
 byte[] flatFd2 = new byte[60];
 Pack12(flatFd2, 10, 2048, 2048);
 Pack12(flatFd2, 13, 2048, 2048);
-for (int i = 0; i < 24; i++)
+for (int i = 0; i < 64; i++)
 {
-    WriteMotion(flatFd2, 48, 120, 8500, -90, 90, -120, 70);
-    Expect(motionParser.TryParse(flatFd2, out _, out _), "motion calibration learns flat FD2 sample");
+    WriteMotion(flatFd2, 48, 120, -500, 4150, 90, -120, 70);
+    Expect(motionParser.TryParse(flatFd2, out _, out _), "motion calibration learns stationary 4096/g FD2 sample");
 }
 
-WriteMotion(flatFd2, 48, 620, 8700, -90, 290, -120, -330);
+WriteMotion(flatFd2, 48, 620, -300, 4050, 290, -120, -330);
 Expect(motionParser.TryParse(flatFd2, out GamepadState calibratedMotion, out _), "motion calibration applies to FD2 sample");
-Expect(calibratedMotion.AccelX == 500, "motion calibration recenters accel X");
-Expect(calibratedMotion.AccelY == 8392, "motion calibration keeps source Y near 1g");
-Expect(calibratedMotion.AccelZ == 0, "motion calibration recenters accel Z");
+Expect(calibratedMotion.AccelX == 620, "gyro calibration does not alter accel X");
+Expect(calibratedMotion.AccelY == -300, "gyro calibration does not alter accel Y");
+Expect(calibratedMotion.AccelZ == 4050, "gyro calibration does not alter accel Z");
 Expect(calibratedMotion.GyroX == 200, "motion calibration subtracts gyro X bias");
 Expect(calibratedMotion.GyroY == 0, "motion calibration subtracts gyro Y bias");
 Expect(calibratedMotion.GyroZ == -400, "motion calibration subtracts gyro Z bias");
@@ -967,17 +967,17 @@ Expect(
     dualSenseHdPacket.Report[0] == 0x02,
     "DualSense HD output is a Pro2 raw02 report");
 
-var frontFallbackScheduler = new DualSenseHapticRumbleScheduler();
+var frontAudioScheduler = new DualSenseHapticRumbleScheduler();
 Expect(
-    frontFallbackScheduler.TryProcess(
+    frontAudioScheduler.TryProcess(
         HapticFrame(1, audioModeReport),
         out _,
         out _,
         out _),
-    "front-pair haptic scheduler enters audio mode");
+    "front-audio scheduler enters audio mode");
 double frontLeftPhase = 0;
 double frontRightPhase = 0;
-Pro2OutputPacket? frontFallbackPacket = null;
+Pro2OutputPacket? frontAudioPacket = null;
 for (int i = 0; i < 40; i++)
 {
     byte[] pcm = HapticPcmPacket(
@@ -986,20 +986,20 @@ for (int i = 0; i < 40; i++)
         140,
         330,
         frontPair: true);
-    if (frontFallbackScheduler.TryProcess(
+    if (frontAudioScheduler.TryProcess(
             HapticFrame(2, pcm),
             out Pro2OutputPacket candidate,
             out _,
             out _) &&
         candidate.Active)
     {
-        frontFallbackPacket = candidate;
+        frontAudioPacket = candidate;
         break;
     }
 }
 Expect(
-    frontFallbackPacket is { Source: "dualsense-hd-audio", Active: true },
-    "DualSense HD parser falls back to front pair when rear pair is silent");
+    frontAudioPacket == null,
+    "DualSense front audio channels never become haptics when rear actuator channels are silent");
 
 string originalPath = @"C:\Windows\System32";
 string withUsbip = UsbipRuntimeLocator.BuildPathWithUsbipDirectory(

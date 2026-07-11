@@ -4,10 +4,10 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$Version = "6.2.26"
+$Version = "6.2.27"
 $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $ManagerRoot = Join-Path $RepoRoot "windows\v60_viiper_app"
-$ReleaseRoot = Join-Path $RepoRoot "release\v6.2.26"
+$ReleaseRoot = Join-Path $RepoRoot "release\v6.2.27"
 $PublishRoot = Join-Path $ReleaseRoot "publish"
 $UsbipSourceRoot = Join-Path $RepoRoot "tools\usbip-win2\v0.9.7.7"
 $UsbipReleaseRoot = Join-Path $ReleaseRoot "usbip-win2\v0.9.7.7"
@@ -21,7 +21,7 @@ $ReadmeFile = Join-Path $ReleaseRoot "README-v$Version.md"
 $DotnetRoot = Join-Path $RepoRoot "work\dotnet"
 
 function Write-Step([string]$Name, [string]$Value) {
-    Write-Output "[V6_2_26_PACKAGE] $Name=$Value"
+    Write-Output "[V6_2_27_PACKAGE] $Name=$Value"
 }
 
 function Remove-TreeWithRetry([string]$Path) {
@@ -82,12 +82,13 @@ if (!$DryRun) {
     Copy-Item -LiteralPath (Join-Path $UsbipSourceRoot "LICENSE.txt") -Destination (Join-Path $UsbipReleaseRoot "LICENSE.txt") -Force
 
     $readme = @'
-# V6.2.26 完结后稳定性审计版
+# V6.2.27 IMU 与触觉物理链路审计版
 
 ## 更新重点
-- PS5 / PS5 Edge IMU 输出现在会利用 Pro2/Switch 输入报告里的 3 个 5ms IMU 子样本做轻量平均，再进入 DualSense 坐标与量纲转换；不改变按键、摇杆、BLE、VIIPER 设备创建逻辑，目标是降低高速转动时的抖动和单样本偶发误差。
-- Pro2 BLE 输入源会按 5ms 间隔给 3 个 IMU 子样本补上采样时间戳，日志和后续分析能看见更真实的源采样节奏，而不是把同一包里的 3 个样本都当成同一时刻。
-- DualSense HD 音频震动解析继续优先使用后声道；如果游戏/驱动只在前声道输出有效波形，会自动回退到前声道，避免“有音频但无 HD 震动”的兼容性盲区。
+- PS5 / PS5 Edge 正式输出使用 Pro2/Switch 报告中最新的已校准 IMU 子样本；同包 3 个样本是相隔 5ms 的时间序列，不是 3 颗传感器。取消三样本均值带来的约 5ms 群延迟和快速转向峰值衰减。
+- 修正 Pro2 自动静止校准：按实测 4096 counts/g 的重力模长识别静止，只在连接初期校准一次陀螺仪零偏；不再错误假定 Y=8192，不修改加速度向量，不加入死区或滤波。
+- 保留 3 个 IMU 子样本的 5ms 时间戳，供诊断和积分测试使用，不把历史样本重新当成实时输出。
+- DualSense HD 音频震动只读取规范定义的第 3/4 声道；第 1/2 声道属于普通音频，不再误判为触觉。普通震动与 HD 仍严格按 DualSense HID 模式标志调度。
 - 在 VIIPER 创建虚拟设备后增加强身份校验：新和联胜 / PS5 必须是 054C:0CE6，PS5 Edge 必须是 054C:0DF2，Pro2 / Nintendo 必须是 057E:2069，Xbox / XInput 必须是 045E:028E。若 VIIPER/USBIP 返回的设备身份和当前模式不一致，会直接报错并提示清理残留虚拟设备，避免 Steam 里出现“名字是 DualSense、布局是 Pro2”的错位状态。
 - 切换模式前继续自动清理本地 VIIPER bus 与匹配的 USBIP 端口；多 Slot 模式下每个 Slot 独立创建、独立校验、独立失败提示。
 - 在主界面和托盘右键菜单加入“开机自启动”开关，使用当前用户 HKCU Run 注册表，不需要管理员权限。

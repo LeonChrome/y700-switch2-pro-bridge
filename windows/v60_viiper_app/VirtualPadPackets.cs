@@ -470,11 +470,17 @@ public static class VirtualPadPackets
         GyroAxisInversion gyroAxisInversion,
         Ps5OutputImuTuning tuning)
     {
-        // Formal PS5/Edge uses the parser-calibrated GamepadState, matching
-        // the Pro2 output path. When the source report contains the Switch
-        // 3x5 ms IMU block, average the sub-samples relative to the calibrated
-        // latest sample so bias/deadzone/offset behavior is preserved.
-        Ps5SourceMotion source = SelectPs5SourceMotion(state);
+        // Switch reports carry three chronological 5 ms IMU samples, not
+        // three sensors. The last sample is the freshest and is already
+        // calibrated by Pro2HidReportParser. Averaging the batch would add
+        // about 5 ms of group delay and attenuate fast reversals.
+        Ps5SourceMotion source = new(
+            state.AccelX,
+            state.AccelY,
+            state.AccelZ,
+            state.GyroX,
+            state.GyroY,
+            state.GyroZ);
         double accelXG = source.AccelX / Pro2AccelRawPerG;
         double accelYG = source.AccelZ / Pro2AccelRawPerG;
         double accelZG = -source.AccelY / Pro2AccelRawPerG;
@@ -495,43 +501,6 @@ public static class VirtualPadPackets
             ClampRoundToInt16(gyroY * ProfessionalImuConverter.DualSenseGyroRawPerDps * tuning.GyroScaleYaw),
             ClampRoundToInt16(gyroZ * ProfessionalImuConverter.DualSenseGyroRawPerDps * tuning.GyroScaleRoll),
             Valid: true);
-    }
-
-    private static Ps5SourceMotion SelectPs5SourceMotion(GamepadState state)
-    {
-        SwitchImuRawSample[] samples = state.SwitchRawImuSamples;
-        if (samples.Length <= 1)
-        {
-            return new Ps5SourceMotion(
-                state.AccelX,
-                state.AccelY,
-                state.AccelZ,
-                state.GyroX,
-                state.GyroY,
-                state.GyroZ);
-        }
-
-        SwitchImuRawSample latest = samples[^1];
-        return new Ps5SourceMotion(
-            state.AccelX + AverageDelta(samples, latest.AccelX, static s => s.AccelX),
-            state.AccelY + AverageDelta(samples, latest.AccelY, static s => s.AccelY),
-            state.AccelZ + AverageDelta(samples, latest.AccelZ, static s => s.AccelZ),
-            state.GyroX + AverageDelta(samples, latest.GyroX, static s => s.GyroX),
-            state.GyroY + AverageDelta(samples, latest.GyroY, static s => s.GyroY),
-            state.GyroZ + AverageDelta(samples, latest.GyroZ, static s => s.GyroZ));
-    }
-
-    private static double AverageDelta(
-        ReadOnlySpan<SwitchImuRawSample> samples,
-        short latestValue,
-        Func<SwitchImuRawSample, short> selector)
-    {
-        double sum = 0;
-        for (int i = 0; i < samples.Length; i++)
-        {
-            sum += selector(samples[i]);
-        }
-        return sum / samples.Length - latestValue;
     }
 
     private static short ClampRoundToInt16(double value)
