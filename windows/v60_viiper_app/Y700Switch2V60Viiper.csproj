@@ -8,13 +8,13 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>Y700Switch2V60Viiper</AssemblyName>
-    <AssemblyTitle>PRO2 手柄无线接收器控制板 V6.2.25</AssemblyTitle>
+    <AssemblyTitle>PRO2 手柄无线接收器控制板 V6.2.26</AssemblyTitle>
     <Product>PRO2 手柄无线接收器控制板</Product>
-    <Description>V6.2.25 VIIPER release with four independent Pro2 BLE slots, launch-at-login, and startup auto reconnect.</Description>
-    <Version>6.2.25</Version>
-    <AssemblyVersion>6.2.25.0</AssemblyVersion>
-    <FileVersion>6.2.25.0</FileVersion>
-    <InformationalVersion>6.2.25</InformationalVersion>
+    <Description>V6.2.26 VIIPER release with four independent Pro2 BLE slots, launch-at-login, and startup auto reconnect.</Description>
+    <Version>6.2.26</Version>
+    <AssemblyVersion>6.2.26.0</AssemblyVersion>
+    <FileVersion>6.2.26.0</FileVersion>
+    <InformationalVersion>6.2.26</InformationalVersion>
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <PublishSingleFile>true</PublishSingleFile>

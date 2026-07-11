@@ -42,7 +42,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private ViiperBridgeSession? session;
     private string host = "127.0.0.1";
     private string port = "3242";
-    private string status = "V6.2.25 四人三模版已就绪。PS5 / Edge / Pro2 / Xbox 均支持 1-4 个独立 Pro2 BLE Slot。";
+    private string status = "V6.2.26 四人三模版已就绪。PS5 / Edge / Pro2 / Xbox 均支持 1-4 个独立 Pro2 BLE Slot。";
     private string inputStatus = "真实 Pro2 BLE 输入未连接。";
     private string selectedPushRateLabel = ViiperPushRateOption.Default.Label;
     private string selectedBackendLabel = VirtualBackendOption.Default.Label;
@@ -173,7 +173,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         {
             AppendLog(StartupProcessGuard.LastSummary);
         }
-        AppendLog("V6.2.25 四人三模版说明：新和联胜 PS5 保留 HD 音频震动；PS5 / Edge / Pro2 / Xbox 均支持 1-4 个独立 Pro2 BLE Slot；PS5 / Edge IMU 采用 G=+X,+Z,-Y / A=+X,+Z,-Y；切模式/停止/异常恢复会自动清理 USBIP 残留端口，并在每个 Slot 创建后校验 type/VID/PID，防止 Steam 识别名与实际布局串台。");
+        AppendLog("V6.2.26 四人三模版说明：新和联胜 PS5 保留 HD 音频震动；PS5 / Edge / Pro2 / Xbox 均支持 1-4 个独立 Pro2 BLE Slot；PS5 / Edge IMU 采用 G=+X,+Z,-Y / A=+X,+Z,-Y；切模式/停止/异常恢复会自动清理 USBIP 残留端口，并在每个 Slot 创建后校验 type/VID/PID，防止 Steam 识别名与实际布局串台。");
         AppendLog("[LOG_POLICY] previous v6 logs are cleaned at startup; manager log limit=" +
                   (SessionLogWriter.MaxLogBytes / 1024 / 1024) + "MB; VIIPER server log level=info.");
         AppendLog("[RUNTIME] " + RuntimeReadinessText);
@@ -2604,7 +2604,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             directory,
             "diagnostics_v6_2_20_" + DateTime.Now.ToString("yyyyMMdd_HHmmss") + ".log");
         var builder = new StringBuilder();
-        builder.AppendLine("# V6.2.25 diagnostics export");
+        builder.AppendLine("# V6.2.26 diagnostics export");
         builder.AppendLine("# session_log=" + sessionLog.FilePath);
         builder.AppendLine();
         foreach (string line in dump)
@@ -2881,7 +2881,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "PRO2WirelessReceiverControlBoard",
             "embedded",
-            "v6.2.25",
+            "v6.2.26",
             "viiper",
             "haptic-v0.8.0");
         Directory.CreateDirectory(root);

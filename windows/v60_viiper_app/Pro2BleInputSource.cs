@@ -1290,11 +1290,14 @@ public sealed class Pro2BleInputSource :
         if (state.SwitchRawImuSamples.Length > 0)
         {
             SwitchImuRawSample[] stamped = new SwitchImuRawSample[state.SwitchRawImuSamples.Length];
+            long imuSubSampleSpacingTicks = Stopwatch.Frequency / 200; // Switch-style IMU sub-samples are 5 ms apart.
             for (int i = 0; i < stamped.Length; i++)
             {
+                int samplesAfterThis = stamped.Length - 1 - i;
+                long sampleTicks = nowTicks - samplesAfterThis * imuSubSampleSpacingTicks;
                 stamped[i] = ProfessionalImuConverter.Stamp(
                     state.SwitchRawImuSamples[i],
-                    nowTicks,
+                    sampleTicks > 0 ? sampleTicks : nowTicks,
                     parseSeq);
             }
             state.SwitchRawImuSamples = stamped;
@@ -1555,7 +1558,7 @@ public sealed class Pro2BleInputSource :
         BlePerformanceSnapshot failed = GetPerformanceSnapshot();
         if (HasUsableLivePerformance(failed))
         {
-            string warning = "BLE 输入保持 live，但没有达到 66.7 Hz 目标；V6.2.25 将自动降低虚拟 USB 输出刷新率：" +
+            string warning = "BLE 输入保持 live，但没有达到 66.7 Hz 目标；V6.2.26 将自动降低虚拟 USB 输出刷新率：" +
                              FormatPerformanceSnapshot(failed);
             lock (gate)
             {
