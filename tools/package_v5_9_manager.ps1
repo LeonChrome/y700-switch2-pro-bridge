@@ -11,7 +11,7 @@ $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $ManagerRoot = Join-Path $RepoRoot "windows\v55_manager_app"
 $ReleaseRoot = Join-Path $RepoRoot "release\v5.9"
 $PublishRoot = Join-Path $ReleaseRoot "publish"
-$PackageVersion = "5.9.14"
+$PackageVersion = "5.9.15"
 $PackageTag = "v$PackageVersion"
 $SingleExeName = "新和联胜版本-aio-$PackageTag.exe"
 $SingleExe = Join-Path $ReleaseRoot $SingleExeName
@@ -319,7 +319,7 @@ function Refresh-EmbeddedAssets {
         flashSize = "16MB"
         defaultProfile = "pro2_bridge_v5_5"
         profiles = $profiles
-        notes = "V5.9.14 ESP control console bundle: four click-to-flash profiles for PS5 standard (054C:0CE6), Pro2/Nintendo (057E:2069), Xbox/XInput (045E:028E), and PS5 Edge (054C:0DF2); HD haptics, ordinary-rumble arbitration, guided first pairing/reconnect/controller replacement, Xbox GL/GR mapping, embedded esptool, CH343 driver repair, serial watchdogs, UI log throttling, BLE stable-first connect policy, turbo 7.5ms connection-parameter auto fallback, BLE MultiProbe telemetry, and a Dual Pro2 BLE capacity probe profile. No launch-at-login or startup auto reconnect UI is exposed in the ESP manager."
+        notes = "V5.9.15 ESP control console bundle: four click-to-flash profiles for PS5 standard (054C:0CE6), Pro2/Nintendo (057E:2069), Xbox/XInput (045E:028E), and PS5 Edge (054C:0DF2); PS5 IMU now converts Pro2 4096 counts/g and 14.247 counts/dps into DualSense 8192 counts/g and 16.384 counts/dps with one-shot stationary gyro bias calibration; HD haptics remain rear-channel only with strict ordinary/HD arbitration; guided pairing, embedded esptool, CH343 repair, serial watchdogs, UI log throttling, BLE stable-first connect, MultiProbe telemetry, and Dual Pro2 BLE capacity probe remain included."
     }
     $manifest | ConvertTo-Json -Depth 8 | Set-Content -Encoding UTF8 -Path (Join-Path $firmwareRoot "firmware_manifest.json")
 

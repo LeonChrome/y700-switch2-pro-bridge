@@ -1,6 +1,6 @@
 {
-  "packageVersion": "v5.9.14-aio",
-  "firmwareVersion": "5.9.14-manager",
+  "packageVersion": "v5.9.15-aio",
+  "firmwareVersion": "5.9.15-manager",
   "target": "esp32s3",
   "flashMode": "dio",
   "flashFreq": "80m",
@@ -25,7 +25,7 @@
         {
           "offset": "0x10000",
           "path": "hid_audio_uac1_4ch_dualsense/esp32s3_dualsense_identity_experiment.bin",
-          "sha256": "8898f1e233bcb41e95cddf6d567e8257508993da151c3705fddb2472ec228212"
+          "sha256": "24a1ea8276674cee13f0d2772e50f984de3d7db8e5cc61cf576676094c4a0b39"
         }
       ]
     },
@@ -47,7 +47,7 @@
         {
           "offset": "0x10000",
           "path": "hid_audio_uac1_4ch_edge/esp32s3_dualsense_identity_experiment.bin",
-          "sha256": "2b2df185c5f009e9839b5ba791951cd1a91871c17ddf1e4e1f889c05c686ef91"
+          "sha256": "e3f6f3654eb807c929465090b099aeb787602c1ab28c6c2b9001f2e07c089f68"
         }
       ]
     },
@@ -69,7 +69,7 @@
         {
           "offset": "0x10000",
           "path": "hid_only/esp32s3_dualsense_identity_experiment.bin",
-          "sha256": "4dfb3ad78e0a0146bdc68138e8885c95bb8c3563897a9dce1d101d18b36dd200"
+          "sha256": "932f290147025173712287be3dc5c755b0ceefbfba59e2195e62f400ca859146"
         }
       ]
     },
@@ -91,7 +91,7 @@
         {
           "offset": "0x10000",
           "path": "pro2_bridge_v5_5/esp32s3_switch2_bridge.bin",
-          "sha256": "f4c7aa6b3074faf6cb4db7833d76ba7f5663df67b277b7b1a700f76ac1ac10a1"
+          "sha256": "3d86f4f5fbc69ddca5583ce511852c4f30e7112f12323741da21be2b423198e8"
         }
       ]
     },
@@ -113,7 +113,7 @@
         {
           "offset": "0x10000",
           "path": "xinput_bridge_v5_8/esp32s3_switch2_bridge.bin",
-          "sha256": "c5f50f360ba2e8ea87e709df813a58dc7d5117c372aecb74683c9d0f65c0daae"
+          "sha256": "bc45d561e14a7c7bd224cc6fbeca1271bcca144435d2ea2e49d882dac0f03054"
         }
       ]
     },
@@ -135,10 +135,10 @@
         {
           "offset": "0x10000",
           "path": "dual_pro2_probe_v5_9/esp32s3_switch2_bridge.bin",
-          "sha256": "c58d21788af3c8e4e298a0444438d4a87ce1ccb17655041a309ed27e34d6e1f3"
+          "sha256": "e29e7608f70cebfa2e7d18140900806487dfc0dff36672a23eda1480feee6ef1"
         }
       ]
     }
   ],
-  "notes": "V5.9.14 ESP control console bundle: four click-to-flash profiles for PS5 standard (054C:0CE6), Pro2/Nintendo (057E:2069), Xbox/XInput (045E:028E), and PS5 Edge (054C:0DF2); HD haptics, ordinary-rumble arbitration, guided first pairing/reconnect/controller replacement, Xbox GL/GR mapping, embedded esptool, CH343 driver repair, serial watchdogs, UI log throttling, BLE stable-first connect policy, turbo 7.5ms connection-parameter auto fallback, BLE MultiProbe telemetry, and a Dual Pro2 BLE capacity probe profile. No launch-at-login or startup auto reconnect UI is exposed in the ESP manager."
+  "notes": "V5.9.15 ESP control console bundle: four click-to-flash profiles for PS5 standard (054C:0CE6), Pro2/Nintendo (057E:2069), Xbox/XInput (045E:028E), and PS5 Edge (054C:0DF2); PS5 IMU now converts Pro2 4096 counts/g and 14.247 counts/dps into DualSense 8192 counts/g and 16.384 counts/dps with one-shot stationary gyro bias calibration; HD haptics remain rear-channel only with strict ordinary/HD arbitration; guided pairing, embedded esptool, CH343 repair, serial watchdogs, UI log throttling, BLE stable-first connect, MultiProbe telemetry, and Dual Pro2 BLE capacity probe remain included."
 }

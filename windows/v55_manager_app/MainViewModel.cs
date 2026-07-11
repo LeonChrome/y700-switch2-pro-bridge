@@ -398,7 +398,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         }
     }
 
-    public string FirmwareSummary => "V5.9.14 ESP 控制台内置：新和联胜 / PS5、Pro2 / Nintendo、Xbox / XInput、新和联胜 / PS5 Edge 四个烧录模式，另保留 Dual Pro2 Probe 双 BLE 能力探针、HID 恢复固件、BLE MultiProbe、read-poll 探针、Xbox 背键映射和嵌入式 esptool。";
+    public string FirmwareSummary => "V5.9.15 ESP 控制台内置：新和联胜 / PS5、Pro2 / Nintendo、Xbox / XInput、新和联胜 / PS5 Edge 四个烧录模式；PS5 IMU 已完成物理量纲与静止零偏修正。";
     public string SafetySummary => "Live 转发默认不自动开启。游戏监听会保持 HD-only 过滤，普通 PCM 只计入 blocked_pcm，不会被盲目推送。";
     public string LogText
     {
@@ -477,7 +477,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         DeviceUiMode.Pro2 => "USB 当前已枚举为 Pro2 / Nintendo，适合稳定输入和原始/普通震动测试。",
         DeviceUiMode.DualPro2Probe => "串口状态确认当前是 Dual Pro2 Probe。USB 仍复用 Pro2/Nintendo 身份，重点观察双 BLE 能力指标。",
         DeviceUiMode.Xbox => "USB 当前已枚举为 Xbox / XInput，适合 Steam、Apex 和普通双马达震动兼容性测试。",
-        DeviceUiMode.XboxElite => "检测到旧版 Elite 2 实验固件。V5.9.14 不再提供这个模式，请切换到新和联胜或 Xbox。",
+        DeviceUiMode.XboxElite => "检测到旧版 Elite 2 实验固件。V5.9.15 不再提供这个模式，请切换到新和联胜或 Xbox。",
         DeviceUiMode.Recovery => "当前看起来是最小化 HID 恢复固件，用于救援重刷和枚举恢复。",
         _ => "请先执行 USB 检查。在确认模式前，所有真实震动发送都会保持保守策略。"
     };
@@ -760,7 +760,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         logUiTimer.Tick += (_, _) => FlushLogTextToUi();
         logUiTimer.Start();
 
-        AppendLog("PRO2 手柄无线接收器控制板 V5.9.14 ESP 控制台已就绪。此 EXE 用于四模式固件烧录、连接检测、Pro2 BLE 手动绑定、快捷诊断和日志查看。");
+        AppendLog("PRO2 手柄无线接收器控制板 V5.9.15 ESP 控制台已就绪。PS5 IMU 已修正 Pro2→DualSense 量纲与静止零偏；此 EXE 用于四模式固件烧录、连接检测、Pro2 BLE 手动绑定、快捷诊断和日志查看。");
         AppendLog("[STARTUP] desired_mode=" + desiredMode);
         if (!string.IsNullOrWhiteSpace(settings.LastBleTarget))
         {
@@ -1029,7 +1029,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             MessageBox.Show(
                 owner,
                 profile.Label + " 目前还是预留位，暂时没有接入完整后端。\n\n管理器已经保留好了模式位和切换语义，后续补固件时不需要再重做界面。",
-                "V5.9.14 模式预留",
+                "V5.9.15 模式预留",
                 MessageBoxButton.OK,
                 MessageBoxImage.Information);
             return;
@@ -2573,7 +2573,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             OutputModeId.Pro2 => "面向原始 HID 0x02 震动优先路线调好的 Nintendo-like / Pro2 桥接。",
             OutputModeId.Xbox => "真实 Xbox 360 / XInput 风格 USB 后端，普通震动会回传到 Pro2 BLE。",
             OutputModeId.DualPro2Probe => "第四实验固件。ESP32-S3 同时连接两只 Pro2，只测 BLE 双连接通知频率、去重率、断连和总吞吐。",
-            OutputModeId.XboxElite => "旧版 Elite 2 枚举实验固件，V5.9.14 已停止发行。",
+            OutputModeId.XboxElite => "旧版 Elite 2 枚举实验固件，V5.9.15 已停止发行。",
             OutputModeId.Recovery => "用于重刷与 USB 救援的最小恢复固件。",
             _ => "尚未选择目标模式。"
         };
@@ -3832,7 +3832,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             Directory.CreateDirectory(LogRootDirectory);
             diagnosticLogPath = Path.Combine(
                 LogRootDirectory,
-                "xin_heliansheng_v5.9.14_" + DateTime.Now.ToString("yyyyMMdd_HHmmss") + ".log");
+                "xin_heliansheng_v5.9.15_" + DateTime.Now.ToString("yyyyMMdd_HHmmss") + ".log");
             diagnosticWriter = new StreamWriter(
                 diagnosticLogPath,
                 append: false,
@@ -3853,7 +3853,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             asset.Path.EndsWith(".bin", StringComparison.OrdinalIgnoreCase) &&
             !asset.Path.Contains("bootloader", StringComparison.OrdinalIgnoreCase) &&
             !asset.Path.Contains("partition", StringComparison.OrdinalIgnoreCase));
-        AppendLog("[DIAG_SESSION_START] app=5.9.14 duration_seconds=" + seconds +
+        AppendLog("[DIAG_SESSION_START] app=5.9.15 duration_seconds=" + seconds +
                   " local_time=" + DateTime.Now.ToString("O") +
                   " utc_time=" + DateTime.UtcNow.ToString("O"));
         AppendLog("[DIAG_PACKAGE] package=" + package.Manifest.PackageVersion +

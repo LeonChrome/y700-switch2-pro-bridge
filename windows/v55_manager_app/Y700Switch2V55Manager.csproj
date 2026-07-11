@@ -6,13 +6,13 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>Y700Switch2V55Manager</AssemblyName>
-    <AssemblyTitle>PRO2 手柄无线接收器控制板 V5.9.14 ESP 控制台版本</AssemblyTitle>
+    <AssemblyTitle>PRO2 手柄无线接收器控制板 V5.9.15 ESP 控制台版本</AssemblyTitle>
     <Product>PRO2 手柄无线接收器控制板</Product>
-    <Description>V5.9.14 新和联胜 ESP 控制台，提供 PS5、Pro2、Xbox、PS5 Edge 四模式点击烧录，连接检测、Pro2 BLE 绑定、快捷诊断、日志台与 Dual Pro2 BLE 能力探针。</Description>
-    <Version>5.9.14</Version>
-    <AssemblyVersion>5.9.14.0</AssemblyVersion>
-    <FileVersion>5.9.14.0</FileVersion>
-    <InformationalVersion>5.9.14-esp-control-console-four-flash-modes</InformationalVersion>
+    <Description>V5.9.15 新和联胜 ESP 控制台，修正 PS5 IMU 物理量纲与零偏，并保留四模式点击烧录和严格 DualSense 触觉调度。</Description>
+    <Version>5.9.15</Version>
+    <AssemblyVersion>5.9.15.0</AssemblyVersion>
+    <FileVersion>5.9.15.0</FileVersion>
+    <InformationalVersion>5.9.15-esp-control-console-four-flash-modes</InformationalVersion>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <ApplicationIcon>assets\icon.ico</ApplicationIcon>
     <PublishSingleFile>true</PublishSingleFile>

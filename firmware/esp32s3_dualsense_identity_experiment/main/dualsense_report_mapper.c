@@ -1,12 +1,27 @@
 #include "dualsense_report_mapper.h"
 
+#include <stdlib.h>
 #include <string.h>
 #include "gamepad_axis_math.h"
 
 static uint8_t s_sequence;
 static uint32_t s_sensor_timestamp;
+static bool s_gyro_bias_calibrated;
+static uint16_t s_gyro_bias_samples;
+static int64_t s_gyro_bias_sum[3];
+static int16_t s_gyro_bias[3];
 
 #define DS5_SENSOR_TICKS_PER_USB_REPORT 12000u
+#define PRO2_ACCEL_RAW_PER_G 4096
+#define DS5_ACCEL_RAW_PER_G 8192
+#define PRO2_GYRO_RAW_PER_DPS_X1000 14247
+#define DS5_GYRO_RAW_PER_DPS_X1000 16384
+#define GYRO_BIAS_SAMPLE_TARGET 250u
+#define GYRO_STATIONARY_MAX_ABS 256
+#define ACCEL_STATIONARY_MIN_MAG 3000
+#define ACCEL_STATIONARY_MAX_MAG 5400
+#define AXIS_CENTER 2048
+#define AXIS_IDLE_TOLERANCE 128
 
 static uint8_t map_hat(const internal_gamepad_state_t *state)
 {
@@ -40,9 +55,81 @@ static void write_u32_le(uint8_t *dst, uint32_t value)
     dst[3] = (uint8_t)((value >> 24) & 0xff);
 }
 
-static int16_t negate_i16(int16_t value)
+static int16_t clamp_i16(int32_t value)
 {
-    return value == INT16_MIN ? INT16_MAX : (int16_t)-value;
+    if (value < INT16_MIN) {
+        return INT16_MIN;
+    }
+    if (value > INT16_MAX) {
+        return INT16_MAX;
+    }
+    return (int16_t)value;
+}
+
+static int16_t scale_ratio_i16(int32_t value,
+                               int32_t numerator,
+                               int32_t denominator)
+{
+    int64_t scaled = (int64_t)value * numerator;
+    scaled += scaled >= 0 ? denominator / 2 : -(denominator / 2);
+    return clamp_i16((int32_t)(scaled / denominator));
+}
+
+static bool gyro_bias_sample_is_stationary(
+    const internal_gamepad_state_t *state,
+    const int16_t accel[3],
+    const int16_t gyro[3])
+{
+    if (!state || state->buttons != 0 ||
+        abs((int)state->lx - AXIS_CENTER) > AXIS_IDLE_TOLERANCE ||
+        abs((int)state->ly - AXIS_CENTER) > AXIS_IDLE_TOLERANCE ||
+        abs((int)state->rx - AXIS_CENTER) > AXIS_IDLE_TOLERANCE ||
+        abs((int)state->ry - AXIS_CENTER) > AXIS_IDLE_TOLERANCE) {
+        return false;
+    }
+
+    int64_t accel_mag_sq =
+        (int64_t)accel[0] * accel[0] +
+        (int64_t)accel[1] * accel[1] +
+        (int64_t)accel[2] * accel[2];
+    bool plausible_gravity =
+        accel_mag_sq >=
+            (int64_t)ACCEL_STATIONARY_MIN_MAG * ACCEL_STATIONARY_MIN_MAG &&
+        accel_mag_sq <=
+            (int64_t)ACCEL_STATIONARY_MAX_MAG * ACCEL_STATIONARY_MAX_MAG;
+    bool gyro_quiet =
+        abs(gyro[0]) <= GYRO_STATIONARY_MAX_ABS &&
+        abs(gyro[1]) <= GYRO_STATIONARY_MAX_ABS &&
+        abs(gyro[2]) <= GYRO_STATIONARY_MAX_ABS;
+    return plausible_gravity && gyro_quiet;
+}
+
+static void update_gyro_bias(const internal_gamepad_state_t *state,
+                             const int16_t accel[3],
+                             const int16_t gyro[3])
+{
+    if (s_gyro_bias_calibrated) {
+        return;
+    }
+    if (!gyro_bias_sample_is_stationary(state, accel, gyro)) {
+        memset(s_gyro_bias_sum, 0, sizeof(s_gyro_bias_sum));
+        s_gyro_bias_samples = 0;
+        return;
+    }
+
+    for (uint8_t axis = 0; axis < 3; axis++) {
+        s_gyro_bias_sum[axis] += gyro[axis];
+    }
+    s_gyro_bias_samples++;
+    if (s_gyro_bias_samples < GYRO_BIAS_SAMPLE_TARGET) {
+        return;
+    }
+
+    for (uint8_t axis = 0; axis < 3; axis++) {
+        s_gyro_bias[axis] =
+            (int16_t)(s_gyro_bias_sum[axis] / s_gyro_bias_samples);
+    }
+    s_gyro_bias_calibrated = true;
 }
 
 static void apply_sequence_and_timing(
@@ -58,6 +145,10 @@ void dualsense_report_mapper_init(void)
     s_sequence = 0;
     // SDL-compatible initial threshold observed in DS5 references.
     s_sensor_timestamp = 10200000u;
+    s_gyro_bias_calibrated = false;
+    s_gyro_bias_samples = 0;
+    memset(s_gyro_bias_sum, 0, sizeof(s_gyro_bias_sum));
+    memset(s_gyro_bias, 0, sizeof(s_gyro_bias));
 }
 
 void dualsense_report_mapper_neutral(
@@ -128,12 +219,33 @@ void dualsense_report_mapper_from_internal(
         gyro[1] = state->gyro_valid ? state->gyro[1] : 0;
         gyro[2] = state->gyro_valid ? state->gyro[2] : 0;
 
-        ds5_gyro[0] = gyro[0];
-        ds5_gyro[1] = gyro[2];
-        ds5_gyro[2] = negate_i16(gyro[1]);
-        ds5_accel[0] = accel[0];
-        ds5_accel[1] = accel[2];
-        ds5_accel[2] = negate_i16(accel[1]);
+        update_gyro_bias(state, accel, gyro);
+        int32_t corrected_gyro[3] = {
+            (int32_t)gyro[0] - s_gyro_bias[0],
+            (int32_t)gyro[1] - s_gyro_bias[1],
+            (int32_t)gyro[2] - s_gyro_bias[2],
+        };
+
+        ds5_gyro[0] = scale_ratio_i16(
+            corrected_gyro[0],
+            DS5_GYRO_RAW_PER_DPS_X1000,
+            PRO2_GYRO_RAW_PER_DPS_X1000);
+        ds5_gyro[1] = scale_ratio_i16(
+            corrected_gyro[2],
+            DS5_GYRO_RAW_PER_DPS_X1000,
+            PRO2_GYRO_RAW_PER_DPS_X1000);
+        ds5_gyro[2] = scale_ratio_i16(
+            -corrected_gyro[1],
+            DS5_GYRO_RAW_PER_DPS_X1000,
+            PRO2_GYRO_RAW_PER_DPS_X1000);
+        ds5_accel[0] = scale_ratio_i16(
+            accel[0], DS5_ACCEL_RAW_PER_G, PRO2_ACCEL_RAW_PER_G);
+        ds5_accel[1] = scale_ratio_i16(
+            accel[2], DS5_ACCEL_RAW_PER_G, PRO2_ACCEL_RAW_PER_G);
+        ds5_accel[2] = scale_ratio_i16(
+            -(int32_t)accel[1],
+            DS5_ACCEL_RAW_PER_G,
+            PRO2_ACCEL_RAW_PER_G);
 
         write_i16_le(report + 15, ds5_gyro[0]);
         write_i16_le(report + 17, ds5_gyro[1]);

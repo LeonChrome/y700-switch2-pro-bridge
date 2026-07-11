@@ -47,6 +47,10 @@ void dualsense_report_make_neutral(uint8_t report[DUALSENSE_INPUT_PAYLOAD_SIZE])
     // Low nibble is the hat. Value 8 is the descriptor's null position.
     report[7] = 0x08;
 
+    // A virtual DualSense lying flat reports gravity on negative Z.
+    report[25] = 0x00;
+    report[26] = 0xe0; // -8192, little endian.
+
     // Both touch contacts are not touching.
     report[32] = 0x80;
     report[36] = 0x80;
