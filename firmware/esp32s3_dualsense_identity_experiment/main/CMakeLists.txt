@@ -100,7 +100,7 @@ elseif(V5_5_DS5_PROFILE STREQUAL "hid_audio_uac1_4ch_dualsense" OR
     set(DS5_AUDIO_CHANNELS 4)
     set(DS5_HID_INTERFACE_NUMBER 3)
     set(DS5_INTERFACE_COUNT 4)
-    set(DS5_PROFILE_SERIAL "V5913PS5STD")
+    set(DS5_PROFILE_SERIAL "V5914PS5STD")
     set(DS5_USB_PID "0x0ce6")
     set(DS5_USB_PRODUCT "DualSense Wireless Controller")
     list(APPEND main_sources
@@ -114,7 +114,7 @@ elseif(V5_5_DS5_PROFILE STREQUAL "hid_audio_uac1_4ch_edge")
     set(DS5_AUDIO_CHANNELS 4)
     set(DS5_HID_INTERFACE_NUMBER 3)
     set(DS5_INTERFACE_COUNT 4)
-    set(DS5_PROFILE_SERIAL "V5913PS5EDGE")
+    set(DS5_PROFILE_SERIAL "V5914PS5EDGE")
     set(DS5_USB_PID "0x0df2")
     set(DS5_USB_PRODUCT "DualSense Edge Wireless Controller")
     list(APPEND main_sources

@@ -60,8 +60,8 @@ static void test_ps5_motion_mapping(void)
     dualsense_report_mapper_init();
     dualsense_report_mapper_from_internal(&state, report, &debug);
 
-    expect_i16("DualSense gyro X = -source X",
-               -100,
+    expect_i16("DualSense gyro X = source X",
+               100,
                read_i16_le(report + 15));
     expect_i16("DualSense gyro Y = source Z",
                -300,
@@ -69,8 +69,8 @@ static void test_ps5_motion_mapping(void)
     expect_i16("DualSense gyro Z = -source Y",
                -200,
                read_i16_le(report + 19));
-    expect_i16("DualSense accel X = -source X",
-               -10,
+    expect_i16("DualSense accel X = source X",
+               10,
                read_i16_le(report + 21));
     expect_i16("DualSense accel Y = source Z",
                20,
@@ -79,10 +79,10 @@ static void test_ps5_motion_mapping(void)
                -8192,
                read_i16_le(report + 25));
 
-    expect_i16("Debug gyro X reports mapped value", -100, debug.gyro[0]);
+    expect_i16("Debug gyro X reports mapped value", 100, debug.gyro[0]);
     expect_i16("Debug gyro Y reports mapped value", -300, debug.gyro[1]);
     expect_i16("Debug gyro Z reports mapped value", -200, debug.gyro[2]);
-    expect_i16("Debug accel X reports mapped value", -10, debug.accel[0]);
+    expect_i16("Debug accel X reports mapped value", 10, debug.accel[0]);
     expect_i16("Debug accel Y reports mapped value", 20, debug.accel[1]);
     expect_i16("Debug accel Z reports mapped value", -8192, debug.accel[2]);
 }
@@ -98,8 +98,8 @@ static void test_i16_min_negation_saturates(void)
     dualsense_report_mapper_init();
     dualsense_report_mapper_from_internal(&state, report, NULL);
 
-    expect_i16("DualSense gyro X clamps INT16_MIN negation",
-               INT16_MAX,
+    expect_i16("DualSense gyro X preserves INT16_MIN when X is not inverted",
+               INT16_MIN,
                read_i16_le(report + 15));
 }
 

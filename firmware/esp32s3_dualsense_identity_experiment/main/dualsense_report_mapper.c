@@ -128,10 +128,10 @@ void dualsense_report_mapper_from_internal(
         gyro[1] = state->gyro_valid ? state->gyro[1] : 0;
         gyro[2] = state->gyro_valid ? state->gyro[2] : 0;
 
-        ds5_gyro[0] = negate_i16(gyro[0]);
+        ds5_gyro[0] = gyro[0];
         ds5_gyro[1] = gyro[2];
         ds5_gyro[2] = negate_i16(gyro[1]);
-        ds5_accel[0] = negate_i16(accel[0]);
+        ds5_accel[0] = accel[0];
         ds5_accel[1] = accel[2];
         ds5_accel[2] = negate_i16(accel[1]);
 

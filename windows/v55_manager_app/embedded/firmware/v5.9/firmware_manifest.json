@@ -1,6 +1,6 @@
 {
-  "packageVersion": "v5.9.13-aio",
-  "firmwareVersion": "5.9.13-manager",
+  "packageVersion": "v5.9.14-aio",
+  "firmwareVersion": "5.9.14-manager",
   "target": "esp32s3",
   "flashMode": "dio",
   "flashFreq": "80m",
@@ -15,7 +15,7 @@
         {
           "offset": "0x0",
           "path": "hid_audio_uac1_4ch_dualsense/bootloader/bootloader.bin",
-          "sha256": "248de8b289b846399b280a3057197f32133bd303761fa2110a8f2d7c6e048ea8"
+          "sha256": "1dc1628c316e62b105561877f6403e987c1f2c12f832f66449e45b0a1a542eb7"
         },
         {
           "offset": "0x8000",
@@ -25,7 +25,7 @@
         {
           "offset": "0x10000",
           "path": "hid_audio_uac1_4ch_dualsense/esp32s3_dualsense_identity_experiment.bin",
-          "sha256": "0f78c9db3e6276a3c92e44ad60f1050e3f5303baed506519691cfa3aa6a30698"
+          "sha256": "8898f1e233bcb41e95cddf6d567e8257508993da151c3705fddb2472ec228212"
         }
       ]
     },
@@ -37,7 +37,7 @@
         {
           "offset": "0x0",
           "path": "hid_audio_uac1_4ch_edge/bootloader/bootloader.bin",
-          "sha256": "41f40fe88d2597ab7dfcb3c8aaf4fd43efde8bd6bb0f2515dea90049dfc8bde6"
+          "sha256": "7d1fafecfc344110851098890fcb479300b4c6c4b201b9a0409166e9ff16ec90"
         },
         {
           "offset": "0x8000",
@@ -47,7 +47,7 @@
         {
           "offset": "0x10000",
           "path": "hid_audio_uac1_4ch_edge/esp32s3_dualsense_identity_experiment.bin",
-          "sha256": "9b0df7849e5dafdd3c63fddd0cae5a3b956c39ac47e693f96755347c30558510"
+          "sha256": "2b2df185c5f009e9839b5ba791951cd1a91871c17ddf1e4e1f889c05c686ef91"
         }
       ]
     },
@@ -59,7 +59,7 @@
         {
           "offset": "0x0",
           "path": "hid_only/bootloader/bootloader.bin",
-          "sha256": "8671f4242b692d915e62248fd27136ec99a0fc18e6316677840019516c83a269"
+          "sha256": "20cfba9bbbfb31b008c5c4df96e751e41e735d4d435c359bb4275cca15b8707e"
         },
         {
           "offset": "0x8000",
@@ -69,7 +69,7 @@
         {
           "offset": "0x10000",
           "path": "hid_only/esp32s3_dualsense_identity_experiment.bin",
-          "sha256": "f711bce88bfcd7619f66d281be398f31c5d5d16d431f857691599f5c310ffeb5"
+          "sha256": "4dfb3ad78e0a0146bdc68138e8885c95bb8c3563897a9dce1d101d18b36dd200"
         }
       ]
     },
@@ -81,7 +81,7 @@
         {
           "offset": "0x0",
           "path": "pro2_bridge_v5_5/bootloader/bootloader.bin",
-          "sha256": "3d74c06c5bfdf4fdf823c5ba323cf9729532c46c4f3bc258c8050caf8201a9d0"
+          "sha256": "51676e0ace684cfcfb3931bfdeeeffe0ef46e66263273d9b5e384ef43800c139"
         },
         {
           "offset": "0x8000",
@@ -91,7 +91,7 @@
         {
           "offset": "0x10000",
           "path": "pro2_bridge_v5_5/esp32s3_switch2_bridge.bin",
-          "sha256": "8b0c66d13bbc86e508adadb7513f4af7dbb697e044cfa98ba21e6205c762dbfc"
+          "sha256": "f4c7aa6b3074faf6cb4db7833d76ba7f5663df67b277b7b1a700f76ac1ac10a1"
         }
       ]
     },
@@ -103,7 +103,7 @@
         {
           "offset": "0x0",
           "path": "xinput_bridge_v5_8/bootloader/bootloader.bin",
-          "sha256": "1a63a35ca8632cfc4dc7d4ac9f0121f5e7add29d53369dc1accc246862518737"
+          "sha256": "6deb7cacd2bdcb7befdd35a3edfe805b7cfc2a706a1ce99d1b1166066ac5fa1a"
         },
         {
           "offset": "0x8000",
@@ -113,7 +113,7 @@
         {
           "offset": "0x10000",
           "path": "xinput_bridge_v5_8/esp32s3_switch2_bridge.bin",
-          "sha256": "45d989aed1c1758226b6f95e813d1bc41d2d5f3364b437c95e6d726f599f25e8"
+          "sha256": "c5f50f360ba2e8ea87e709df813a58dc7d5117c372aecb74683c9d0f65c0daae"
         }
       ]
     },
@@ -125,7 +125,7 @@
         {
           "offset": "0x0",
           "path": "dual_pro2_probe_v5_9/bootloader/bootloader.bin",
-          "sha256": "67080e2a06356381b31e16b92b2ed7756d277ee3231f5c02c5ec27a7618a2fd2"
+          "sha256": "61bfaf99037ebebe30ad17c61d581bec95f2e554c8df60a43280edc85abfea17"
         },
         {
           "offset": "0x8000",
@@ -135,10 +135,10 @@
         {
           "offset": "0x10000",
           "path": "dual_pro2_probe_v5_9/esp32s3_switch2_bridge.bin",
-          "sha256": "e67f991f6bc00583ec4b36dd47ed97634f429608d96e98423b37f103a59b818d"
+          "sha256": "c58d21788af3c8e4e298a0444438d4a87ce1ccb17655041a309ed27e34d6e1f3"
         }
       ]
     }
   ],
-  "notes": "V5.9.13 ESP control console bundle: four click-to-flash profiles for PS5 standard (054C:0CE6), Pro2/Nintendo (057E:2069), Xbox/XInput (045E:028E), and PS5 Edge (054C:0DF2); HD haptics, ordinary-rumble arbitration, guided first pairing/reconnect/controller replacement, Xbox GL/GR mapping, embedded esptool, CH343 driver repair, serial watchdogs, UI log throttling, BLE stable-first connect policy, turbo 7.5ms connection-parameter auto fallback, BLE MultiProbe telemetry, and a Dual Pro2 BLE capacity probe profile. No launch-at-login or startup auto reconnect UI is exposed in the ESP manager."
+  "notes": "V5.9.14 ESP control console bundle: four click-to-flash profiles for PS5 standard (054C:0CE6), Pro2/Nintendo (057E:2069), Xbox/XInput (045E:028E), and PS5 Edge (054C:0DF2); HD haptics, ordinary-rumble arbitration, guided first pairing/reconnect/controller replacement, Xbox GL/GR mapping, embedded esptool, CH343 driver repair, serial watchdogs, UI log throttling, BLE stable-first connect policy, turbo 7.5ms connection-parameter auto fallback, BLE MultiProbe telemetry, and a Dual Pro2 BLE capacity probe profile. No launch-at-login or startup auto reconnect UI is exposed in the ESP manager."
 }

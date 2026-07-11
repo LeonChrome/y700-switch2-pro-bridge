@@ -329,7 +329,7 @@ esp_err_t device_config_save_ble_target(const char *target)
 
 const char *device_config_get_version(void)
 {
-    return "5.9.13";
+    return "5.9.14";
 }
 
 

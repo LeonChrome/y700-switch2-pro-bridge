@@ -32,7 +32,6 @@ idf_component_register(
         bt
         nvs_flash
         esp_timer
-        driver
 )
 
 if(DEFINED DEVICE_DEFAULT_MODE AND NOT "${DEVICE_DEFAULT_MODE}" STREQUAL "")

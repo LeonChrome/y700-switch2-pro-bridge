@@ -223,7 +223,7 @@ static void hid_report_task(void *arg)
 void app_main(void)
 {
     app_log_init();
-    APP_LOGI(TAG, "ESP32-S3 Switch 2 bridge firmware 5.9.13 starting");
+    APP_LOGI(TAG, "ESP32-S3 Switch 2 bridge firmware 5.9.14 starting");
     APP_LOGI(TAG, "Stable path: Steam Switch Pro/Pro2 layout, BLE input, raw-like gyro, rumble, and boot autoconnect are verified");
     APP_LOGI(TAG, "Experimental path: dual Pro2 BLE probe mode measures two-controller connection capacity before dual-HID work");
 
