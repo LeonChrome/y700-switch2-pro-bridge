@@ -1,144 +1,144 @@
-{
-  "packageVersion": "v5.9.16-aio",
-  "firmwareVersion": "5.9.16-manager",
-  "target": "esp32s3",
-  "flashMode": "dio",
-  "flashFreq": "80m",
-  "flashSize": "16MB",
-  "defaultProfile": "pro2_bridge_v5_5",
-  "profiles": [
-    {
-      "id": "hid_audio_uac1_4ch_dualsense",
-      "label": "Xin He Lian Sheng / PS5 standard",
-      "app": "esp32s3_dualsense_identity_experiment.bin",
-      "assets": [
-        {
-          "offset": "0x0",
-          "path": "hid_audio_uac1_4ch_dualsense/bootloader/bootloader.bin",
-          "sha256": "1dc1628c316e62b105561877f6403e987c1f2c12f832f66449e45b0a1a542eb7"
-        },
-        {
-          "offset": "0x8000",
-          "path": "hid_audio_uac1_4ch_dualsense/partition_table/partition-table.bin",
-          "sha256": "7f00b6c042a89b15b0cac534f82ed988caf29278ff5700b0c511eb1b5bb7c820"
-        },
-        {
-          "offset": "0x10000",
-          "path": "hid_audio_uac1_4ch_dualsense/esp32s3_dualsense_identity_experiment.bin",
-          "sha256": "24a1ea8276674cee13f0d2772e50f984de3d7db8e5cc61cf576676094c4a0b39"
-        }
-      ]
-    },
-    {
-      "id": "hid_audio_uac1_4ch_edge",
-      "label": "Xin He Lian Sheng / PS5 Edge",
-      "app": "esp32s3_dualsense_identity_experiment.bin",
-      "assets": [
-        {
-          "offset": "0x0",
-          "path": "hid_audio_uac1_4ch_edge/bootloader/bootloader.bin",
-          "sha256": "7d1fafecfc344110851098890fcb479300b4c6c4b201b9a0409166e9ff16ec90"
-        },
-        {
-          "offset": "0x8000",
-          "path": "hid_audio_uac1_4ch_edge/partition_table/partition-table.bin",
-          "sha256": "7f00b6c042a89b15b0cac534f82ed988caf29278ff5700b0c511eb1b5bb7c820"
-        },
-        {
-          "offset": "0x10000",
-          "path": "hid_audio_uac1_4ch_edge/esp32s3_dualsense_identity_experiment.bin",
-          "sha256": "e3f6f3654eb807c929465090b099aeb787602c1ab28c6c2b9001f2e07c089f68"
-        }
-      ]
-    },
-    {
-      "id": "hid_only",
-      "label": "HID-only recovery",
-      "app": "esp32s3_dualsense_identity_experiment.bin",
-      "assets": [
-        {
-          "offset": "0x0",
-          "path": "hid_only/bootloader/bootloader.bin",
-          "sha256": "20cfba9bbbfb31b008c5c4df96e751e41e735d4d435c359bb4275cca15b8707e"
-        },
-        {
-          "offset": "0x8000",
-          "path": "hid_only/partition_table/partition-table.bin",
-          "sha256": "7f00b6c042a89b15b0cac534f82ed988caf29278ff5700b0c511eb1b5bb7c820"
-        },
-        {
-          "offset": "0x10000",
-          "path": "hid_only/esp32s3_dualsense_identity_experiment.bin",
-          "sha256": "932f290147025173712287be3dc5c755b0ceefbfba59e2195e62f400ca859146"
-        }
-      ]
-    },
-    {
-      "id": "pro2_bridge_v5_5",
-      "label": "Pro2 / Nintendo bridge",
-      "app": "esp32s3_switch2_bridge.bin",
-      "assets": [
-        {
-          "offset": "0x0",
-          "path": "pro2_bridge_v5_5/bootloader/bootloader.bin",
-          "sha256": "51676e0ace684cfcfb3931bfdeeeffe0ef46e66263273d9b5e384ef43800c139"
-        },
-        {
-          "offset": "0x8000",
-          "path": "pro2_bridge_v5_5/partition_table/partition-table.bin",
-          "sha256": "7f00b6c042a89b15b0cac534f82ed988caf29278ff5700b0c511eb1b5bb7c820"
-        },
-        {
-          "offset": "0x10000",
-          "path": "pro2_bridge_v5_5/esp32s3_switch2_bridge.bin",
-          "sha256": "3d86f4f5fbc69ddca5583ce511852c4f30e7112f12323741da21be2b423198e8"
-        }
-      ]
-    },
-    {
-      "id": "xinput_bridge_v5_8",
-      "label": "Xbox / XInput bridge",
-      "app": "esp32s3_switch2_bridge.bin",
-      "assets": [
-        {
-          "offset": "0x0",
-          "path": "xinput_bridge_v5_8/bootloader/bootloader.bin",
-          "sha256": "6deb7cacd2bdcb7befdd35a3edfe805b7cfc2a706a1ce99d1b1166066ac5fa1a"
-        },
-        {
-          "offset": "0x8000",
-          "path": "xinput_bridge_v5_8/partition_table/partition-table.bin",
-          "sha256": "7f00b6c042a89b15b0cac534f82ed988caf29278ff5700b0c511eb1b5bb7c820"
-        },
-        {
-          "offset": "0x10000",
-          "path": "xinput_bridge_v5_8/esp32s3_switch2_bridge.bin",
-          "sha256": "bc45d561e14a7c7bd224cc6fbeca1271bcca144435d2ea2e49d882dac0f03054"
-        }
-      ]
-    },
-    {
-      "id": "dual_pro2_probe_v5_9",
-      "label": "Dual Pro2 BLE capacity probe",
-      "app": "esp32s3_switch2_bridge.bin",
-      "assets": [
-        {
-          "offset": "0x0",
-          "path": "dual_pro2_probe_v5_9/bootloader/bootloader.bin",
-          "sha256": "61bfaf99037ebebe30ad17c61d581bec95f2e554c8df60a43280edc85abfea17"
-        },
-        {
-          "offset": "0x8000",
-          "path": "dual_pro2_probe_v5_9/partition_table/partition-table.bin",
-          "sha256": "7f00b6c042a89b15b0cac534f82ed988caf29278ff5700b0c511eb1b5bb7c820"
-        },
-        {
-          "offset": "0x10000",
-          "path": "dual_pro2_probe_v5_9/esp32s3_switch2_bridge.bin",
-          "sha256": "e29e7608f70cebfa2e7d18140900806487dfc0dff36672a23eda1480feee6ef1"
-        }
-      ]
-    }
-  ],
-  "notes": "V5.9.16 ESP control console bundle: four click-to-flash profiles for PS5 standard (054C:0CE6), Pro2/Nintendo (057E:2069), Xbox/XInput (045E:028E), and PS5 Edge (054C:0DF2); adds a first-run wizard for dual USB cabling, board detection, categorized flash failures, USB identity verification, automatic Pro2 pairing, manual BLE scan fallback, and COM-cable removal guidance; PS5 IMU and strict ordinary/HD haptic arbitration remain unchanged."
+﻿{
+    "packageVersion":  "v5.9.17-aio",
+    "firmwareVersion":  "5.9.17-manager",
+    "target":  "esp32s3",
+    "flashMode":  "dio",
+    "flashFreq":  "80m",
+    "flashSize":  "16MB",
+    "defaultProfile":  "pro2_bridge_v5_5",
+    "profiles":  [
+                     {
+                         "id":  "hid_audio_uac1_4ch_dualsense",
+                         "label":  "Xin He Lian Sheng / PS5 standard",
+                         "app":  "esp32s3_dualsense_identity_experiment.bin",
+                         "assets":  [
+                                        {
+                                            "offset":  "0x0",
+                                            "path":  "hid_audio_uac1_4ch_dualsense/bootloader/bootloader.bin",
+                                            "sha256":  "1dc1628c316e62b105561877f6403e987c1f2c12f832f66449e45b0a1a542eb7"
+                                        },
+                                        {
+                                            "offset":  "0x8000",
+                                            "path":  "hid_audio_uac1_4ch_dualsense/partition_table/partition-table.bin",
+                                            "sha256":  "7f00b6c042a89b15b0cac534f82ed988caf29278ff5700b0c511eb1b5bb7c820"
+                                        },
+                                        {
+                                            "offset":  "0x10000",
+                                            "path":  "hid_audio_uac1_4ch_dualsense/esp32s3_dualsense_identity_experiment.bin",
+                                            "sha256":  "5113708f04efcbe90aa5db3817f87f71cfdb54f0455bebf719f9f907568aa0fe"
+                                        }
+                                    ]
+                     },
+                     {
+                         "id":  "hid_audio_uac1_4ch_edge",
+                         "label":  "Xin He Lian Sheng / PS5 Edge",
+                         "app":  "esp32s3_dualsense_identity_experiment.bin",
+                         "assets":  [
+                                        {
+                                            "offset":  "0x0",
+                                            "path":  "hid_audio_uac1_4ch_edge/bootloader/bootloader.bin",
+                                            "sha256":  "7d1fafecfc344110851098890fcb479300b4c6c4b201b9a0409166e9ff16ec90"
+                                        },
+                                        {
+                                            "offset":  "0x8000",
+                                            "path":  "hid_audio_uac1_4ch_edge/partition_table/partition-table.bin",
+                                            "sha256":  "7f00b6c042a89b15b0cac534f82ed988caf29278ff5700b0c511eb1b5bb7c820"
+                                        },
+                                        {
+                                            "offset":  "0x10000",
+                                            "path":  "hid_audio_uac1_4ch_edge/esp32s3_dualsense_identity_experiment.bin",
+                                            "sha256":  "6cf563a8bfe5010df669aadffbed0fa51d25b3bf316093e48ee81b9d6f14e705"
+                                        }
+                                    ]
+                     },
+                     {
+                         "id":  "hid_only",
+                         "label":  "HID-only recovery",
+                         "app":  "esp32s3_dualsense_identity_experiment.bin",
+                         "assets":  [
+                                        {
+                                            "offset":  "0x0",
+                                            "path":  "hid_only/bootloader/bootloader.bin",
+                                            "sha256":  "20cfba9bbbfb31b008c5c4df96e751e41e735d4d435c359bb4275cca15b8707e"
+                                        },
+                                        {
+                                            "offset":  "0x8000",
+                                            "path":  "hid_only/partition_table/partition-table.bin",
+                                            "sha256":  "7f00b6c042a89b15b0cac534f82ed988caf29278ff5700b0c511eb1b5bb7c820"
+                                        },
+                                        {
+                                            "offset":  "0x10000",
+                                            "path":  "hid_only/esp32s3_dualsense_identity_experiment.bin",
+                                            "sha256":  "17fed76299977a7c6b32addddbdc8db27384cf4bbf18fe34a9cfe04858f67364"
+                                        }
+                                    ]
+                     },
+                     {
+                         "id":  "pro2_bridge_v5_5",
+                         "label":  "Pro2 / Nintendo bridge",
+                         "app":  "esp32s3_switch2_bridge.bin",
+                         "assets":  [
+                                        {
+                                            "offset":  "0x0",
+                                            "path":  "pro2_bridge_v5_5/bootloader/bootloader.bin",
+                                            "sha256":  "51676e0ace684cfcfb3931bfdeeeffe0ef46e66263273d9b5e384ef43800c139"
+                                        },
+                                        {
+                                            "offset":  "0x8000",
+                                            "path":  "pro2_bridge_v5_5/partition_table/partition-table.bin",
+                                            "sha256":  "7f00b6c042a89b15b0cac534f82ed988caf29278ff5700b0c511eb1b5bb7c820"
+                                        },
+                                        {
+                                            "offset":  "0x10000",
+                                            "path":  "pro2_bridge_v5_5/esp32s3_switch2_bridge.bin",
+                                            "sha256":  "25556ba343afec3af589f6029dce8f05182e85db9fb977b71288d840d5eeccc6"
+                                        }
+                                    ]
+                     },
+                     {
+                         "id":  "xinput_bridge_v5_8",
+                         "label":  "Xbox / XInput bridge",
+                         "app":  "esp32s3_switch2_bridge.bin",
+                         "assets":  [
+                                        {
+                                            "offset":  "0x0",
+                                            "path":  "xinput_bridge_v5_8/bootloader/bootloader.bin",
+                                            "sha256":  "6deb7cacd2bdcb7befdd35a3edfe805b7cfc2a706a1ce99d1b1166066ac5fa1a"
+                                        },
+                                        {
+                                            "offset":  "0x8000",
+                                            "path":  "xinput_bridge_v5_8/partition_table/partition-table.bin",
+                                            "sha256":  "7f00b6c042a89b15b0cac534f82ed988caf29278ff5700b0c511eb1b5bb7c820"
+                                        },
+                                        {
+                                            "offset":  "0x10000",
+                                            "path":  "xinput_bridge_v5_8/esp32s3_switch2_bridge.bin",
+                                            "sha256":  "b7b7badd9b31c242d9e23c88192ed70ae8a17a5a15d72c6beba0f39136f56137"
+                                        }
+                                    ]
+                     },
+                     {
+                         "id":  "dual_pro2_probe_v5_9",
+                         "label":  "Dual Pro2 BLE capacity probe",
+                         "app":  "esp32s3_switch2_bridge.bin",
+                         "assets":  [
+                                        {
+                                            "offset":  "0x0",
+                                            "path":  "dual_pro2_probe_v5_9/bootloader/bootloader.bin",
+                                            "sha256":  "61bfaf99037ebebe30ad17c61d581bec95f2e554c8df60a43280edc85abfea17"
+                                        },
+                                        {
+                                            "offset":  "0x8000",
+                                            "path":  "dual_pro2_probe_v5_9/partition_table/partition-table.bin",
+                                            "sha256":  "7f00b6c042a89b15b0cac534f82ed988caf29278ff5700b0c511eb1b5bb7c820"
+                                        },
+                                        {
+                                            "offset":  "0x10000",
+                                            "path":  "dual_pro2_probe_v5_9/esp32s3_switch2_bridge.bin",
+                                            "sha256":  "40351f477249f33e02b1276841173a3b6ce0cafadb06339592d0a154bfb7f123"
+                                        }
+                                    ]
+                     }
+                 ],
+    "notes":  "V5.9.17 ESP control console bundle: all four production profiles publish only the latest input state at the real Pro2 BLE notification cadence; fixed 250 Hz repetition and historical replay are removed from the live path. A neutral state is sent immediately on source loss and then kept alive at 20 Hz. The first-run guide, PS5 IMU, Edge identity, XInput mapping, and strict ordinary/HD haptic arbitration remain unchanged."
 }

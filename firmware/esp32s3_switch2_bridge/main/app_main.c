@@ -26,6 +26,8 @@ static const char *TAG = "app";
 
 #define BLE_LIVE_STALE_US 1000000LL
 #define AUTO_A_TOGGLE_US 500000LL
+#define HID_SOURCE_POLL_MS 1
+#define HID_NEUTRAL_KEEPALIVE_US 50000LL
 #define CONTROL_LINE_MAX 192
 
 static bool usb_current_mode_ready(void)
@@ -146,11 +148,15 @@ static void hid_report_task(void *arg)
 {
     (void)arg;
     bool pressed = false;
+    bool live_source_latched = false;
+    bool neutral_latched = false;
+    uint32_t last_sent_live_updates = 0;
+    int64_t next_neutral_keepalive_us = 0;
+    int64_t next_test_report_us = 0;
     int64_t next_log_us = 0;
 
     while (true) {
         int64_t now_us = esp_timer_get_time();
-        uint32_t delay_ms = report_delay_ms();
         switch2_state_t state;
         const char *source = "test";
         uint32_t live_updates = 0;
@@ -161,14 +167,23 @@ static void hid_report_task(void *arg)
 
         if (!device_config_bridge_running()) {
             switch2_state_reset(&state);
+            live_source_latched = false;
 
-            if (usb_current_mode_ready()) {
+            bool should_send_neutral = !neutral_latched ||
+                                       now_us >= next_neutral_keepalive_us;
+            if (usb_current_mode_ready() && should_send_neutral) {
                 esp_err_t err = send_usb_state_report(&state);
-                if (err == ESP_OK && now_us >= next_log_us) {
-                    APP_LOGI(TAG, "USB stopped; neutral report sent mode=%s",
-                             device_mode_to_string(device_config_get_mode()));
-                    next_log_us = now_us + 1000000LL;
-                } else if (err != ESP_OK && now_us >= next_log_us) {
+                if (err == ESP_OK) {
+                    neutral_latched = true;
+                    next_neutral_keepalive_us =
+                        now_us + HID_NEUTRAL_KEEPALIVE_US;
+                    if (now_us >= next_log_us) {
+                        APP_LOGI(TAG,
+                                 "USB stopped; neutral report sent mode=%s cadence=20hz_keepalive",
+                                 device_mode_to_string(device_config_get_mode()));
+                        next_log_us = now_us + 1000000LL;
+                    }
+                } else if (now_us >= next_log_us) {
                     APP_LOGW(TAG, "USB stopped; neutral report failed mode=%s err=%d",
                              device_mode_to_string(device_config_get_mode()),
                              (int)err);
@@ -180,50 +195,79 @@ static void hid_report_task(void *arg)
                          device_mode_to_string(device_config_get_mode()));
                 next_log_us = now_us + 1000000LL;
             }
-            vTaskDelay(pdMS_TO_TICKS(delay_ms));
+            vTaskDelay(pdMS_TO_TICKS(HID_SOURCE_POLL_MS));
             continue;
         }
 
         bool live_valid = switch2_state_get_live(&state, &live_updates, &live_age_us);
         bool using_live = live_valid && live_age_us <= BLE_LIVE_STALE_US;
         bool a_pressed = false;
+        bool should_send = false;
         if (using_live) {
             source = "ble";
+            should_send = !live_source_latched ||
+                          live_updates != last_sent_live_updates;
+            neutral_latched = false;
         } else {
             a_pressed = make_test_state(&state, &pressed, now_us);
+            live_source_latched = false;
+            bool active_test = test_mode != HID_TEST_NEUTRAL;
+            if (active_test) {
+                should_send = now_us >= next_test_report_us;
+                if (should_send) {
+                    next_test_report_us =
+                        now_us + (int64_t)report_delay_ms() * 1000LL;
+                }
+            } else {
+                should_send = !neutral_latched ||
+                              now_us >= next_neutral_keepalive_us;
+            }
         }
 
-        if (usb_current_mode_ready()) {
+        if (usb_current_mode_ready() && should_send) {
             esp_err_t err = send_usb_state_report(&state);
-            if (err == ESP_OK && now_us >= next_log_us) {
-                APP_LOGI(TAG, "report loop usb_mode=%s source=%s rate_hz=%u live_updates=%lu live_age_ms=%lld test_mode=%s test_a=%s",
-                         device_mode_to_string(device_config_get_mode()),
-                         source,
-                         (unsigned)device_config_get_report_rate_hz(),
-                         (unsigned long)live_updates,
-                         using_live ? (long long)(live_age_us / 1000) : -1LL,
-                         hid_test_mode_to_string(test_mode),
-                         a_pressed ? "pressed" : "released");
-                next_log_us = now_us + 1000000LL;
-            } else if (err != ESP_OK && now_us >= next_log_us) {
+            if (err == ESP_OK) {
+                if (using_live) {
+                    last_sent_live_updates = live_updates;
+                    live_source_latched = true;
+                } else if (test_mode == HID_TEST_NEUTRAL) {
+                    neutral_latched = true;
+                    next_neutral_keepalive_us =
+                        now_us + HID_NEUTRAL_KEEPALIVE_US;
+                }
+                if (now_us >= next_log_us) {
+                    APP_LOGI(TAG, "report loop usb_mode=%s source=%s cadence=%s configured_test_rate_hz=%u live_updates=%lu live_age_ms=%lld test_mode=%s test_a=%s",
+                             device_mode_to_string(device_config_get_mode()),
+                             source,
+                             using_live ? "ble_source_updates" :
+                             (test_mode == HID_TEST_NEUTRAL ? "20hz_neutral_keepalive" : "fixed_test_rate"),
+                             (unsigned)device_config_get_report_rate_hz(),
+                             (unsigned long)live_updates,
+                             using_live ? (long long)(live_age_us / 1000) : -1LL,
+                             hid_test_mode_to_string(test_mode),
+                             a_pressed ? "pressed" : "released");
+                    next_log_us = now_us + 1000000LL;
+                }
+            } else if (!usb_current_mode_ready() && now_us >= next_log_us) {
                 APP_LOGW(TAG, "report send failed err=%d", (int)err);
                 next_log_us = now_us + 1000000LL;
             }
-        } else if (now_us >= next_log_us) {
+        } else if (!usb_current_mode_ready() && now_us >= next_log_us) {
             APP_LOGI(TAG, "USB not ready state=%s; firmware alive mode=%s",
                      usb_hid_device_state_string(),
                      device_mode_to_string(device_config_get_mode()));
             next_log_us = now_us + 1000000LL;
         }
 
-        vTaskDelay(pdMS_TO_TICKS(delay_ms));
+        vTaskDelay(pdMS_TO_TICKS(HID_SOURCE_POLL_MS));
     }
 }
 
 void app_main(void)
 {
     app_log_init();
-    APP_LOGI(TAG, "ESP32-S3 Switch 2 bridge firmware 5.9.15 starting");
+    APP_LOGI(TAG, "ESP32-S3 Switch 2 bridge firmware 5.9.17 starting");
+    APP_LOGI(TAG, "Input cadence: latest-state BLE notification paced; no fixed-rate historical replay");
     APP_LOGI(TAG, "Stable path: Steam Switch Pro/Pro2 layout, BLE input, raw-like gyro, rumble, and boot autoconnect are verified");
     APP_LOGI(TAG, "Experimental path: dual Pro2 BLE probe mode measures two-controller connection capacity before dual-HID work");
 

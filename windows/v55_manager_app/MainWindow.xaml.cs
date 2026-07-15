@@ -36,7 +36,7 @@ public partial class MainWindow : Window
         viewModel.MarkFirstRunGuideOffered();
         MessageBoxResult answer = MessageBox.Show(
             this,
-            "检测到这是 V5.9.16 ESP 控制台的首次运行。\n\n是否打开双 USB 接线、刷写、USB 身份验证和 Pro2 BLE 配对向导？",
+            "检测到这是 V5.9.17 ESP 控制台的首次运行。\n\n是否打开双 USB 接线、刷写、USB 身份验证和 Pro2 BLE 配对向导？",
             "首次使用向导",
             MessageBoxButton.YesNo,
             MessageBoxImage.Question);

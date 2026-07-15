@@ -117,7 +117,7 @@
                 <StackPanel>
                     <StackPanel Orientation="Horizontal">
                         <Border Background="#E0F2FE" BorderBrush="#7DD3FC" BorderThickness="1" CornerRadius="15" Padding="10,4" Margin="0,0,10,0">
-                            <TextBlock Text="V5.9.16" Foreground="#0F172A" FontSize="12" FontWeight="SemiBold"/>
+                            <TextBlock Text="V5.9.17" Foreground="#0F172A" FontSize="12" FontWeight="SemiBold"/>
                         </Border>
                         <Border Background="#172554" BorderBrush="#60A5FA" BorderThickness="1" CornerRadius="15" Padding="10,4">
                             <TextBlock Text="ESP 控制台" Foreground="#FFFFFF" FontSize="12" FontWeight="SemiBold"/>

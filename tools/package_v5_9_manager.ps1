@@ -11,7 +11,7 @@ $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $ManagerRoot = Join-Path $RepoRoot "windows\v55_manager_app"
 $ReleaseRoot = Join-Path $RepoRoot "release\v5.9"
 $PublishRoot = Join-Path $ReleaseRoot "publish"
-$PackageVersion = "5.9.16"
+$PackageVersion = "5.9.17"
 $PackageTag = "v$PackageVersion"
 # Keep the script ASCII-safe so Windows PowerShell 5.1 cannot corrupt the Chinese file name.
 $ChineseProductName = -join (@(0x65B0, 0x548C, 0x8054, 0x80DC, 0x7248, 0x672C) | ForEach-Object { [char]$_ })
@@ -19,6 +19,8 @@ $SingleExeName = "$ChineseProductName-aio-$PackageTag.exe"
 $SingleExe = Join-Path $ReleaseRoot $SingleExeName
 $LegacySingleExe = Join-Path $ReleaseRoot "Y700Switch2V55Manager-aio-$PackageTag.exe"
 $HashFile = Join-Path $ReleaseRoot "SHA256SUMS-$PackageTag.txt"
+$ReadmeFile = Join-Path $ReleaseRoot "README-$PackageTag.md"
+$ReadmeSource = Join-Path $RepoRoot "tools\release_notes_v5_9_17.zh-CN.md"
 $DotnetRoot = Join-Path $RepoRoot "work\dotnet"
 . (Join-Path $RepoRoot "tools\esp32s3\idf_environment.ps1")
 
@@ -321,7 +323,7 @@ function Refresh-EmbeddedAssets {
         flashSize = "16MB"
         defaultProfile = "pro2_bridge_v5_5"
         profiles = $profiles
-        notes = "V5.9.16 ESP control console bundle: four click-to-flash profiles for PS5 standard (054C:0CE6), Pro2/Nintendo (057E:2069), Xbox/XInput (045E:028E), and PS5 Edge (054C:0DF2); adds a first-run wizard for dual USB cabling, board detection, categorized flash failures, USB identity verification, automatic Pro2 pairing, manual BLE scan fallback, and COM-cable removal guidance; PS5 IMU and strict ordinary/HD haptic arbitration remain unchanged."
+        notes = "V5.9.17 ESP control console bundle: all four production profiles publish only the latest input state at the real Pro2 BLE notification cadence; fixed 250 Hz repetition and historical replay are removed from the live path. A neutral state is sent immediately on source loss and then kept alive at 20 Hz. The first-run guide, PS5 IMU, Edge identity, XInput mapping, and strict ordinary/HD haptic arbitration remain unchanged."
     }
     $manifest | ConvertTo-Json -Depth 8 | Set-Content -Encoding UTF8 -Path (Join-Path $firmwareRoot "firmware_manifest.json")
 
@@ -416,6 +418,11 @@ if (!$DryRun) {
     Copy-Item -LiteralPath $publishedExe -Destination $SingleExe -Force
     Copy-Item -LiteralPath $publishedExe -Destination $LegacySingleExe -Force
 
+    if (!(Test-Path -LiteralPath $ReadmeSource)) {
+        throw "Release notes not found: $ReadmeSource"
+    }
+    Copy-Item -LiteralPath $ReadmeSource -Destination $ReadmeFile -Force
+
     $verifyLog = Join-Path $RepoRoot "work\v5_9_9_manager_package_verify.txt"
     Remove-Item -LiteralPath $verifyLog -Force -ErrorAction SilentlyContinue
     $verifyProcess = Start-Process -FilePath $SingleExe `
@@ -454,6 +461,7 @@ if (!$DryRun) {
     Remove-TreeWithRetry $PublishRoot
     Write-Step "exe" (($SingleExe.Substring($RepoRoot.Length + 1)) -replace '\\','/')
     Write-Step "github_exe" (($LegacySingleExe.Substring($RepoRoot.Length + 1)) -replace '\\','/')
+    Write-Step "readme" (($ReadmeFile.Substring($RepoRoot.Length + 1)) -replace '\\','/')
     Write-Step "sha256_file" (($HashFile.Substring($RepoRoot.Length + 1)) -replace '\\','/')
 }
 
