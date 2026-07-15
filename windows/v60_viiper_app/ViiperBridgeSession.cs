@@ -79,6 +79,11 @@ public sealed class ViiperBridgeSession : IAsyncDisposable
 
     public bool HasProfessionalImuRuntime => professionalImuRuntime != null;
 
+    public static bool ShouldPublishDisconnectNeutral(
+        bool sourceIsRunning,
+        bool neutralAlreadyPublished) =>
+        !sourceIsRunning && !neutralAlreadyPublished;
+
     public string StartGyroBiasCalibration()
     {
         string result = professionalImuRuntime?.StartGyroBiasCalibration() ??
@@ -309,6 +314,7 @@ public sealed class ViiperBridgeSession : IAsyncDisposable
         ulong realtimeSupersededTotal = 0;
         ulong realtimeFreshWrites = 0;
         bool sourceNeutralPublished = false;
+        bool sourceGapHoldLogged = false;
         var intervalSourceAgeSamples = new List<double>((int)PerformanceLogIntervalFrames);
         var intervalLoopGapSamples = new List<double>((int)PerformanceLogIntervalFrames);
         var intervalWriteSamplesMs = new List<double>((int)PerformanceLogIntervalFrames);
@@ -393,14 +399,33 @@ public sealed class ViiperBridgeSession : IAsyncDisposable
                     out age,
                     out int supersededCount);
                 realtimeSupersededTotal += (ulong)Math.Max(0, supersededCount);
+                if (!hasInput &&
+                    lastVirtualWriteTicks == 0 &&
+                    inputSource != null &&
+                    inputSource.TryGetLatest(out GamepadState initialLatest, out TimeSpan initialAge))
+                {
+                    state = initialLatest;
+                    age = initialAge;
+                    hasInput = true;
+                }
                 if (!hasInput && lastVirtualWriteTicks != 0)
                 {
-                    bool sourceStale =
-                        inputSource == null ||
-                        !inputSource.TryGetLatest(out _, out TimeSpan latestAge) ||
-                        latestAge > TimeSpan.FromMilliseconds(100);
-                    if (!sourceStale || sourceNeutralPublished)
+                    bool sourceIsRunning = inputSource?.IsRunning == true;
+                    if (!ShouldPublishDisconnectNeutral(
+                            sourceIsRunning,
+                            sourceNeutralPublished))
                     {
+                        if (sourceIsRunning &&
+                            !sourceGapHoldLogged &&
+                            inputSource!.TryGetLatest(out _, out TimeSpan latestAge) &&
+                            latestAge > TimeSpan.FromMilliseconds(100))
+                        {
+                            progress.Report(
+                                "[INPUT_GAP_HOLD] source_age_ms=" +
+                                latestAge.TotalMilliseconds.ToString("F1") +
+                                " controls=hold_latest neutral_injected=false");
+                            sourceGapHoldLogged = true;
+                        }
                         continue;
                     }
                 }
@@ -409,10 +434,14 @@ public sealed class ViiperBridgeSession : IAsyncDisposable
                 {
                     realtimeFreshWrites++;
                     sourceNeutralPublished = false;
+                    sourceGapHoldLogged = false;
                 }
                 else
                 {
                     sourceNeutralPublished = true;
+                    sourceGapHoldLogged = false;
+                    progress.Report(
+                        "[INPUT_DISCONNECT_NEUTRAL] source_running=false sent_once=true");
                 }
             }
             else

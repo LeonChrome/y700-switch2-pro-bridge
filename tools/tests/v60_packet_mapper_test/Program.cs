@@ -272,6 +272,21 @@ Expect(
 Expect(
     ViiperPushRateOption.FromLabel("125Hz（推荐）").Mode == ViiperPushRateMode.SourceAdaptive,
     "legacy fixed-rate user settings migrate to source-adaptive cadence");
+Expect(
+    !ViiperBridgeSession.ShouldPublishDisconnectNeutral(
+        sourceIsRunning: true,
+        neutralAlreadyPublished: false),
+    "a transient BLE input gap holds the latest controls instead of injecting a false release");
+Expect(
+    ViiperBridgeSession.ShouldPublishDisconnectNeutral(
+        sourceIsRunning: false,
+        neutralAlreadyPublished: false),
+    "an explicitly stopped BLE source publishes one neutral report");
+Expect(
+    !ViiperBridgeSession.ShouldPublishDisconnectNeutral(
+        sourceIsRunning: false,
+        neutralAlreadyPublished: true),
+    "a stopped BLE source does not repeat neutral reports");
 uint edgeButtons = BinaryPrimitives.ReadUInt32LittleEndian(edge.AsSpan(4, 4));
 Expect((edgeButtons & 0x00400000) != 0, "DualSense Edge maps Pro2 left paddle to L4");
 Expect((edgeButtons & 0x00800000) != 0, "DualSense Edge maps Pro2 right paddle to R4");

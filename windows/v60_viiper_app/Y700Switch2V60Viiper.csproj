@@ -8,13 +8,13 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>Y700Switch2V60Viiper</AssemblyName>
-    <AssemblyTitle>PRO2 手柄无线接收器控制板 V6.2.29</AssemblyTitle>
+    <AssemblyTitle>PRO2 手柄无线接收器控制板 V6.2.30</AssemblyTitle>
     <Product>PRO2 手柄无线接收器控制板</Product>
-    <Description>V6.2.29 follows the real Pro2 BLE source cadence and coalesces pending input to the latest state, preventing accelerated replay of wireless stick motion.</Description>
-    <Version>6.2.29</Version>
-    <AssemblyVersion>6.2.29.0</AssemblyVersion>
-    <FileVersion>6.2.29.0</FileVersion>
-    <InformationalVersion>6.2.29-source-paced</InformationalVersion>
+    <Description>V6.2.30 preserves button edges across transient BLE delivery gaps while keeping source-paced latest-state input.</Description>
+    <Version>6.2.30</Version>
+    <AssemblyVersion>6.2.30.0</AssemblyVersion>
+    <FileVersion>6.2.30.0</FileVersion>
+    <InformationalVersion>6.2.30-button-edge-hotfix</InformationalVersion>
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <PublishSingleFile>true</PublishSingleFile>

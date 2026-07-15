@@ -80,7 +80,7 @@ public partial class MainWindow : Window
         trayIcon = new Forms.NotifyIcon
         {
             Icon = LoadTrayIcon(),
-            Text = "PRO2 控制板 V6.2.29",
+            Text = "PRO2 控制板 V6.2.30",
             ContextMenuStrip = trayMenu,
             Visible = true
         };

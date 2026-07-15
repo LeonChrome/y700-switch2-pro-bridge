@@ -44,7 +44,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private ViiperBridgeSession? session;
     private string host = "127.0.0.1";
     private string port = "3242";
-    private string status = "V6.2.29 已就绪。真实 BLE 源节奏与最新状态输出正式版。";
+    private string status = "V6.2.30 已就绪。真实 BLE 源节奏与按键边沿热修版。";
     private string inputStatus = "真实 Pro2 BLE 输入未连接。";
     private string selectedPushRateLabel = ViiperPushRateOption.Default.Label;
     private string selectedBackendLabel = VirtualBackendOption.Default.Label;
@@ -179,7 +179,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         {
             AppendLog(StartupProcessGuard.LastSummary);
         }
-        AppendLog("V6.2.29 说明：虚拟手柄输出跟随真实 Pro2 BLE 通知；C# 与内嵌 VIIPER 均使用最新状态合并，不再按 250Hz 补播历史摇杆轨迹。USBIP 内嵌安装与三态诊断保持不变。");
+        AppendLog("V6.2.30 说明：虚拟手柄继续跟随真实 Pro2 BLE 通知；BLE 短暂没有新帧时保持最后状态，不再注入会把持续按键拆成双击的中立帧。只有输入源明确停止时才发送一次全松开。USBIP 内嵌安装与三态诊断保持不变。");
         AppendLog("[LOG_POLICY] previous v6 logs are cleaned at startup; manager log limit=" +
                   (SessionLogWriter.MaxLogBytes / 1024 / 1024) + "MB; VIIPER server log level=info.");
         AppendLog("[RUNTIME] " + RuntimeReadinessText);
@@ -2766,9 +2766,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
         Directory.CreateDirectory(directory);
         string path = Path.Combine(
             directory,
-            "diagnostics_v6_2_28_test_" + DateTime.Now.ToString("yyyyMMdd_HHmmss") + ".log");
+            "diagnostics_v6_2_30_" + DateTime.Now.ToString("yyyyMMdd_HHmmss") + ".log");
         var builder = new StringBuilder();
-        builder.AppendLine("# V6.2.29 source-paced diagnostics export");
+        builder.AppendLine("# V6.2.30 button-edge diagnostics export");
         builder.AppendLine("# session_log=" + sessionLog.FilePath);
         builder.AppendLine();
         foreach (string line in dump)
@@ -3053,7 +3053,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "PRO2WirelessReceiverControlBoard",
             "embedded",
-            "v6.2.29-source-paced",
+            "v6.2.30-button-edge-hotfix",
             "viiper",
             "haptic-v0.8.0");
         Directory.CreateDirectory(root);

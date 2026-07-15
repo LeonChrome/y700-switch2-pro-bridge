@@ -2,7 +2,7 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:automation="clr-namespace:System.Windows.Automation;assembly=PresentationCore"
-        Title="PRO2 手柄无线接收器控制板 V6.2.29 · 四人三模大厅"
+        Title="PRO2 手柄无线接收器控制板 V6.2.30 · 四人三模大厅"
         Icon="Assets/AppIcon.ico"
         Width="1440"
         Height="940"
@@ -435,7 +435,7 @@
                                         <DropShadowEffect Color="#5EF2A5" BlurRadius="12" ShadowDepth="0"/>
                                     </Ellipse.Effect>
                                 </Ellipse>
-                                <TextBlock FontWeight="Bold" Foreground="#C9FCE0" Text="V6.2.29 · 真实 BLE 源节奏 + 最新状态输出"/>
+                                <TextBlock FontWeight="Bold" Foreground="#C9FCE0" Text="V6.2.30 · 真实 BLE 源节奏 + 按键边沿热修"/>
                             </StackPanel>
                         </Border>
                         <Button Margin="0,9,0,0" HorizontalAlignment="Right"
@@ -914,7 +914,7 @@
                                        MaxWidth="760"
                                        Foreground="#89A7CF"
                                        FontSize="11"
-                                       Text="V6.2.29：输出跟随真实 Pro2 BLE 通知节奏；待处理输入只保留最新状态，不再用 250Hz 压缩重播摇杆轨迹。VIIPER 与 USBIP 安装诊断能力全部保留。"/>
+                                       Text="V6.2.30：输出跟随真实 Pro2 BLE 通知节奏；短暂断流保持最后状态，输入源明确停止时才发送一次全松开，避免持续按键被误判为双击。VIIPER 与 USBIP 安装诊断能力全部保留。"/>
                             <StackPanel Margin="0,8,0,0"
                                         Orientation="Horizontal"
                                         VerticalAlignment="Center"
