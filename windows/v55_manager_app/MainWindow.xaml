@@ -117,7 +117,7 @@
                 <StackPanel>
                     <StackPanel Orientation="Horizontal">
                         <Border Background="#E0F2FE" BorderBrush="#7DD3FC" BorderThickness="1" CornerRadius="15" Padding="10,4" Margin="0,0,10,0">
-                            <TextBlock Text="V5.9.15" Foreground="#0F172A" FontSize="12" FontWeight="SemiBold"/>
+                            <TextBlock Text="V5.9.16" Foreground="#0F172A" FontSize="12" FontWeight="SemiBold"/>
                         </Border>
                         <Border Background="#172554" BorderBrush="#60A5FA" BorderThickness="1" CornerRadius="15" Padding="10,4">
                             <TextBlock Text="ESP 控制台" Foreground="#FFFFFF" FontSize="12" FontWeight="SemiBold"/>
@@ -136,6 +136,8 @@
                 </StackPanel>
 
                 <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Top">
+                    <Button Style="{StaticResource PrimaryButton}" Content="首次使用向导" Click="OpenFirstRunGuide_Click"
+                            Margin="0,0,10,0" Padding="14,8" MinWidth="116"/>
                     <Border Background="{Binding UsbIndicatorBrush}" CornerRadius="18" Padding="12,8" Margin="0,0,10,0">
                         <StackPanel Orientation="Horizontal">
                             <Ellipse Width="10" Height="10" Fill="#FFFFFF" Margin="0,0,8,0"/>
@@ -234,6 +236,7 @@
                         <StackPanel>
                             <TextBlock Style="{StaticResource SectionTitle}" Text="快捷工具"/>
                             <WrapPanel Margin="-4,0,0,0">
+                                <Button Style="{StaticResource PrimaryButton}" Content="首次使用向导" Click="OpenFirstRunGuide_Click"/>
                                 <Button Style="{StaticResource SubtleButton}" Content="joy.cpl" Command="{Binding OpenJoyCommand}"/>
                                 <Button Style="{StaticResource SubtleButton}" Content="设备管理器" Command="{Binding OpenDeviceManagerCommand}"/>
                                 <Button Style="{StaticResource SubtleButton}" Content="HID 恢复固件" Command="{Binding FlashHidOnlyCommand}" IsEnabled="{Binding CanSwitchModes}"/>

@@ -122,6 +122,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private bool logUiDirty;
     private Task? initializeTask;
     private BleScanItem? selectedBleDevice;
+    private bool? lastFlashSucceeded;
+    private string lastFlashProfileId = "";
+    private string lastFlashFailureCategory = "";
 
     public ObservableCollection<PortItem> Ports { get; } = new();
     public ObservableCollection<BleScanItem> BleDevices { get; } = new();
@@ -398,7 +401,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         }
     }
 
-    public string FirmwareSummary => "V5.9.15 ESP 控制台内置：新和联胜 / PS5、Pro2 / Nintendo、Xbox / XInput、新和联胜 / PS5 Edge 四个烧录模式；PS5 IMU 已完成物理量纲与静止零偏修正。";
+    public string FirmwareSummary => "V5.9.16 ESP 控制台内置：新和联胜 / PS5、Pro2 / Nintendo、Xbox / XInput、新和联胜 / PS5 Edge 四个烧录模式；新增双 USB、刷写、USB 身份验证与 BLE 配对首次运行向导。";
     public string SafetySummary => "Live 转发默认不自动开启。游戏监听会保持 HD-only 过滤，普通 PCM 只计入 blocked_pcm，不会被盲目推送。";
     public string LogText
     {
@@ -477,7 +480,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         DeviceUiMode.Pro2 => "USB 当前已枚举为 Pro2 / Nintendo，适合稳定输入和原始/普通震动测试。",
         DeviceUiMode.DualPro2Probe => "串口状态确认当前是 Dual Pro2 Probe。USB 仍复用 Pro2/Nintendo 身份，重点观察双 BLE 能力指标。",
         DeviceUiMode.Xbox => "USB 当前已枚举为 Xbox / XInput，适合 Steam、Apex 和普通双马达震动兼容性测试。",
-        DeviceUiMode.XboxElite => "检测到旧版 Elite 2 实验固件。V5.9.15 不再提供这个模式，请切换到新和联胜或 Xbox。",
+        DeviceUiMode.XboxElite => "检测到旧版 Elite 2 实验固件。V5.9.16 不再提供这个模式，请切换到新和联胜或 Xbox。",
         DeviceUiMode.Recovery => "当前看起来是最小化 HID 恢复固件，用于救援重刷和枚举恢复。",
         _ => "请先执行 USB 检查。在确认模式前，所有真实震动发送都会保持保守策略。"
     };
@@ -760,7 +763,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         logUiTimer.Tick += (_, _) => FlushLogTextToUi();
         logUiTimer.Start();
 
-        AppendLog("PRO2 手柄无线接收器控制板 V5.9.15 ESP 控制台已就绪。PS5 IMU 已修正 Pro2→DualSense 量纲与静止零偏；此 EXE 用于四模式固件烧录、连接检测、Pro2 BLE 手动绑定、快捷诊断和日志查看。");
+        AppendLog("PRO2 手柄无线接收器控制板 V5.9.16 ESP 控制台已就绪。新增首次运行向导；此 EXE 用于四模式固件烧录、连接检测、Pro2 BLE 绑定、快捷诊断和日志查看。");
         AppendLog("[STARTUP] desired_mode=" + desiredMode);
         if (!string.IsNullOrWhiteSpace(settings.LastBleTarget))
         {
@@ -782,6 +785,130 @@ public sealed class MainViewModel : INotifyPropertyChanged
         await RefreshPortsAsync(logResult: false);
         await CheckUsbAsync(logResult: false);
     }
+
+    public Task WaitForInitializationAsync() => initializeTask ?? Task.CompletedTask;
+
+    public bool ShouldOfferFirstRunGuide =>
+        !settings.FirstRunGuideOffered && !settings.FirstRunGuideCompleted;
+
+    public void MarkFirstRunGuideOffered()
+    {
+        settings.FirstRunGuideOffered = true;
+        ManagerSettingsStore.Save(settings);
+    }
+
+    public void MarkFirstRunGuideCompleted()
+    {
+        settings.FirstRunGuideOffered = true;
+        settings.FirstRunGuideCompleted = true;
+        ManagerSettingsStore.Save(settings);
+        AppendLog("[FIRST_RUN_GUIDE] completed=1");
+    }
+
+    public async Task<GuideDetectionResult> RunGuideDetectionAsync()
+    {
+        await WaitForInitializationAsync();
+        await RefreshPortsAsync();
+        await CheckUsbAsync();
+        bool serialReady = HasUsableSerialCandidate;
+        string summary = serialReady
+            ? "已识别 ESP 控制口：" + SelectedPort!.DisplayName
+            : "没有识别到可用的 CH343/COM 控制口。";
+        summary += usbDetected
+            ? " 原生 USB/OTG 当前枚举为：" + CurrentModeLabel + "。"
+            : " 原生 USB/OTG 尚未枚举成手柄；全新或已擦除控制板在刷写前可以出现这种状态。";
+
+        return new GuideDetectionResult(
+            serialReady,
+            usbDetected,
+            summary,
+            serialReady
+                ? "检测通过，可以选择目标手柄模式并刷写。"
+                : "请确认 CH343/COM 控制线已插入；若设备管理器有黄色感叹号，先修复 CH343 驱动。此步骤不要选择蓝牙虚拟串口。");
+    }
+
+    public async Task<GuideFlashResult> RunGuideFlashAsync(OutputModeId mode)
+    {
+        OutputModeProfile profile = GuideProfileForMode(mode);
+        lastFlashSucceeded = null;
+        lastFlashProfileId = profile.ProfileId;
+        lastFlashFailureCategory = "";
+        await ActivateModeAsync(profile);
+        bool succeeded = lastFlashSucceeded == true &&
+                         string.Equals(lastFlashProfileId, profile.ProfileId, StringComparison.OrdinalIgnoreCase);
+        return new GuideFlashResult(
+            succeeded,
+            profile,
+            succeeded ? "" : string.IsNullOrWhiteSpace(lastFlashFailureCategory) ? "刷写未启动" : lastFlashFailureCategory,
+            succeeded ? "固件刷写完成：" + profile.Label : ModeSwitchStatus,
+            succeeded
+                ? "请重新插拔原生 USB/OTG 数据线，然后进入下一步验证 " + profile.ExpectedUsbMarker + "。"
+                : NextAction);
+    }
+
+    public async Task<GuideUsbVerificationResult> RunGuideUsbVerificationAsync(OutputModeId mode)
+    {
+        OutputModeProfile profile = GuideProfileForMode(mode);
+        await CheckUsbAsync();
+        bool succeeded = UsbStatus.Contains(profile.ExpectedUsbMarker, StringComparison.OrdinalIgnoreCase);
+        return new GuideUsbVerificationResult(
+            succeeded,
+            profile,
+            succeeded
+                ? "Windows 已识别 " + profile.Label + "（" + profile.ExpectedUsbMarker + "）。"
+                : "尚未识别目标手柄身份。期望 " + profile.ExpectedUsbMarker + "，当前结果：" + OneLine(UsbStatus),
+            succeeded
+                ? "可以在 joy.cpl、Steam 或兼容 tester 中确认按键，然后开始配对 Pro2。"
+                : "重新插拔原生 USB/OTG 数据线后再检查；不要拔掉 CH343/COM 控制线，因为下一步还要通过它下发 BLE 配对命令。");
+    }
+
+    public async Task<GuidePairingResult> RunGuideFirstPairingAsync()
+    {
+        await StartFreshPairingAsync(replacing: false);
+        return BuildGuidePairingResult();
+    }
+
+    public async Task<GuidePairingResult> RunGuideBleScanAsync()
+    {
+        await ScanBleAsync();
+        bool found = BleDevices.Count > 0;
+        return new GuidePairingResult(
+            found,
+            found ? "扫描到 " + BleDevices.Count + " 个 BLE 设备，请选择目标 Pro2。" : BleStatus,
+            found
+                ? "选择名称、地址或信号强度正确的 Pro2，再点击“连接所选”。"
+                : "让 Pro2 进入配对模式并靠近 ESP32-S3；确认它没有同时连接电脑、Switch、手机或另一块桥接板。");
+    }
+
+    public async Task<GuidePairingResult> RunGuideConnectSelectedAsync()
+    {
+        await ConnectBleAsync();
+        return BuildGuidePairingResult();
+    }
+
+    public Task RunGuideRepairCh343DriverAsync() => RepairCh343DriverAsync();
+
+    public void OpenControllerPanel() => StartShell("joy.cpl");
+
+    private GuidePairingResult BuildGuidePairingResult()
+    {
+        bool succeeded = bleConnected && bleInputHealthy;
+        return new GuidePairingResult(
+            succeeded,
+            succeeded ? "Pro2 已连接，实时输入已确认，手柄地址已保存。" : BleStatus,
+            succeeded
+                ? "配对完成。以后只保留原生 USB/OTG 数据线，ESP 固件也会自动寻找已保存的 Pro2。"
+                : NextAction);
+    }
+
+    private static OutputModeProfile GuideProfileForMode(OutputModeId mode) => mode switch
+    {
+        OutputModeId.DualSenseStandard => OutputModeCatalog.DualSenseStandard,
+        OutputModeId.DualSenseLike => OutputModeCatalog.DualSenseLike,
+        OutputModeId.Pro2 => OutputModeCatalog.Pro2,
+        OutputModeId.Xbox => OutputModeCatalog.Xbox,
+        _ => throw new ArgumentOutOfRangeException(nameof(mode), mode, "首次运行向导只支持四个正式模式。")
+    };
 
     private async Task RefreshPortsAsync(bool logResult = true)
     {
@@ -1029,7 +1156,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             MessageBox.Show(
                 owner,
                 profile.Label + " 目前还是预留位，暂时没有接入完整后端。\n\n管理器已经保留好了模式位和切换语义，后续补固件时不需要再重做界面。",
-                "V5.9.15 模式预留",
+                "V5.9.16 模式预留",
                 MessageBoxButton.OK,
                 MessageBoxImage.Information);
             return;
@@ -1090,11 +1217,16 @@ public sealed class MainViewModel : INotifyPropertyChanged
 #pragma warning disable CS0162
     private async Task FlashAsync(string profile, FlashMode mode)
     {
+        lastFlashProfileId = profile;
+        lastFlashSucceeded = null;
+        lastFlashFailureCategory = "";
         if (Busy || flashInProgress || GameMonitorRunning)
         {
             ModeSwitchStatus = "已有刷写、模式切换、游戏监听或设备操作正在进行，已忽略新的刷写请求。";
             NextAction = "请等待当前任务结束后再切换或刷写。";
             AppendLog("[FLASH_BUSY] ignored_profile=" + profile + " busy=" + Busy + " flashing=" + flashInProgress + " monitor=" + GameMonitorRunning);
+            lastFlashSucceeded = false;
+            lastFlashFailureCategory = "已有任务正在运行";
             return;
         }
 
@@ -1103,6 +1235,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
             ModeSwitchStatus = "已有刷写或模式切换正在进行，已忽略新的刷写请求。";
             NextAction = "请等待当前刷写结束后再切换。";
             AppendLog("[MODE_SWITCH_BUSY] ignored_profile=" + profile);
+            lastFlashSucceeded = false;
+            lastFlashFailureCategory = "已有刷写正在运行";
             return;
         }
 
@@ -1182,9 +1316,18 @@ public sealed class MainViewModel : INotifyPropertyChanged
             NextAction = "重新插拔原生 USB / OTG 后，请执行一次 USB 检查。";
             ModeSwitchStatus = "刷写完成：profile=" + profile + "，等待新的 USB 枚举。";
             await TryCaptureFirmwareIdentityAfterFlashAsync(profile);
+            lastFlashSucceeded = true;
         }
         catch (Exception ex)
         {
+            lastFlashSucceeded = false;
+            lastFlashFailureCategory = ex switch
+            {
+                DriverCompatibilityException => "CH343 驱动不兼容",
+                DownloadModeException => "ESP32-S3 未进入下载模式",
+                _ when IsBoardUnavailableException(ex) => "控制板串口不可用",
+                _ => "刷写器失败"
+            };
             OverallStatus = IsBoardUnavailableException(ex) ? "离线" : "错误";
             PortStatus = "刷写失败：" + FirstLine(ex.Message);
             ModeSwitchStatus = "刷写失败：profile=" + profile + "，error=" + FirstLine(ex.Message);
@@ -2573,7 +2716,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             OutputModeId.Pro2 => "面向原始 HID 0x02 震动优先路线调好的 Nintendo-like / Pro2 桥接。",
             OutputModeId.Xbox => "真实 Xbox 360 / XInput 风格 USB 后端，普通震动会回传到 Pro2 BLE。",
             OutputModeId.DualPro2Probe => "第四实验固件。ESP32-S3 同时连接两只 Pro2，只测 BLE 双连接通知频率、去重率、断连和总吞吐。",
-            OutputModeId.XboxElite => "旧版 Elite 2 枚举实验固件，V5.9.15 已停止发行。",
+            OutputModeId.XboxElite => "旧版 Elite 2 枚举实验固件，V5.9.16 已停止发行。",
             OutputModeId.Recovery => "用于重刷与 USB 救援的最小恢复固件。",
             _ => "尚未选择目标模式。"
         };
@@ -3832,7 +3975,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             Directory.CreateDirectory(LogRootDirectory);
             diagnosticLogPath = Path.Combine(
                 LogRootDirectory,
-                "xin_heliansheng_v5.9.15_" + DateTime.Now.ToString("yyyyMMdd_HHmmss") + ".log");
+                "xin_heliansheng_v5.9.16_" + DateTime.Now.ToString("yyyyMMdd_HHmmss") + ".log");
             diagnosticWriter = new StreamWriter(
                 diagnosticLogPath,
                 append: false,
@@ -3853,7 +3996,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             asset.Path.EndsWith(".bin", StringComparison.OrdinalIgnoreCase) &&
             !asset.Path.Contains("bootloader", StringComparison.OrdinalIgnoreCase) &&
             !asset.Path.Contains("partition", StringComparison.OrdinalIgnoreCase));
-        AppendLog("[DIAG_SESSION_START] app=5.9.15 duration_seconds=" + seconds +
+        AppendLog("[DIAG_SESSION_START] app=5.9.16 duration_seconds=" + seconds +
                   " local_time=" + DateTime.Now.ToString("O") +
                   " utc_time=" + DateTime.UtcNow.ToString("O"));
         AppendLog("[DIAG_PACKAGE] package=" + package.Manifest.PackageVersion +

@@ -15,6 +15,8 @@ public sealed class ManagerSettings
     public string PendingProfileId { get; set; } = "";
     public string PendingExpectedUsbMarker { get; set; } = "";
     public DateTime? PendingRequestedUtc { get; set; }
+    public bool FirstRunGuideOffered { get; set; }
+    public bool FirstRunGuideCompleted { get; set; }
     public bool XboxPaddleLeftEnabled { get; set; }
     public bool XboxPaddleRightEnabled { get; set; }
     public string XboxPaddleLeftMode { get; set; } = "hold";

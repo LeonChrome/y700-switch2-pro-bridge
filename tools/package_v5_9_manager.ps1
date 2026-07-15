@@ -11,9 +11,11 @@ $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $ManagerRoot = Join-Path $RepoRoot "windows\v55_manager_app"
 $ReleaseRoot = Join-Path $RepoRoot "release\v5.9"
 $PublishRoot = Join-Path $ReleaseRoot "publish"
-$PackageVersion = "5.9.15"
+$PackageVersion = "5.9.16"
 $PackageTag = "v$PackageVersion"
-$SingleExeName = "新和联胜版本-aio-$PackageTag.exe"
+# Keep the script ASCII-safe so Windows PowerShell 5.1 cannot corrupt the Chinese file name.
+$ChineseProductName = -join (@(0x65B0, 0x548C, 0x8054, 0x80DC, 0x7248, 0x672C) | ForEach-Object { [char]$_ })
+$SingleExeName = "$ChineseProductName-aio-$PackageTag.exe"
 $SingleExe = Join-Path $ReleaseRoot $SingleExeName
 $LegacySingleExe = Join-Path $ReleaseRoot "Y700Switch2V55Manager-aio-$PackageTag.exe"
 $HashFile = Join-Path $ReleaseRoot "SHA256SUMS-$PackageTag.txt"
@@ -319,7 +321,7 @@ function Refresh-EmbeddedAssets {
         flashSize = "16MB"
         defaultProfile = "pro2_bridge_v5_5"
         profiles = $profiles
-        notes = "V5.9.15 ESP control console bundle: four click-to-flash profiles for PS5 standard (054C:0CE6), Pro2/Nintendo (057E:2069), Xbox/XInput (045E:028E), and PS5 Edge (054C:0DF2); PS5 IMU now converts Pro2 4096 counts/g and 14.247 counts/dps into DualSense 8192 counts/g and 16.384 counts/dps with one-shot stationary gyro bias calibration; HD haptics remain rear-channel only with strict ordinary/HD arbitration; guided pairing, embedded esptool, CH343 repair, serial watchdogs, UI log throttling, BLE stable-first connect, MultiProbe telemetry, and Dual Pro2 BLE capacity probe remain included."
+        notes = "V5.9.16 ESP control console bundle: four click-to-flash profiles for PS5 standard (054C:0CE6), Pro2/Nintendo (057E:2069), Xbox/XInput (045E:028E), and PS5 Edge (054C:0DF2); adds a first-run wizard for dual USB cabling, board detection, categorized flash failures, USB identity verification, automatic Pro2 pairing, manual BLE scan fallback, and COM-cable removal guidance; PS5 IMU and strict ordinary/HD haptic arbitration remain unchanged."
     }
     $manifest | ConvertTo-Json -Depth 8 | Set-Content -Encoding UTF8 -Path (Join-Path $firmwareRoot "firmware_manifest.json")
 

@@ -8,13 +8,59 @@ namespace Y700Switch2V55Manager;
 public partial class MainWindow : Window
 {
     private bool logScrollPending;
+    private bool firstRunOfferHandled;
 
     public MainWindow()
     {
         InitializeComponent();
         DataContext = new MainViewModel(this);
+        Loaded += MainWindow_Loaded;
         Closing += MainWindow_Closing;
         Closed += MainWindow_Closed;
+    }
+
+    private async void MainWindow_Loaded(object sender, RoutedEventArgs e)
+    {
+        if (firstRunOfferHandled || DataContext is not MainViewModel viewModel)
+        {
+            return;
+        }
+
+        firstRunOfferHandled = true;
+        await viewModel.WaitForInitializationAsync();
+        if (!viewModel.ShouldOfferFirstRunGuide)
+        {
+            return;
+        }
+
+        viewModel.MarkFirstRunGuideOffered();
+        MessageBoxResult answer = MessageBox.Show(
+            this,
+            "检测到这是 V5.9.16 ESP 控制台的首次运行。\n\n是否打开双 USB 接线、刷写、USB 身份验证和 Pro2 BLE 配对向导？",
+            "首次使用向导",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Question);
+        if (answer == MessageBoxResult.Yes)
+        {
+            OpenFirstRunGuide(viewModel);
+        }
+    }
+
+    private void OpenFirstRunGuide_Click(object sender, RoutedEventArgs e)
+    {
+        if (DataContext is MainViewModel viewModel)
+        {
+            OpenFirstRunGuide(viewModel);
+        }
+    }
+
+    private void OpenFirstRunGuide(MainViewModel viewModel)
+    {
+        var guide = new FirstRunGuideWindow(viewModel)
+        {
+            Owner = this
+        };
+        guide.ShowDialog();
     }
 
     private void MainWindow_Closing(object? sender, CancelEventArgs e)

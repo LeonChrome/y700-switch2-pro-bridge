@@ -1,6 +1,6 @@
 {
-  "packageVersion": "v5.9.15-aio",
-  "firmwareVersion": "5.9.15-manager",
+  "packageVersion": "v5.9.16-aio",
+  "firmwareVersion": "5.9.16-manager",
   "target": "esp32s3",
   "flashMode": "dio",
   "flashFreq": "80m",
@@ -140,5 +140,5 @@
       ]
     }
   ],
-  "notes": "V5.9.15 ESP control console bundle: four click-to-flash profiles for PS5 standard (054C:0CE6), Pro2/Nintendo (057E:2069), Xbox/XInput (045E:028E), and PS5 Edge (054C:0DF2); PS5 IMU now converts Pro2 4096 counts/g and 14.247 counts/dps into DualSense 8192 counts/g and 16.384 counts/dps with one-shot stationary gyro bias calibration; HD haptics remain rear-channel only with strict ordinary/HD arbitration; guided pairing, embedded esptool, CH343 repair, serial watchdogs, UI log throttling, BLE stable-first connect, MultiProbe telemetry, and Dual Pro2 BLE capacity probe remain included."
+  "notes": "V5.9.16 ESP control console bundle: four click-to-flash profiles for PS5 standard (054C:0CE6), Pro2/Nintendo (057E:2069), Xbox/XInput (045E:028E), and PS5 Edge (054C:0DF2); adds a first-run wizard for dual USB cabling, board detection, categorized flash failures, USB identity verification, automatic Pro2 pairing, manual BLE scan fallback, and COM-cable removal guidance; PS5 IMU and strict ordinary/HD haptic arbitration remain unchanged."
 }
