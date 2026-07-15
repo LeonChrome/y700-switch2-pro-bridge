@@ -1,0 +1,3 @@
+﻿a5ae2b385b5e9dd416a078260af9abfeff03a22b511788c18924031c7b1dc239  release/v6.2.29/新和联胜VIIPER版本-aio-v6.2.29.exe
+a5ae2b385b5e9dd416a078260af9abfeff03a22b511788c18924031c7b1dc239  release/v6.2.29/XinHeLianSheng-VIIPER-aio-v6.2.29.exe
+51620fa5f9f8be5932bc9d786deee557ce06d5407a99cab490dcfac71f185fea  release/v6.2.29/usbip-win2/v0.9.7.7/USBip-0.9.7.7-x64.exe

@@ -18,13 +18,13 @@ type NS2Pro struct {
 	bulkCh          chan struct{}
 	stateMu         sync.Mutex
 	inputState      *InputState
-	pendingInput    []InputState
 	metaState       *MetaState
 	outputMu        sync.RWMutex
 	outputCallback  func(OutputState)
 	outputVersion   uint64
 	descriptor      usb.Descriptor
 	inputIntervalMs uint8
+	sourcePaced     bool
 
 	protoMu           sync.Mutex
 	activeReportID    uint8
@@ -36,8 +36,6 @@ type NS2Pro struct {
 	lastMotionTS      uint32
 	bulkInQueue       [][]byte
 }
-
-const pendingInputLimit = 64
 
 func New(o *device.CreateOptions) (*NS2Pro, error) {
 	metaState := defaultMetaState()
@@ -64,6 +62,7 @@ func New(o *device.CreateOptions) (*NS2Pro, error) {
 		if newMeta.InputIntervalMs != 0 {
 			metaState.InputIntervalMs = newMeta.InputIntervalMs
 		}
+		metaState.SourcePaced = newMeta.SourcePaced
 	}
 
 	inputCh := make(chan struct{}, 1)
@@ -73,10 +72,10 @@ func New(o *device.CreateOptions) (*NS2Pro, error) {
 		inputCh:         inputCh,
 		bulkCh:          make(chan struct{}, 1),
 		inputState:      initialInput,
-		pendingInput:    []InputState{*initialInput},
 		metaState:       metaState,
 		descriptor:      MakeDescriptor(),
 		inputIntervalMs: metaState.InputIntervalMs,
+		sourcePaced:     metaState.SourcePaced,
 		activeReportID:  ReportIDPro,
 		featureFlags:    FeatureButtons | FeatureSticks,
 	}
@@ -119,16 +118,8 @@ func (d *NS2Pro) SetOutputCallback(f func(OutputState)) func() {
 func (d *NS2Pro) UpdateInputState(state InputState) {
 	d.stateMu.Lock()
 	d.inputState = &state
-	if len(d.pendingInput) >= pendingInputLimit {
-		copy(d.pendingInput, d.pendingInput[1:])
-		d.pendingInput = d.pendingInput[:len(d.pendingInput)-1]
-	}
-	d.pendingInput = append(d.pendingInput, state)
 	d.stateMu.Unlock()
-	select {
-	case d.inputCh <- struct{}{}:
-	default:
-	}
+	d.signalInputReady()
 }
 
 func (d *NS2Pro) SetMetaState(meta MetaState) {
@@ -147,11 +138,14 @@ func (d *NS2Pro) SetMetaState(meta MetaState) {
 func (d *NS2Pro) HandleTransfer(ctx context.Context, ep uint32, dir uint32, out []byte) []byte {
 	switch {
 	case dir == usbip.DirIn && ep == 1:
-		// USB/IP already applies the endpoint bInterval before invoking the
-		// device. Once reports are enabled, answer from the cached latest state
-		// immediately. Waiting for inputCh here adds a second interval whenever
-		// the client state stream is source-paced (for example 66 Hz BLE).
 		if d.reportsEnabled() {
+			if d.sourcePaced {
+				select {
+				case <-ctx.Done():
+					return nil
+				case <-d.inputCh:
+				}
+			}
 			return d.nextInputReport()
 		}
 		for {
@@ -256,11 +250,6 @@ func (d *NS2Pro) nextInputReport() []byte {
 func (d *NS2Pro) inputReportForID(reportID uint8) []byte {
 	d.stateMu.Lock()
 	st := *d.inputState
-	if len(d.pendingInput) > 0 {
-		st = d.pendingInput[0]
-		copy(d.pendingInput, d.pendingInput[1:])
-		d.pendingInput = d.pendingInput[:len(d.pendingInput)-1]
-	}
 	meta := *d.metaState
 	d.stateMu.Unlock()
 
@@ -294,10 +283,11 @@ func (d *NS2Pro) inputReportForID(reportID uint8) []byte {
 	return report
 }
 
-func (d *NS2Pro) resetPendingInputToLatest() {
-	d.stateMu.Lock()
-	d.pendingInput = append(d.pendingInput[:0], *d.inputState)
-	d.stateMu.Unlock()
+func (d *NS2Pro) signalInputReady() {
+	select {
+	case d.inputCh <- struct{}{}:
+	default:
+	}
 }
 
 func (d *NS2Pro) serialNumber() string {

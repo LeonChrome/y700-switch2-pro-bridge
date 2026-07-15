@@ -234,11 +234,13 @@ try {
         Button = "启动 新和联胜 / PS5"
         Label = "新和联胜 / PS5"
         Identity = 'VID_054C&PID_0CE6'
+        SourcePacedWithoutLiveInput = $true
     }
     $modes += [pscustomobject]@{
         Button = "启动 PS5 Edge / 背键"
         Label = "PS5 Edge / 背键"
         Identity = 'VID_054C&PID_0DF2'
+        SourcePacedWithoutLiveInput = $true
     }
     $modes += [pscustomobject]@{
         Button = "启动 Pro2 / Nintendo"
@@ -250,6 +252,7 @@ try {
         Button = "启动 Xbox / XInput"
         Label = "Xbox / XInput"
         Identity = 'VID_045E&PID_028E'
+        SourcePacedWithoutLiveInput = $true
     }
 
     foreach ($mode in $modes) {
@@ -331,25 +334,22 @@ try {
     [void][V60WindowControl]::ShowWindowAsync(
         [IntPtr]$root.Current.NativeWindowHandle,
         6)
-    Wait-Until -TimeoutSeconds 15 -Failure "Background cadence was not reported." -Condition {
-        $text = Get-Value $logEdit
-        $suffix = $text.Substring([Math]::Min($backgroundOffset, $text.Length))
-        $suffix -match 'Xbox / XInput(?: Slot \d+)? frames target_hz=([0-9.]+).*? actual_hz=([0-9.]+)'
+    Start-Sleep -Seconds 3
+    if ($process.HasExited) {
+        throw "V6 process exited while source-paced Xbox mode was minimized."
+    }
+    if ((Get-PresentIdentity -Pattern 'VID_045E&PID_028E').Count -eq 0) {
+        throw "Xbox identity disappeared while the source-paced window was minimized."
     }
     $text = Get-Value $logEdit
     $suffix = $text.Substring([Math]::Min($backgroundOffset, $text.Length))
-    $backgroundRates = [regex]::Matches(
-        $suffix,
-        'Xbox / XInput(?: Slot \d+)? frames target_hz=([0-9.]+).*? actual_hz=([0-9.]+)')
-    $backgroundRate = [double]$backgroundRates[$backgroundRates.Count - 1].Groups[2].Value
-    if ($backgroundRate -lt $MinimumFeedHz) {
-        throw "Background feed rate $backgroundRate Hz is below $MinimumFeedHz Hz."
+    if ($suffix -match 'fed (?:250|500|750|1000) .*Xbox / XInput') {
+        throw "Source-paced Xbox mode replayed repeated frames without a live Pro2 source."
     }
     [void][V60WindowControl]::ShowWindowAsync(
         [IntPtr]$root.Current.NativeWindowHandle,
         9)
-    $backgroundLine = '[V60_UI_SMOKE] background_rate_hz={0:F1} result=pass' -f $backgroundRate
-    Write-Output $backgroundLine
+    Write-Output '[V60_UI_SMOKE] background_source_paced_identity=result=pass'
 
     $switchStopOffset = (Get-Value $logEdit).Length
     Invoke-Button -Root $root -Name "停止虚拟设备"

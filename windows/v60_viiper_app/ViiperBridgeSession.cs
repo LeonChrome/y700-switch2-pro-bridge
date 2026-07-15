@@ -277,10 +277,10 @@ public sealed class ViiperBridgeSession : IAsyncDisposable
     private async Task InputLoopAsync(CancellationToken cancellationToken)
     {
         using WindowsTimerResolutionScope timerResolution = WindowsTimerResolutionScope.Begin();
-        bool realtimePro2Scheduling =
-            profile.Mode == ViiperVirtualMode.Pro2 &&
-            inputSource is IGamepadFreshSequentialInputSource;
-        TimeSpan schedulerInterval = realtimePro2Scheduling
+        bool sourceLatestScheduling =
+            profile.SourcePaced &&
+            inputSource is IGamepadRealtimeInputSource;
+        TimeSpan schedulerInterval = sourceLatestScheduling
             ? TimeSpan.FromMilliseconds(1)
             : profile.SendInterval;
         using var timer = new HighResolutionPeriodicTimer(schedulerInterval);
@@ -308,6 +308,7 @@ public sealed class ViiperBridgeSession : IAsyncDisposable
         ulong ageOver100 = 0;
         ulong realtimeSupersededTotal = 0;
         ulong realtimeFreshWrites = 0;
+        bool sourceNeutralPublished = false;
         var intervalSourceAgeSamples = new List<double>((int)PerformanceLogIntervalFrames);
         var intervalLoopGapSamples = new List<double>((int)PerformanceLogIntervalFrames);
         var intervalWriteSamplesMs = new List<double>((int)PerformanceLogIntervalFrames);
@@ -329,9 +330,9 @@ public sealed class ViiperBridgeSession : IAsyncDisposable
             "[VIIPER_TIMER] requested_ms=1 active=" + timerResolution.IsActive +
             " result=" + timerResolution.Result +
             " backend=" + timer.Backend +
-            " scheduler=" + (realtimePro2Scheduling ? "realtime_ordered_1ms" : "fixed_interval") +
+            " scheduler=" + (sourceLatestScheduling ? "source_latest_1ms" : "fixed_latest") +
             " scheduler_interval_ms=" + schedulerInterval.TotalMilliseconds.ToString("F1") +
-            " push_target_hz=" + pushTargetHz.ToString("F1") +
+            " push_target_hz=" + (sourceLatestScheduling ? "ble_source" : pushTargetHz.ToString("F1")) +
             " report_rate_mode=" + professionalImuOptions.OutputReportRateMode +
             " gyro_mode=" + GyroModeLabel(gyroMode) +
             " gyro_axis_inv=" + gyroAxisInversion.TelemetryValue;
@@ -364,8 +365,9 @@ public sealed class ViiperBridgeSession : IAsyncDisposable
             double sourceRateHz = inputSource is IGamepadInputRateSource rateSource
                 ? rateSource.CurrentParsedRateHz
                 : 0;
-            effectivePushTargetHz =
-                professionalImuOptions.AutoReduceVirtualReportRate &&
+            effectivePushTargetHz = sourceLatestScheduling
+                ? sourceRateHz
+                : professionalImuOptions.AutoReduceVirtualReportRate &&
                 professionalImuOptions.OutputReportRateMode == OutputReportRateMode.AutoByBleSourceRate
                     ? VirtualReportRateGovernor.SelectAutoRateHz(sourceRateHz, pushTargetHz)
                     : pushTargetHz;
@@ -383,26 +385,52 @@ public sealed class ViiperBridgeSession : IAsyncDisposable
             GamepadState state = GamepadState.Neutral();
             TimeSpan age = TimeSpan.MaxValue;
             bool hasInput;
-            if (realtimePro2Scheduling &&
-                inputSource is IGamepadFreshSequentialInputSource realtimeOrdered)
+            if (sourceLatestScheduling &&
+                inputSource is IGamepadRealtimeInputSource realtimeLatest)
             {
-                hasInput = realtimeOrdered.TryGetNextFresh(out state, out age);
+                hasInput = realtimeLatest.TryGetNewest(
+                    out state,
+                    out age,
+                    out int supersededCount);
+                realtimeSupersededTotal += (ulong)Math.Max(0, supersededCount);
                 if (!hasInput && lastVirtualWriteTicks != 0)
                 {
-                    continue;
+                    bool sourceStale =
+                        inputSource == null ||
+                        !inputSource.TryGetLatest(out _, out TimeSpan latestAge) ||
+                        latestAge > TimeSpan.FromMilliseconds(100);
+                    if (!sourceStale || sourceNeutralPublished)
+                    {
+                        continue;
+                    }
                 }
 
                 if (hasInput)
                 {
                     realtimeFreshWrites++;
+                    sourceNeutralPublished = false;
+                }
+                else
+                {
+                    sourceNeutralPublished = true;
                 }
             }
             else
             {
-                hasInput = inputSource != null &&
-                    (inputSource is IGamepadSequentialInputSource sequential
-                        ? sequential.TryGetNext(out state, out age)
-                        : inputSource.TryGetLatest(out state, out age));
+                if (inputSource is IGamepadRealtimeInputSource latestSource &&
+                    latestSource.TryGetNewest(
+                        out state,
+                        out age,
+                        out int supersededCount))
+                {
+                    hasInput = true;
+                    realtimeSupersededTotal += (ulong)Math.Max(0, supersededCount);
+                }
+                else
+                {
+                    hasInput = inputSource != null &&
+                        inputSource.TryGetLatest(out state, out age);
+                }
             }
             if (hasInput)
             {
@@ -469,7 +497,7 @@ public sealed class ViiperBridgeSession : IAsyncDisposable
                 source = "neutral";
             }
 
-            if (!realtimePro2Scheduling &&
+            if (!sourceLatestScheduling &&
                 ShouldSkipVirtualWrite(loopTicks, lastVirtualWriteTicks, effectivePushTargetHz, pushTargetHz))
             {
                 continue;
@@ -562,8 +590,8 @@ public sealed class ViiperBridgeSession : IAsyncDisposable
             {
                 lastSource = sourceFamily;
                 string rateSummary =
-                    "target_hz=" + effectivePushTargetHz.ToString("F1") +
-                    " configured_target_hz=" + pushTargetHz.ToString("F1") +
+                    "target_hz=" + (sourceLatestScheduling ? sourceRateHz : effectivePushTargetHz).ToString("F1") +
+                    " configured_target_hz=" + (sourceLatestScheduling ? "source" : pushTargetHz.ToString("F1")) +
                     " source_rate_hz=" + sourceRateHz.ToString("F1") +
                     " report_rate_mode=" + professionalImuOptions.OutputReportRateMode;
                 if (rateDue)
@@ -593,8 +621,11 @@ public sealed class ViiperBridgeSession : IAsyncDisposable
                         " actual_hz=" + actualHz.ToString("F1") +
                         " ble_hz=" + bleHz.ToString("F1") +
                         " viiper_push_hz=" + actualHz.ToString("F1") +
-                        " scheduler=" + (realtimePro2Scheduling ? "realtime_ordered_1ms" : "fixed_interval") +
-                        " host_hid_target_hz=" + pushTargetHz.ToString("F1") +
+                        " scheduler=" + (sourceLatestScheduling ? "source_latest_1ms" : "fixed_latest") +
+                        (sourceLatestScheduling
+                            ? " host_poll_cap_hz="
+                            : " host_hid_target_hz=") +
+                        pushTargetHz.ToString("F1") +
                         " realtime_fresh_writes=" + realtimeFreshWrites +
                         " realtime_superseded_total=" + realtimeSupersededTotal +
                         " state_reuse_count=" + stateReuseCount +

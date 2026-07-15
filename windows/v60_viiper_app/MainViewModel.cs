@@ -44,7 +44,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private ViiperBridgeSession? session;
     private string host = "127.0.0.1";
     private string port = "3242";
-    private string status = "V6.2.28 Test r22 已就绪。VIIPER/USBIP 内置安装与驱动三态诊断版。";
+    private string status = "V6.2.29 已就绪。真实 BLE 源节奏与最新状态输出正式版。";
     private string inputStatus = "真实 Pro2 BLE 输入未连接。";
     private string selectedPushRateLabel = ViiperPushRateOption.Default.Label;
     private string selectedBackendLabel = VirtualBackendOption.Default.Label;
@@ -179,7 +179,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         {
             AppendLog(StartupProcessGuard.LastSummary);
         }
-        AppendLog("V6.2.28 Test r22 说明：VIIPER 与 USBIP 安装器已内嵌；USBIP 会区分未安装、已安装但驱动待重启、完全就绪，并从注册表补查安装路径。保留 r21 输入和 USB 收尾链路。 ");
+        AppendLog("V6.2.29 说明：虚拟手柄输出跟随真实 Pro2 BLE 通知；C# 与内嵌 VIIPER 均使用最新状态合并，不再按 250Hz 补播历史摇杆轨迹。USBIP 内嵌安装与三态诊断保持不变。");
         AppendLog("[LOG_POLICY] previous v6 logs are cleaned at startup; manager log limit=" +
                   (SessionLogWriter.MaxLogBytes / 1024 / 1024) + "MB; VIIPER server log level=info.");
         AppendLog("[RUNTIME] " + RuntimeReadinessText);
@@ -187,7 +187,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         AppendLog("[STARTUP] launch_at_login=" + launchAtLoginEnabled +
                   " auto_reconnect_on_startup=" + autoReconnectOnStartupEnabled +
                   " selected_mode=" + ModeKey(selectedMode));
-        AppendLog("[LINK_TUNING] push_hz=" + SelectedPushRateOption.Hz.ToString("F1") +
+        AppendLog("[LINK_TUNING] cadence=" + PushCadenceTelemetry(SelectedPushRateOption) +
                   " gyro_mode=" + ViiperGyroModeOption.Default.Label +
                   " ps5_imu_map=" + Ps5ImuMappingOption.Default.Mapping.TelemetryValue +
                   " ps5_output_imu=" + SelectedPs5OutputImuTuning.TelemetryValue +
@@ -493,7 +493,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             selectedPushRateLabel = normalized;
             userSettings.PushRateLabel = normalized;
             SaveUserSettings("[LINK_TUNING]");
-            AppendLog("[LINK_TUNING] push_hz=" + SelectedPushRateOption.Hz.ToString("F1") +
+            AppendLog("[LINK_TUNING] cadence=" + PushCadenceTelemetry(SelectedPushRateOption) +
                       " interval_ms=" + SelectedPushRateOption.Interval.TotalMilliseconds.ToString("F1") +
                       (Running ? " apply=next_session" : " apply=next_start"));
             OnPropertyChanged();
@@ -571,8 +571,10 @@ public sealed class MainViewModel : INotifyPropertyChanged
         : "音频保护已关闭：Windows 可能把 DualSense 设为默认音频或麦克风。";
 
     public string LinkTuningSummary =>
-        "push=" + SelectedPushRateOption.Hz.ToString("F1") +
-        "Hz · ps5_imu=+x+z-y calibrated_state->dsraw scale=" +
+        "push=" + (SelectedPushRateOption.SourcePaced
+            ? "真实 BLE 源节奏"
+            : SelectedPushRateOption.Hz.ToString("F1") + "Hz") +
+        " · ps5_imu=+x+z-y calibrated_state->dsraw scale=" +
         SelectedPs5OutputImuTuning.GyroScalePitch.ToString("0.##") + "x" +
         " · stick=" + SelectedStickProcessingOption.Label +
         " · audio_guard=" + (AudioEndpointGuardEnabled ? "on" : "off") +
@@ -2281,18 +2283,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
                              inputAge <= TimeSpan.FromMilliseconds(500);
             Running = true;
             Status = "正在启动 " + profile.Label + " 虚拟手柄...";
-            ViiperPushRateOption requestedPushRate = SelectedPushRateOption;
-            ViiperPushRateOption pushRate = profile.Mode == ViiperVirtualMode.Pro2
-                ? ViiperPushRateOption.All.First(option => option.Mode == ViiperPushRateMode.Hz250)
-                : requestedPushRate;
-            if (profile.Mode == ViiperVirtualMode.Pro2 &&
-                requestedPushRate.Mode != ViiperPushRateMode.Hz250)
-            {
-                AppendLog("[PRO2_REALTIME] endpoint_clock_policy requested_hz=" +
-                          requestedPushRate.Hz.ToString("F1") +
-                          " effective_hz=" + pushRate.Hz.ToString("F1") +
-                          " hid_bInterval_ms=4 scheduler=realtime_ordered_1ms reason=viiper_drains_real_samples_then_holds_latest");
-            }
+            ViiperPushRateOption pushRate = SelectedPushRateOption;
             ViiperGyroModeOption gyro = ViiperGyroModeOption.Default;
             GyroAxisInversion gyroAxisInversion = default;
             Ps5ImuMappingOption ps5ImuMapping = Ps5ImuMappingOption.Default;
@@ -2307,10 +2298,14 @@ public sealed class MainViewModel : INotifyPropertyChanged
             string professionalTelemetry = professionalImuOptions.Enabled
                 ? professionalImuOptions.TelemetryValue
                 : "disabled";
-            ViiperDeviceProfile runtimeProfile = profile with { SendInterval = pushRate.Interval };
+            ViiperDeviceProfile runtimeProfile = profile with
+            {
+                SendInterval = pushRate.Interval,
+                SourcePaced = pushRate.SourcePaced
+            };
             AppendLog("[START] mode=" + runtimeProfile.Label +
                       " type=" + runtimeProfile.DeviceType +
-                      " push_hz=" + pushRate.Hz.ToString("F1") +
+                      " cadence=" + PushCadenceTelemetry(pushRate) +
                       " interval_ms=" + pushRate.Interval.TotalMilliseconds.ToString("F1") +
                       " gyro_mode=" + gyro.Label +
                       " ps5_imu_map=" + ps5ImuMapping.Mapping.TelemetryValue +
@@ -2773,7 +2768,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             directory,
             "diagnostics_v6_2_28_test_" + DateTime.Now.ToString("yyyyMMdd_HHmmss") + ".log");
         var builder = new StringBuilder();
-        builder.AppendLine("# V6.2.28 Test r22 diagnostics export");
+        builder.AppendLine("# V6.2.29 source-paced diagnostics export");
         builder.AppendLine("# session_log=" + sessionLog.FilePath);
         builder.AppendLine();
         foreach (string line in dump)
@@ -3058,7 +3053,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "PRO2WirelessReceiverControlBoard",
             "embedded",
-            "v6.2.28-test-r22",
+            "v6.2.29-source-paced",
             "viiper",
             "haptic-v0.8.0");
         Directory.CreateDirectory(root);
@@ -3422,6 +3417,11 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     private ViiperDeviceProfile SelectedProfile => ProfileFor(selectedMode);
     private ViiperDeviceProfile ActiveProfile => ProfileFor(activeMode ?? selectedMode);
+    private static string PushCadenceTelemetry(ViiperPushRateOption option) =>
+        option.SourcePaced
+            ? "source_adaptive(host_poll_cap_ms=" + option.Interval.TotalMilliseconds.ToString("F1") + ")"
+            : "fixed_" + option.Hz.ToString("F1") + "hz";
+
     private ViiperPushRateOption SelectedPushRateOption =>
         ViiperPushRateOption.FromLabel(selectedPushRateLabel);
     private VirtualBackendOption SelectedBackendOption =>

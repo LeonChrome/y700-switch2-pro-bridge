@@ -3,8 +3,8 @@ using System.Collections.Generic;
 
 namespace Y700Switch2V60Viiper;
 
-// Preserves every parsed FD2 sample when WinRT delivers several notifications
-// before the 250 Hz virtual USB loop runs. This is ordering, not filtering.
+// Keeps arrival order for diagnostics, while the real-time output path drains
+// to the newest parsed state so Windows BLE batching cannot be replayed later.
 public sealed class Pro2SequentialInputQueue
 {
     private readonly Queue<Entry> frames = new();

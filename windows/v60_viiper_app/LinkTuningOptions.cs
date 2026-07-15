@@ -6,6 +6,7 @@ namespace Y700Switch2V60Viiper;
 
 public enum ViiperPushRateMode
 {
+    SourceAdaptive,
     Hz66,
     Hz125,
     Hz250
@@ -138,19 +139,33 @@ public sealed record ViiperPushRateOption(
     ViiperPushRateMode Mode,
     string Label,
     double Hz,
-    TimeSpan Interval)
+    TimeSpan Interval,
+    bool SourcePaced)
 {
     public static IReadOnlyList<ViiperPushRateOption> All { get; } =
     [
-        new(ViiperPushRateMode.Hz125, "125Hz（推荐）", 125.0, TimeSpan.FromMilliseconds(8)),
-        new(ViiperPushRateMode.Hz66, "66Hz / source-paced", 1000.0 / 15.0, TimeSpan.FromMilliseconds(15)),
-        new(ViiperPushRateMode.Hz250, "250Hz（高性能）", 250.0, TimeSpan.FromMilliseconds(4))
+        new(
+            ViiperPushRateMode.SourceAdaptive,
+            "跟随真实 Pro2 BLE（推荐）",
+            0.0,
+            TimeSpan.FromMilliseconds(4),
+            true),
+        new(ViiperPushRateMode.Hz66, "固定 66Hz（诊断）", 1000.0 / 15.0, TimeSpan.FromMilliseconds(15), false),
+        new(ViiperPushRateMode.Hz125, "固定 125Hz（诊断）", 125.0, TimeSpan.FromMilliseconds(8), false),
+        new(ViiperPushRateMode.Hz250, "固定 250Hz（诊断）", 250.0, TimeSpan.FromMilliseconds(4), false)
     ];
 
     public static ViiperPushRateOption Default => All[0];
 
     public static ViiperPushRateOption FromLabel(string? label)
     {
+        if (string.Equals(label, "125Hz（推荐）", StringComparison.Ordinal) ||
+            string.Equals(label, "66Hz / source-paced", StringComparison.Ordinal) ||
+            string.Equals(label, "250Hz（高性能）", StringComparison.Ordinal))
+        {
+            return Default;
+        }
+
         return All.FirstOrDefault(o => string.Equals(o.Label, label, StringComparison.Ordinal)) ?? Default;
     }
 }

@@ -25,6 +25,7 @@ public sealed record ViiperDeviceProfile(
     TimeSpan SendInterval)
 {
     public string DeviceSpecificSerialNumber { get; init; } = "";
+    public bool SourcePaced { get; init; }
 
     public static ViiperDeviceProfile DualSenseLike { get; } = new(
         ViiperVirtualMode.DualSenseLike,
@@ -130,6 +131,7 @@ public sealed record ViiperDeviceProfile(
                 (int)Math.Round(SendInterval.TotalMilliseconds),
                 1,
                 255);
+            arguments["source_paced"] = SourcePaced;
         }
 
         return arguments;

@@ -120,7 +120,7 @@ func TestInputStateWirePreservesSourceTimestampButEndpointOwnsMotionClock(t *tes
 	assert.Equal(t, uint32(4_000), finalTimestamp)
 }
 
-func TestInputEndpointDrainsBurstInOrderBeforeRepeatingLatest(t *testing.T) {
+func TestInputEndpointPublishesLatestStateWithoutBurstReplay(t *testing.T) {
 	dev, err := New(nil)
 	require.NoError(t, err)
 
@@ -139,20 +139,37 @@ func TestInputEndpointDrainsBurstInOrderBeforeRepeatingLatest(t *testing.T) {
 		dev.UpdateInputState(state)
 	}
 
-	var previousTimestamp uint32
-	for i, want := range states {
-		report := dev.HandleTransfer(context.Background(), 1, usbip.DirIn, nil)
-		require.Len(t, report, InputReportSize)
-		finalTimestamp := binary.LittleEndian.Uint32(report[0x2B:0x2F])
-		assert.Greater(t, finalTimestamp, previousTimestamp, "burst state %d timestamp", i)
-		assert.Equal(t, want.GyroZ, int16(binary.LittleEndian.Uint16(report[0x3B:0x3D])), "burst state %d gyro", i)
-		previousTimestamp = finalTimestamp
-	}
+	report := dev.HandleTransfer(context.Background(), 1, usbip.DirIn, nil)
+	require.Len(t, report, InputReportSize)
+	assert.Equal(t, states[2].GyroZ, int16(binary.LittleEndian.Uint16(report[0x3B:0x3D])))
 
 	repeated := dev.HandleTransfer(context.Background(), 1, usbip.DirIn, nil)
 	require.Len(t, repeated, InputReportSize)
-	assert.Greater(t, binary.LittleEndian.Uint32(repeated[0x2B:0x2F]), previousTimestamp)
 	assert.Equal(t, states[2].GyroZ, int16(binary.LittleEndian.Uint16(repeated[0x3B:0x3D])))
+}
+
+func TestSourcePacedEndpointCoalescesBurstAndWaitsForFreshInput(t *testing.T) {
+	dev, err := New(&device.CreateOptions{
+		DeviceSpecific: `{"input_interval_ms":4,"source_paced":true}`,
+	})
+	require.NoError(t, err)
+
+	dev.HandleTransfer(context.Background(), 2, usbip.DirOut, selectReportCommand(ReportIDPro))
+	dev.HandleTransfer(context.Background(), 2, usbip.DirOut, enableReportsCommand())
+	_ = dev.HandleTransfer(context.Background(), 1, usbip.DirIn, nil)
+
+	dev.UpdateInputState(InputState{RX: 2300, RY: StickCenter})
+	dev.UpdateInputState(InputState{RX: 3100, RY: StickCenter})
+	dev.UpdateInputState(InputState{RX: StickMax, RY: StickCenter})
+
+	report := dev.HandleTransfer(context.Background(), 1, usbip.DirIn, nil)
+	require.Len(t, report, InputReportSize)
+	assert.Equal(t, byte(ReportIDPro), report[0])
+	assert.Equal(t, StickMax, uint16(report[9])|uint16(report[10]&0x0F)<<8)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+	defer cancel()
+	assert.Nil(t, dev.HandleTransfer(ctx, 1, usbip.DirIn, nil))
 }
 
 func TestDeviceSpecificInputInterval(t *testing.T) {

@@ -58,7 +58,7 @@ func (d *NS2Pro) handleUSBCommand(seq, sub uint8, out []byte) {
 			d.usbReportsEnabled = enabled
 			d.protoMu.Unlock()
 			if enabled {
-				d.resetPendingInputToLatest()
+				d.signalInputReady()
 			}
 		}
 		d.enqueueResponse(append(commandHeader(cmdUSB, seq, sub), 0x01, 0x00, 0x00, 0x00))
@@ -76,7 +76,7 @@ func (d *NS2Pro) handleUSBCommand(seq, sub uint8, out []byte) {
 		d.protoMu.Lock()
 		d.usbReportsEnabled = true
 		d.protoMu.Unlock()
-		d.resetPendingInputToLatest()
+		d.signalInputReady()
 		d.enqueueResponse(append(commandHeader(cmdUSB, seq, sub), 0x01, 0x00, 0x00, 0x00))
 	default:
 		d.enqueueResponse(commandHeader(cmdUSB, seq, sub))

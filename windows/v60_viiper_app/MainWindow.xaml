@@ -2,7 +2,7 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:automation="clr-namespace:System.Windows.Automation;assembly=PresentationCore"
-        Title="PRO2 手柄无线接收器控制板 V6.2.28 Test r22 · 四人三模大厅"
+        Title="PRO2 手柄无线接收器控制板 V6.2.29 · 四人三模大厅"
         Icon="Assets/AppIcon.ico"
         Width="1440"
         Height="940"
@@ -435,7 +435,7 @@
                                         <DropShadowEffect Color="#5EF2A5" BlurRadius="12" ShadowDepth="0"/>
                                     </Ellipse.Effect>
                                 </Ellipse>
-                                <TextBlock FontWeight="Bold" Foreground="#C9FCE0" Text="V6.2.28 Test r22 · VIIPER 内嵌 + USBIP 三态诊断"/>
+                                <TextBlock FontWeight="Bold" Foreground="#C9FCE0" Text="V6.2.29 · 真实 BLE 源节奏 + 最新状态输出"/>
                             </StackPanel>
                         </Border>
                         <Button Margin="0,9,0,0" HorizontalAlignment="Right"
@@ -900,7 +900,7 @@
                                           ItemsSource="{Binding PushRateChoices}"
                                           SelectedItem="{Binding SelectedPushRate, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                           IsEnabled="{Binding CanOperate}"
-                                          ToolTip="66Hz / 125Hz / 250Hz。默认 125Hz，250Hz 用于高性能 A/B 测试。"/>
+                                          ToolTip="默认跟随真实 Pro2 BLE 通知节奏。固定 66/125/250Hz 仅用于诊断，不建议日常使用。"/>
                                 <TextBlock Grid.Column="3" VerticalAlignment="Center" Style="{StaticResource SectionLabel}"
                                            Text="Stick"/>
                                 <ComboBox Grid.Column="4" Margin="10,0,0,0"
@@ -914,7 +914,7 @@
                                        MaxWidth="760"
                                        Foreground="#89A7CF"
                                        FontSize="11"
-                                       Text="V6.2.28 Test r22：VIIPER 与 USBIP 安装器已内嵌；明确区分未安装、待重启与可用状态，并保留 USBIP 有序拔出和 Steam 缓存收尾。"/>
+                                       Text="V6.2.29：输出跟随真实 Pro2 BLE 通知节奏；待处理输入只保留最新状态，不再用 250Hz 压缩重播摇杆轨迹。VIIPER 与 USBIP 安装诊断能力全部保留。"/>
                             <StackPanel Margin="0,8,0,0"
                                         Orientation="Horizontal"
                                         VerticalAlignment="Center"

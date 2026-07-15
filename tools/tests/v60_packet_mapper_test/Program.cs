@@ -193,7 +193,7 @@ ExpectNear(
     usbHeldIntegralDeg,
     sourceIntegralDeg,
     1e-12,
-    "250 Hz zero-order hold preserves the 66.7 Hz source angular integral without scaling");
+    "diagnostic zero-order hold does not scale the source angular integral");
 
 byte[] ds = VirtualPadPackets.FromGamepad(ViiperDeviceProfile.DualSenseLike, state);
 Expect(ds.Length == 33, "DualSense wire size");
@@ -257,11 +257,21 @@ Expect(
     "Pro2 VIIPER deviceSpecific carries the configured HID input interval");
 ViiperDeviceProfile pro2SourcePaced = pro2Slot2 with
 {
-    SendInterval = TimeSpan.FromMilliseconds(15)
+    SendInterval = TimeSpan.FromMilliseconds(4),
+    SourcePaced = true
 };
 Expect(
-    Convert.ToInt32(pro2SourcePaced.DeviceSpecificArguments()["input_interval_ms"]) == 15,
-    "Pro2 source-paced profile advertises a real 15 ms HID input interval");
+    Convert.ToInt32(pro2SourcePaced.DeviceSpecificArguments()["input_interval_ms"]) == 4 &&
+    Convert.ToBoolean(pro2SourcePaced.DeviceSpecificArguments()["source_paced"]),
+    "Pro2 source-paced profile advertises a 4 ms host poll cap and fresh-input delivery policy");
+Expect(
+    ViiperPushRateOption.Default.Mode == ViiperPushRateMode.SourceAdaptive &&
+    ViiperPushRateOption.Default.SourcePaced &&
+    ViiperPushRateOption.Default.Hz == 0.0,
+    "V6 defaults to the real Pro2 BLE source cadence instead of a synthetic fixed rate");
+Expect(
+    ViiperPushRateOption.FromLabel("125Hz（推荐）").Mode == ViiperPushRateMode.SourceAdaptive,
+    "legacy fixed-rate user settings migrate to source-adaptive cadence");
 uint edgeButtons = BinaryPrimitives.ReadUInt32LittleEndian(edge.AsSpan(4, 4));
 Expect((edgeButtons & 0x00400000) != 0, "DualSense Edge maps Pro2 left paddle to L4");
 Expect((edgeButtons & 0x00800000) != 0, "DualSense Edge maps Pro2 right paddle to R4");
