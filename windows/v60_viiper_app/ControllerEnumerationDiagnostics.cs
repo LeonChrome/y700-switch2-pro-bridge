@@ -35,7 +35,7 @@ public static class ControllerEnumerationDiagnostics
     {
         var lines = new List<string>
         {
-            "[DIAG] kind=controller_enumeration version=6.2.27 session_log=\"" + sessionLogPath + "\""
+            "[DIAG] kind=controller_enumeration version=6.2.28-test-r22 session_log=\"" + sessionLogPath + "\""
         };
         await AppendViiperDumpAsync(client, lines, cancellationToken);
         await AppendUsbipPortDumpAsync(lines, cancellationToken);
@@ -50,8 +50,14 @@ public static class ControllerEnumerationDiagnostics
     {
         var lines = new List<string>
         {
-            "[CLEANUP] begin scope=local_viiper_buses_and_matching_usbip_ports"
+            "[CLEANUP] begin scope=local_viiper_buses_and_matching_usbip_ports order=usbip_detach_then_viiper_remove"
         };
+
+        // Keep the server-side device alive until Windows has processed the USB unplug.
+        // Removing the VIIPER device first turns the unplug into an abrupt HID read failure,
+        // which can leave a stale SDL controller slot inside a long-running Steam process.
+        await AppendUsbipDetachAsync(lines, cancellationToken);
+        await Task.Delay(250, cancellationToken);
 
         try
         {
@@ -91,7 +97,6 @@ public static class ControllerEnumerationDiagnostics
             lines.Add("[CLEANUP_VIIPER] skipped=" + OneLine(ex.Message));
         }
 
-        await AppendUsbipDetachAsync(lines, cancellationToken);
         await AppendUsbipPortDumpAsync(lines, cancellationToken);
         if (includePnpDump)
         {
@@ -102,6 +107,82 @@ public static class ControllerEnumerationDiagnostics
             lines.Add("[PNP_DUMP] skipped=automatic_virtual_device_guard");
         }
         lines.Add("[CLEANUP] complete");
+        return lines;
+    }
+
+    public static async Task<IReadOnlyList<string>> DetachViiperDeviceAsync(
+        ViiperDevice device,
+        string host,
+        int apiPort,
+        CancellationToken cancellationToken)
+    {
+        var lines = new List<string>();
+        if (!IsLoopbackHost(host))
+        {
+            lines.Add("[USBIP_ORDERLY_DETACH] skipped=remote_host host=" + OneLine(host));
+            return lines;
+        }
+
+        UsbipRuntime? runtime = UsbipRuntimeLocator.Find();
+        if (runtime == null)
+        {
+            lines.Add("[USBIP_ORDERLY_DETACH] skipped=usbip.exe_not_found");
+            return lines;
+        }
+
+        int usbServerPort = DeriveUsbPort(apiPort);
+        ProcessResult portResult = await RunProcessAsync(
+            runtime.ExePath,
+            ["port"],
+            runtime.DirectoryPath,
+            TimeSpan.FromSeconds(6),
+            cancellationToken);
+        if (portResult.ExitCode != 0)
+        {
+            lines.Add("[USBIP_ORDERLY_DETACH] skipped=port_dump_failed exit=" +
+                      portResult.ExitCode + " output=" + OneLine(portResult.CombinedOutput));
+            return lines;
+        }
+
+        int[] matchingPorts = FindUsbipPortsForRemoteDevice(
+                portResult.CombinedOutput,
+                usbServerPort,
+                device.BusId,
+                device.DevId)
+            .Distinct()
+            .ToArray();
+        if (matchingPorts.Length == 0)
+        {
+            lines.Add("[USBIP_ORDERLY_DETACH] state=already_absent" +
+                      " usb_server_port=" + usbServerPort +
+                      " remote_bus_dev=" + device.BusId + "/" + device.DevId);
+            return lines;
+        }
+
+        foreach (int port in matchingPorts)
+        {
+            ProcessResult detach = await RunProcessAsync(
+                runtime.ExePath,
+                ["detach", "-p", port.ToString()],
+                runtime.DirectoryPath,
+                TimeSpan.FromSeconds(8),
+                cancellationToken);
+            lines.Add("[USBIP_ORDERLY_DETACH] port=" + port +
+                      " usb_server_port=" + usbServerPort +
+                      " remote_bus_dev=" + device.BusId + "/" + device.DevId +
+                      " exit=" + detach.ExitCode +
+                      " output=" + OneLine(detach.CombinedOutput));
+        }
+
+        bool absent = await WaitForRemoteDeviceAbsentAsync(
+            runtime,
+            usbServerPort,
+            device.BusId,
+            device.DevId,
+            cancellationToken);
+        lines.Add("[USBIP_ORDERLY_DETACH] confirmed_absent=" + absent.ToString().ToLowerInvariant() +
+                  " remote_bus_dev=" + device.BusId + "/" + device.DevId +
+                  " policy=detach_client_before_remove_server_device");
         return lines;
     }
 
@@ -191,7 +272,8 @@ public static class ControllerEnumerationDiagnostics
             return;
         }
 
-        foreach (int port in MatchingUsbipPorts(portResult.CombinedOutput))
+        int[] matchingPorts = MatchingUsbipPorts(portResult.CombinedOutput).Distinct().ToArray();
+        foreach (int port in matchingPorts)
         {
             ProcessResult detach = await RunProcessAsync(
                 runtime.ExePath,
@@ -202,6 +284,11 @@ public static class ControllerEnumerationDiagnostics
             lines.Add("[USBIP_DETACH] port=" + port +
                       " exit=" + detach.ExitCode +
                       " output=" + OneLine(detach.CombinedOutput));
+        }
+
+        if (matchingPorts.Length > 0)
+        {
+            await Task.Delay(250, cancellationToken);
         }
     }
 
@@ -285,9 +372,35 @@ $items | ConvertTo-Json -Depth 5 -Compress
         }
     }
 
+    public static IReadOnlyList<int> FindUsbipPortsForRemoteDevice(
+        string output,
+        int usbServerPort,
+        uint busId,
+        string devId)
+    {
+        string endpointToken = ":" + usbServerPort + "/" + busId + "-" + devId;
+        string remoteBusDevPattern = @"remote\s+bus/dev\s+0*" + busId + @"/0*" +
+                                     Regex.Escape(devId) + @"(?:\D|$)";
+        return ParseUsbipPortBlocks(output)
+            .Where(block =>
+                block.Text.Contains(endpointToken, StringComparison.OrdinalIgnoreCase) ||
+                (block.Text.Contains(":" + usbServerPort + "/", StringComparison.OrdinalIgnoreCase) &&
+                 Regex.IsMatch(block.Text, remoteBusDevPattern, RegexOptions.IgnoreCase)))
+            .Select(block => block.Port)
+            .ToArray();
+    }
+
     private static IEnumerable<int> MatchingUsbipPorts(string output)
     {
-        var blocks = new List<(int Port, string Text)>();
+        return ParseUsbipPortBlocks(output)
+            .Where(block => TargetTokens.Any(
+                token => block.Text.Contains(token, StringComparison.OrdinalIgnoreCase)))
+            .Select(block => block.Port);
+    }
+
+    private static IReadOnlyList<UsbipPortBlock> ParseUsbipPortBlocks(string output)
+    {
+        var blocks = new List<UsbipPortBlock>();
         int? currentPort = null;
         var current = new StringBuilder();
 
@@ -298,7 +411,7 @@ $items | ConvertTo-Json -Depth 5 -Compress
             {
                 if (currentPort.HasValue)
                 {
-                    blocks.Add((currentPort.Value, current.ToString()));
+                    blocks.Add(new UsbipPortBlock(currentPort.Value, current.ToString()));
                 }
                 currentPort = int.Parse(match.Groups[1].Value);
                 current.Clear();
@@ -308,16 +421,50 @@ $items | ConvertTo-Json -Depth 5 -Compress
 
         if (currentPort.HasValue)
         {
-            blocks.Add((currentPort.Value, current.ToString()));
+            blocks.Add(new UsbipPortBlock(currentPort.Value, current.ToString()));
         }
 
-        foreach ((int port, string text) in blocks)
+        return blocks;
+    }
+
+    private static async Task<bool> WaitForRemoteDeviceAbsentAsync(
+        UsbipRuntime runtime,
+        int usbServerPort,
+        uint busId,
+        string devId,
+        CancellationToken cancellationToken)
+    {
+        for (int attempt = 0; attempt < 8; attempt++)
         {
-            if (TargetTokens.Any(t => text.Contains(t, StringComparison.OrdinalIgnoreCase)))
+            ProcessResult result = await RunProcessAsync(
+                runtime.ExePath,
+                ["port"],
+                runtime.DirectoryPath,
+                TimeSpan.FromSeconds(3),
+                cancellationToken);
+            if (result.ExitCode == 0 &&
+                FindUsbipPortsForRemoteDevice(
+                    result.CombinedOutput,
+                    usbServerPort,
+                    busId,
+                    devId).Count == 0)
             {
-                yield return port;
+                return true;
             }
+
+            await Task.Delay(125, cancellationToken);
         }
+
+        return false;
+    }
+
+    private static int DeriveUsbPort(int apiPort) => apiPort == 3242 ? 3241 : apiPort == 1 ? 2 : apiPort - 1;
+
+    private static bool IsLoopbackHost(string host)
+    {
+        return string.Equals(host, "localhost", StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(host, "127.0.0.1", StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(host, "::1", StringComparison.OrdinalIgnoreCase);
     }
 
     private static string ClassifyViiperDevice(ViiperDevice device)
@@ -502,6 +649,8 @@ $items | ConvertTo-Json -Depth 5 -Compress
     {
         public string CombinedOutput => (Stdout + "\n" + Stderr).Trim();
     }
+
+    private sealed record UsbipPortBlock(int Port, string Text);
 }
 
 

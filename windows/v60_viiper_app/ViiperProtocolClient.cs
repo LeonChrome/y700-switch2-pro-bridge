@@ -24,6 +24,10 @@ public sealed class ViiperProtocolClient
         this.port = port;
     }
 
+    public string Host => host;
+
+    public int Port => port;
+
     public async Task<string> PingAsync(CancellationToken cancellationToken)
     {
         return await RequestAsync("ping", null, cancellationToken);

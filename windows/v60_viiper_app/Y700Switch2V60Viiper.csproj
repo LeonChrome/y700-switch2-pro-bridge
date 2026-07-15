@@ -8,13 +8,13 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>Y700Switch2V60Viiper</AssemblyName>
-    <AssemblyTitle>PRO2 手柄无线接收器控制板 V6.2.27</AssemblyTitle>
+    <AssemblyTitle>PRO2 手柄无线接收器控制板 V6.2.28 Test r22</AssemblyTitle>
     <Product>PRO2 手柄无线接收器控制板</Product>
-    <Description>V6.2.27 VIIPER release with low-latency calibrated PS5 IMU conversion and strict DualSense rear-channel haptics.</Description>
-    <Version>6.2.27</Version>
-    <AssemblyVersion>6.2.27.0</AssemblyVersion>
-    <FileVersion>6.2.27.0</FileVersion>
-    <InformationalVersion>6.2.27</InformationalVersion>
+    <Description>V6.2.28 r22 embeds VIIPER and the USBIP installer, adds registry-aware USBIP discovery, and distinguishes not installed, reboot pending, and ready states.</Description>
+    <Version>6.2.28</Version>
+    <AssemblyVersion>6.2.28.0</AssemblyVersion>
+    <FileVersion>6.2.28.0</FileVersion>
+    <InformationalVersion>6.2.28-test-r22</InformationalVersion>
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <PublishSingleFile>true</PublishSingleFile>

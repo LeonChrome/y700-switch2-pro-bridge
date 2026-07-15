@@ -1,0 +1,249 @@
+name: Release
+
+on:
+    push:
+        tags:
+            - "v*.*.*"
+
+permissions:
+    contents: write
+    id-token: write
+
+jobs:
+    build:
+        uses: ./.github/workflows/build_base.yml
+        secrets: inherit
+        with:
+            artifact_suffix: "-Release"
+            upload_artifacts: true
+
+    generate-changelog:
+        name: Generate Changelog
+        needs: build
+        uses: ./.github/workflows/generate-changelog.yml
+        with:
+            mode: release
+            tag_name: ${{ github.ref_name }}
+
+    client-libraries:
+        name: Client library smoke builds and pack
+        uses: ./.github/workflows/clients_ci.yml
+        with:
+            artifact_suffix: "-Release"
+            upload_artifacts: true
+            version: ${{ github.ref_name }}
+
+    create-release:
+        name: Create Release
+        needs: [build, generate-changelog, client-libraries]
+        runs-on: ubuntu-latest
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@v6
+              with:
+                  fetch-depth: 0
+
+            - name: Download all artifacts
+              uses: actions/download-artifact@v8
+              with:
+                  path: artifacts
+
+            - name: Organize and rename artifacts
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  mkdir -p release_files
+                  for dir in artifacts/*; do
+                    if [ -d "$dir" ]; then
+                      base="$(basename "$dir")"
+                      # Strip optional suffix from artifact name for filenames
+                      name_no_suffix="${base%-Release}"
+                      for file in "$dir"/*; do
+                        if [ -f "$file" ]; then
+                          filename="$(basename "$file")"
+                          if [[ "$filename" == *.tar.gz ]]; then
+                            ext="tar.gz"
+                          else
+                            ext="${filename##*.}"
+                          fi
+                          fname="viiper-${name_no_suffix#VIIPER-}"
+                          # Preserve extension (avoid duplicating extension for non-dot cases)
+                          if [[ "$filename" == *.* ]]; then
+                            cp "$file" "release_files/${fname}.${ext}"
+                          else
+                            cp "$file" "release_files/${fname}"
+                          fi
+                        fi
+                      done
+                    fi
+                  done
+                  ls -la release_files/
+
+            - name: Set up Node.js (for npm publish)
+              uses: actions/setup-node@v6
+              with:
+                  node-version: "24"
+                  registry-url: "https://registry.npmjs.org/"
+
+            - name: Set up .NET SDK (for NuGet publish)
+              uses: actions/setup-dotnet@v5
+              with:
+                  dotnet-version: "8.0.x"
+
+            # Acquire short-lived NuGet API key via OIDC Trusted Publishing
+            - name: NuGet login (OIDC → temp API key)
+              id: login
+              uses: NuGet/login@v1.2.0
+              with:
+                  user: ${{ secrets.NUGET_USER }}
+
+            # Publish client libraries to npm and NuGet using OIDC trusted publishing
+            - name: Publish TypeScript client library to npm
+              working-directory: release_files
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  TS_TARBALL="viiper-typescript-client-library.tgz"
+                  if [ ! -f "$TS_TARBALL" ]; then
+                    echo "ERROR: Missing TypeScript client library tarball: $TS_TARBALL" >&2
+                    ls -la
+                    exit 1
+                  fi
+                  echo "Extracting version from package.json inside tarball..."
+                  PKG_VERSION=$(tar -xOzf "$TS_TARBALL" package/package.json | grep '"version"' | head -1 | sed -E 's/.*"version" *: *"([^"]+)".*/\1/')
+                  PKG_NAME=$(tar -xOzf "$TS_TARBALL" package/package.json | grep '"name"' | head -1 | sed -E 's/.*"name" *: *"([^"]+)".*/\1/')
+                  if [ -z "$PKG_VERSION" ]; then
+                    echo "ERROR: Failed to extract version from TypeScript client library tarball" >&2
+                    exit 1
+                  fi
+                  if [ -z "$PKG_NAME" ]; then
+                    echo "ERROR: Failed to extract package name from TypeScript client library tarball" >&2
+                    exit 1
+                  fi
+                  echo "Package version: $PKG_VERSION"
+                  echo "Package name: $PKG_NAME"
+                  echo "Checking if $PKG_NAME@$PKG_VERSION already exists on npm..."
+                  if npm view "$PKG_NAME@$PKG_VERSION" version >/dev/null 2>&1; then
+                    echo "npm package $PKG_NAME@$PKG_VERSION already exists. Skipping npm publish (idempotent re-run)."
+                    exit 0
+                  fi
+                  # Determine npm dist-tag
+                  if [[ "$PKG_VERSION" == *-* ]]; then
+                    NPM_TAG="dev"
+                  else
+                    NPM_TAG="latest"
+                  fi
+                  echo "Using npm dist-tag: $NPM_TAG"
+                  # Remove deprecated always-auth config if present
+                  npm config delete always-auth || true
+                  npm publish "$TS_TARBALL" --provenance --access public --tag "$NPM_TAG"
+
+            - name: Publish C# client library to NuGet
+              working-directory: release_files
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  NUPKG="viiper-csharp-client-library-nupkg.nupkg"
+                  if [ ! -f "$NUPKG" ]; then
+                    echo "ERROR: Missing C# client library package: $NUPKG" >&2
+                    ls -la
+                    exit 1
+                  fi
+                  echo "Publishing NuGet package: $NUPKG"
+                  dotnet nuget push "$NUPKG" --api-key "${{ steps.login.outputs.NUGET_API_KEY }}" --source https://api.nuget.org/v3/index.json --skip-duplicate
+
+            - name: Set up Rust (for crates.io publish)
+              uses: dtolnay/rust-toolchain@stable
+
+            - name: Authenticate with crates.io (OIDC)
+              id: crates_io_auth
+              uses: rust-lang/crates-io-auth-action@v1.0.4
+
+            - name: Publish Rust client library to crates.io
+              working-directory: release_files
+              shell: bash
+              env:
+                  CARGO_REGISTRY_TOKEN: ${{ steps.crates_io_auth.outputs.token }}
+              run: |
+                  set -euo pipefail
+                  CRATE="viiper-rust-client-library.crate"
+                  if [ ! -f "$CRATE" ]; then
+                    echo "ERROR: Missing Rust client library crate: $CRATE" >&2
+                    ls -la
+                    exit 1
+                  fi
+                  echo "Extracting crate to publish..."
+                  mkdir -p ../rust-publish
+                  tar -xzf "$CRATE" -C ../rust-publish
+                  CRATE_DIR=$(ls -d ../rust-publish/viiper-client-*)
+                  cd "$CRATE_DIR"
+                  echo "Removing reserved backup files (if any)..."
+                  find . -name 'Cargo.toml.orig' -print -delete || true
+                  CRATE_VERSION=$(grep '^version' Cargo.toml | head -1 | sed -E 's/.*"([^"]+)".*/\1/')
+                  CRATE_NAME="viiper-client"
+                  if [ -z "$CRATE_VERSION" ]; then
+                    echo "ERROR: Failed to extract version from Cargo.toml" >&2
+                    exit 1
+                  fi
+                  echo "Crate version: $CRATE_VERSION"
+                  echo "Crate name: $CRATE_NAME"
+                  echo "Checking if $CRATE_NAME@$CRATE_VERSION already exists on crates.io..."
+                  if cargo search "$CRATE_NAME" 2>/dev/null | grep -q "^$CRATE_NAME = \"$CRATE_VERSION\""; then
+                    echo "Crate $CRATE_NAME@$CRATE_VERSION already exists. Skipping cargo publish (idempotent re-run)."
+                    exit 0
+                  fi
+                  echo "Publishing crate with OIDC trusted publishing..."
+                  cargo publish --allow-dirty
+
+            - name: Extract build info
+              id: build_info
+              shell: bash
+              run: |
+                  echo "date=$(date +'%Y%m%d')" >> $GITHUB_OUTPUT
+                  echo "time=$(date +'%H%M')" >> $GITHUB_OUTPUT
+                  echo "sha=$(echo ${GITHUB_SHA} | cut -c1-7)" >> $GITHUB_OUTPUT
+                  TAG_NAME=${GITHUB_REF#refs/tags/}
+                  echo "tag_name=$TAG_NAME" >> $GITHUB_OUTPUT
+                  GIT_VERSION=$(git describe --tags --match "v[0-9]*.[0-9]*.[0-9]*" --always || echo "")
+                  if [[ ! $GIT_VERSION =~ ^v[0-9]+\.[0-9]+\.[0-9]+ ]]; then
+                    COMMIT_COUNT=$(git rev-list --count HEAD)
+                    GIT_VERSION="v0.0.0-${COMMIT_COUNT}-${GITHUB_SHA:0:7}"
+                  fi
+                  echo "version=$GIT_VERSION" >> $GITHUB_OUTPUT
+                  echo "Version from git: $GIT_VERSION"
+
+            - name: Create Release
+              id: create_release
+              uses: softprops/action-gh-release@v3
+              with:
+                  tag_name: ${{ steps.build_info.outputs.tag_name }}
+                  name: "VIIPER ${{ steps.build_info.outputs.version }}"
+                  body: |
+                      ${{ needs.generate-changelog.outputs.changelog }}
+
+                      ---
+
+                      ## Install / Update
+
+                      <details>
+                      <summary><b>Windows (PowerShell)</b></summary>
+
+                      ```powershell
+                      irm https://alia5.github.io/VIIPER/stable/install.ps1 | iex
+                      ```
+                      Installs / updates to `%LOCALAPPDATA%\VIIPER\viiper.exe`
+                      </details>
+
+                      <details>
+                      <summary><b>Linux</b></summary>
+
+                      ```bash
+                      curl -fsSL https://alia5.github.io/VIIPER/stable/install.sh | sh
+                      ```
+                      Installs / updates to `/usr/local/bin/viiper`
+                      </details>
+                  files: release_files/*
+                  prerelease: false
+                  draft: true
+              env:
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

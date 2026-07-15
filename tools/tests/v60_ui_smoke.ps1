@@ -244,6 +244,7 @@ try {
         Button = "启动 Pro2 / Nintendo"
         Label = "Pro2 / Nintendo"
         Identity = 'VID_057E&PID_2069'
+        SourcePacedWithoutLiveInput = $true
     }
     $modes += [pscustomobject]@{
         Button = "启动 Xbox / XInput"
@@ -254,28 +255,39 @@ try {
     foreach ($mode in $modes) {
         $before = (Get-Value $logEdit).Length
         $addedText = '[VIIPER] added ' + $mode.Label
-        $ratePattern = [regex]::Escape($mode.Label) + ' frames target_hz=([0-9.]+).*? actual_hz=([0-9.]+)'
+        $ratePattern = [regex]::Escape($mode.Label) + '(?: Slot \d+)? frames target_hz=([0-9.]+).*? actual_hz=([0-9.]+)'
         Invoke-Button -Root $root -Name $mode.Button
         Wait-Until -TimeoutSeconds 20 -Failure ('Mode did not start: ' + $mode.Label) -Condition {
             $text = Get-Value $logEdit
             $text.Length -gt $before -and
                 $text.Substring($before).Contains($addedText)
         }
-        Wait-Until -TimeoutSeconds 12 -Failure ('Mode did not report feed rate: ' + $mode.Label) -Condition {
+        if ($mode.SourcePacedWithoutLiveInput) {
+            $targetRate = 0.0
+            $rate = 0.0
+            Wait-Until -TimeoutSeconds 12 -Failure ('Source-paced mode did not emit an initial frame: ' + $mode.Label) -Condition {
+                $text = Get-Value $logEdit
+                $suffix = $text.Substring([Math]::Min($before, $text.Length))
+                $suffix.Contains('[VIIPER] fed 1 neutral ' + $mode.Label)
+            }
+        }
+        else {
+            Wait-Until -TimeoutSeconds 12 -Failure ('Mode did not report feed rate: ' + $mode.Label) -Condition {
+                $text = Get-Value $logEdit
+                $suffix = $text.Substring([Math]::Min($before, $text.Length))
+                $suffix -match $ratePattern
+            }
+
             $text = Get-Value $logEdit
             $suffix = $text.Substring([Math]::Min($before, $text.Length))
-            $suffix -match $ratePattern
-        }
-
-        $text = Get-Value $logEdit
-        $suffix = $text.Substring([Math]::Min($before, $text.Length))
-        $rates = [regex]::Matches(
-            $suffix,
-            $ratePattern)
-        $targetRate = [double]$rates[$rates.Count - 1].Groups[1].Value
-        $rate = [double]$rates[$rates.Count - 1].Groups[2].Value
-        if ($rate -lt $MinimumFeedHz) {
-            throw ($mode.Label + ' feed rate ' + $rate + ' Hz is below ' + $MinimumFeedHz + ' Hz.')
+            $rates = [regex]::Matches(
+                $suffix,
+                $ratePattern)
+            $targetRate = [double]$rates[$rates.Count - 1].Groups[1].Value
+            $rate = [double]$rates[$rates.Count - 1].Groups[2].Value
+            if ($rate -lt $MinimumFeedHz) {
+                throw ($mode.Label + ' feed rate ' + $rate + ' Hz is below ' + $MinimumFeedHz + ' Hz.')
+            }
         }
 
         Wait-Until -TimeoutSeconds 15 -Failure ('USB identity not present: ' + $mode.Identity) -Condition {
@@ -322,13 +334,13 @@ try {
     Wait-Until -TimeoutSeconds 15 -Failure "Background cadence was not reported." -Condition {
         $text = Get-Value $logEdit
         $suffix = $text.Substring([Math]::Min($backgroundOffset, $text.Length))
-        $suffix -match 'Xbox / XInput frames target_hz=([0-9.]+).*? actual_hz=([0-9.]+)'
+        $suffix -match 'Xbox / XInput(?: Slot \d+)? frames target_hz=([0-9.]+).*? actual_hz=([0-9.]+)'
     }
     $text = Get-Value $logEdit
     $suffix = $text.Substring([Math]::Min($backgroundOffset, $text.Length))
     $backgroundRates = [regex]::Matches(
         $suffix,
-        'Xbox / XInput frames target_hz=([0-9.]+).*? actual_hz=([0-9.]+)')
+        'Xbox / XInput(?: Slot \d+)? frames target_hz=([0-9.]+).*? actual_hz=([0-9.]+)')
     $backgroundRate = [double]$backgroundRates[$backgroundRates.Count - 1].Groups[2].Value
     if ($backgroundRate -lt $MinimumFeedHz) {
         throw "Background feed rate $backgroundRate Hz is below $MinimumFeedHz Hz."
@@ -348,6 +360,9 @@ try {
     }
     Write-Output '[V60_UI_SMOKE] direct_mode_switch=result=pass'
 
+    Wait-Until -TimeoutSeconds 15 -Failure "VIIPER port field did not re-enable after stopping the direct-switch target." -Condition {
+        $portEdit.Current.IsEnabled
+    }
     Set-Value -Element $portEdit -Value "70000"
     $invalidOffset = (Get-Value $logEdit).Length
     Invoke-Button -Root $root -Name "Ping VIIPER"
@@ -382,13 +397,15 @@ try {
     Wait-Until -TimeoutSeconds 8 -Failure "Automatic Pro2 reconnect did not begin a second attempt." -Condition {
         $text = Get-Value $logEdit
         $suffix = $text.Substring([Math]::Min($enterOffset, $text.Length))
-        $suffix.Contains('[PRO2_AUTO] attempt=2 begin.')
+        $suffix.Contains('[PRO2_AUTO] attempt=2 begin.') -or
+            $suffix.Contains('[SLOT_MULTI] slot=1 attempt=2 begin.')
     }
     Invoke-Button -Root $root -Name "停止自动重连并断开"
     Wait-Until -TimeoutSeconds 12 -Failure "Automatic Pro2 reconnect did not stop on request." -Condition {
         $text = Get-Value $logEdit
         $suffix = $text.Substring([Math]::Min($enterOffset, $text.Length))
-        $suffix.Contains('[PRO2_AUTO] cancelled.')
+        $suffix.Contains('[PRO2_AUTO] cancelled.') -or
+            $suffix.Contains('[SLOT_MULTI] slot=1 auto cancelled.')
     }
     $enterStopOffset = (Get-Value $logEdit).Length
     Invoke-Button -Root $root -Name "停止虚拟设备"

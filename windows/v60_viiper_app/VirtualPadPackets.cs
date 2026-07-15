@@ -52,7 +52,7 @@ public sealed record ViiperDeviceProfile(
         "ns2pro",
         "057e",
         "2069",
-        24,
+        28,
         34,
         TimeSpan.FromMilliseconds(4));
 
@@ -118,15 +118,21 @@ public sealed record ViiperDeviceProfile(
 
     public IReadOnlyDictionary<string, object?> DeviceSpecificArguments()
     {
-        if (string.IsNullOrWhiteSpace(DeviceSpecificSerialNumber))
+        var arguments = new Dictionary<string, object?>();
+        if (!string.IsNullOrWhiteSpace(DeviceSpecificSerialNumber))
         {
-            return new Dictionary<string, object?>();
+            arguments["serial_number"] = DeviceSpecificSerialNumber.Trim();
         }
 
-        return new Dictionary<string, object?>
+        if (Mode == ViiperVirtualMode.Pro2)
         {
-            ["serial_number"] = DeviceSpecificSerialNumber.Trim()
-        };
+            arguments["input_interval_ms"] = Math.Clamp(
+                (int)Math.Round(SendInterval.TotalMilliseconds),
+                1,
+                255);
+        }
+
+        return arguments;
     }
 
     public static string SlotSerialNumber(ViiperVirtualMode mode, int slotIndex)
@@ -254,7 +260,7 @@ public static class VirtualPadPackets
 
     private static byte[] Ns2ProNeutral()
     {
-        byte[] b = new byte[24];
+        byte[] b = new byte[28];
         WriteU16(b, 4, 0x0800);
         WriteU16(b, 6, 0x0800);
         WriteU16(b, 8, 0x0800);
@@ -309,7 +315,7 @@ public static class VirtualPadPackets
         GamepadState state,
         GyroAxisInversion gyroAxisInversion)
     {
-        byte[] b = new byte[24];
+        byte[] b = new byte[28];
         WriteU32(b, 0, Ns2ProButtons(state));
         WriteU16(b, 4, SnapAxisCenter(state.Lx));
         WriteU16(b, 6, SnapAxisCenter(state.Ly));
@@ -323,6 +329,7 @@ public static class VirtualPadPackets
         WriteI16(b, 18, state.GyroValid ? ns2ProGyro.X : (short)0);
         WriteI16(b, 20, state.GyroValid ? ns2ProGyro.Y : (short)0);
         WriteI16(b, 22, state.GyroValid ? ns2ProGyro.Z : (short)0);
+        WriteU32(b, 24, state.MotionTimestampUs);
         return b;
     }
 
@@ -433,7 +440,7 @@ public static class VirtualPadPackets
     {
         return ApplyGyroAxisInversion(new MotionVector(
             state.GyroX,
-            NegateI16(state.GyroY),
+            state.GyroY,
             state.GyroZ), gyroAxisInversion);
     }
 
@@ -441,7 +448,7 @@ public static class VirtualPadPackets
     {
         return new MotionVector(
             state.AccelX,
-            NegateI16(state.AccelY),
+            state.AccelY,
             state.AccelZ);
     }
 

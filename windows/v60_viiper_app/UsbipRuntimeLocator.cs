@@ -6,6 +6,7 @@ using System.Linq;
 using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Win32;
 
 namespace Y700Switch2V60Viiper;
 
@@ -158,6 +159,11 @@ public static class UsbipRuntimeLocator
             yield return pathCandidate;
         }
 
+        foreach (string registryCandidate in InstalledProductCandidates())
+        {
+            yield return registryCandidate;
+        }
+
         foreach (string localRoot in LocalSearchRoots())
         {
             foreach (string found in TryFindUnder(localRoot))
@@ -172,7 +178,64 @@ public static class UsbipRuntimeLocator
             yield return Path.Combine(programRoot, "USBIP", "usbip.exe");
             yield return Path.Combine(programRoot, "usbip-win2", "usbip.exe");
             yield return Path.Combine(programRoot, "USBip-win2", "usbip.exe");
+            yield return Path.Combine(programRoot, "USBip", "bin", "usbip.exe");
+            yield return Path.Combine(programRoot, "usbip-win2", "bin", "usbip.exe");
         }
+    }
+
+    private static IReadOnlyList<string> InstalledProductCandidates()
+    {
+        var candidates = new List<string>();
+        foreach (RegistryView view in new[] { RegistryView.Registry64, RegistryView.Registry32 })
+        {
+            try
+            {
+                using RegistryKey baseKey = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, view);
+                using RegistryKey? uninstall = baseKey.OpenSubKey(@"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall");
+                if (uninstall == null)
+                {
+                    continue;
+                }
+
+                foreach (string subKeyName in uninstall.GetSubKeyNames())
+                {
+                    using RegistryKey? product = uninstall.OpenSubKey(subKeyName);
+                    string displayName = product?.GetValue("DisplayName") as string ?? "";
+                    if (!displayName.Contains("USBip", StringComparison.OrdinalIgnoreCase) &&
+                        !displayName.Contains("USB-IP", StringComparison.OrdinalIgnoreCase))
+                    {
+                        continue;
+                    }
+
+                    string installLocation = product?.GetValue("InstallLocation") as string ?? "";
+                    if (!string.IsNullOrWhiteSpace(installLocation))
+                    {
+                        candidates.Add(Path.Combine(installLocation.Trim().Trim('"'), "usbip.exe"));
+                        candidates.Add(Path.Combine(installLocation.Trim().Trim('"'), "bin", "usbip.exe"));
+                    }
+
+                    string displayIcon = product?.GetValue("DisplayIcon") as string ?? "";
+                    if (!string.IsNullOrWhiteSpace(displayIcon))
+                    {
+                        string iconPath = displayIcon.Trim().Trim('"');
+                        int argumentSeparator = iconPath.IndexOf(',');
+                        if (argumentSeparator > 0)
+                        {
+                            iconPath = iconPath[..argumentSeparator];
+                        }
+                        if (iconPath.EndsWith("usbip.exe", StringComparison.OrdinalIgnoreCase))
+                        {
+                            candidates.Add(iconPath);
+                        }
+                    }
+                }
+            }
+            catch
+            {
+                // Registry discovery is supplemental; PATH and fixed locations remain available.
+            }
+        }
+        return candidates;
     }
 
     private static IEnumerable<string> PathEnvironmentCandidates()
@@ -293,7 +356,7 @@ public static class UsbipRuntimeLocator
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "PRO2WirelessReceiverControlBoard",
             "embedded",
-            "v6.2.27",
+            "v6.2.28-test",
             "usbip-win2",
             BundledVersion);
         Directory.CreateDirectory(root);

@@ -80,7 +80,7 @@ public partial class MainWindow : Window
         trayIcon = new Forms.NotifyIcon
         {
             Icon = LoadTrayIcon(),
-            Text = "PRO2 控制板 V6.2.27",
+            Text = "PRO2 控制板 V6.2.28 Test r22",
             ContextMenuStrip = trayMenu,
             Visible = true
         };
@@ -124,6 +124,25 @@ public partial class MainWindow : Window
                 System.Windows.MessageBox.Show(this, message, title, MessageBoxButton.OK, MessageBoxImage.Information);
             }
         }));
+    }
+
+    private void RefreshSteamControllerCache_Click(object sender, RoutedEventArgs e)
+    {
+        MessageBoxResult answer = System.Windows.MessageBox.Show(
+            this,
+            "刷新会先正常拔出当前虚拟手柄，然后请求 Steam 正常退出并重新打开。运行中的 Steam 游戏可能阻止退出，请先保存游戏进度。程序不会强制结束 Steam。是否继续？",
+            "刷新 Steam 控制器缓存",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Warning);
+        if (answer != MessageBoxResult.Yes || DataContext is not MainViewModel viewModel)
+        {
+            return;
+        }
+
+        if (viewModel.RefreshSteamControllerCacheCommand.CanExecute(null))
+        {
+            viewModel.RefreshSteamControllerCacheCommand.Execute(null);
+        }
     }
 
     private void ToggleTraySetting(Action<MainViewModel> action)

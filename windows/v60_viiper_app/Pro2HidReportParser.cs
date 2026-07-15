@@ -15,6 +15,25 @@ public sealed class Pro2HidReportParser
     private readonly AxisCalibration legacyAxis = new();
     private readonly MotionCalibration motion = new();
 
+    public string StartManualGyroCalibration()
+    {
+        lock (gate)
+        {
+            return motion.StartManualCalibration();
+        }
+    }
+
+    public string GyroCalibrationSummary
+    {
+        get
+        {
+            lock (gate)
+            {
+                return motion.Summary;
+            }
+        }
+    }
+
     public bool TryParse(ReadOnlySpan<byte> report, out GamepadState state, out string source)
     {
         lock (gate)
@@ -82,6 +101,32 @@ public sealed class Pro2HidReportParser
         }
     }
 
+    public bool TryParsePrimaryProPayload(
+        ReadOnlySpan<byte> report,
+        out GamepadState state,
+        out string source)
+    {
+        lock (gate)
+        {
+            state = GamepadState.Neutral();
+            source = "";
+            if (report.Length < 11 || report[1] != 0x20)
+            {
+                return false;
+            }
+
+            ApplyPrimaryProButtons(state, report[2], report[3], report[4]);
+            ApplyAxes(standardAxis,
+                state,
+                Unpack12X(report, 5),
+                Unpack12Y(report, 5),
+                Unpack12X(report, 8),
+                Unpack12Y(report, 8));
+            source = "primary_pro_payload";
+            return true;
+        }
+    }
+
     public bool TryParseHidInputReport(ReadOnlySpan<byte> report, out GamepadState state, out string source)
     {
         lock (gate)
@@ -141,7 +186,10 @@ public sealed class Pro2HidReportParser
 
         if (payload.Length >= 60)
         {
+            state.MotionTimestampUs =
+                BinaryPrimitives.ReadUInt32LittleEndian(payload.Slice(42, 4));
             AttachRawImuSamples(state, payload, 48, 3);
+            // Common FD2 carries one IMU sample after its temperature field.
             ApplyMotionSample(state, payload.Slice(48, 12));
         }
     }
@@ -217,6 +265,40 @@ public sealed class Pro2HidReportParser
         Set(state, GamepadButtons.L2, (buttons & 0x00800000) != 0);
         Set(state, GamepadButtons.PaddleRight, (buttons & 0x01000000) != 0);
         Set(state, GamepadButtons.PaddleLeft, (buttons & 0x02000000) != 0);
+        state.L2 = state.IsPressed(GamepadButtons.L2) ? GamepadState.TriggerMax : (ushort)0;
+        state.R2 = state.IsPressed(GamepadButtons.R2) ? GamepadState.TriggerMax : (ushort)0;
+    }
+
+    private static void ApplyPrimaryProButtons(
+        GamepadState state,
+        byte right,
+        byte left,
+        byte shared)
+    {
+        state.Buttons = GamepadButtons.None;
+        Set(state, GamepadButtons.South, (right & 0x01) != 0);
+        Set(state, GamepadButtons.East, (right & 0x02) != 0);
+        Set(state, GamepadButtons.West, (right & 0x04) != 0);
+        Set(state, GamepadButtons.North, (right & 0x08) != 0);
+        Set(state, GamepadButtons.R1, (right & 0x10) != 0);
+        Set(state, GamepadButtons.R2, (right & 0x20) != 0);
+        Set(state, GamepadButtons.Start, (right & 0x40) != 0);
+        Set(state, GamepadButtons.RightStick, (right & 0x80) != 0);
+
+        Set(state, GamepadButtons.DPadDown, (left & 0x01) != 0);
+        Set(state, GamepadButtons.DPadRight, (left & 0x02) != 0);
+        Set(state, GamepadButtons.DPadLeft, (left & 0x04) != 0);
+        Set(state, GamepadButtons.DPadUp, (left & 0x08) != 0);
+        Set(state, GamepadButtons.L1, (left & 0x10) != 0);
+        Set(state, GamepadButtons.L2, (left & 0x20) != 0);
+        Set(state, GamepadButtons.Back, (left & 0x40) != 0);
+        Set(state, GamepadButtons.LeftStick, (left & 0x80) != 0);
+
+        Set(state, GamepadButtons.Home, (shared & 0x01) != 0);
+        Set(state, GamepadButtons.Capture, (shared & 0x02) != 0);
+        Set(state, GamepadButtons.PaddleRight, (shared & 0x04) != 0);
+        Set(state, GamepadButtons.PaddleLeft, (shared & 0x08) != 0);
+        Set(state, GamepadButtons.Aux, (shared & 0x10) != 0);
         state.L2 = state.IsPressed(GamepadButtons.L2) ? GamepadState.TriggerMax : (ushort)0;
         state.R2 = state.IsPressed(GamepadButtons.R2) ? GamepadState.TriggerMax : (ushort)0;
     }
@@ -378,19 +460,45 @@ public sealed class Pro2HidReportParser
 
     private sealed class MotionCalibration
     {
-        private const int SamplesRequired = 64;
+        private const int AutoSamplesRequired = 64;
+        private const int ManualSamplesRequired = 200;
         private const int GyroStationaryMaxAbs = 256;
         private const int AccelMagnitudeMin = 3000;
         private const int AccelMagnitudeMax = 5400;
+        private const double MaxGyroStdRaw = 3.5;
+        private const double MaxAccelNormStdRaw = 12.0;
 
         private long gyroXSum;
         private long gyroYSum;
         private long gyroZSum;
+        private long gyroXSquareSum;
+        private long gyroYSquareSum;
+        private long gyroZSquareSum;
+        private double accelNormSum;
+        private double accelNormSquareSum;
         private int sampleCount;
         private bool calibrated;
-        private int gyroXBias;
-        private int gyroYBias;
-        private int gyroZBias;
+        private bool manualCalibrating;
+        private double gyroXBias;
+        private double gyroYBias;
+        private double gyroZBias;
+        private string lastResult = "auto_waiting_stationary";
+
+        public string Summary =>
+            "status=" + (manualCalibrating ? "manual_collecting" : calibrated ? "calibrated" : "not_calibrated") +
+            " samples=" + sampleCount +
+            " bias_raw=" + gyroXBias.ToString("0.###") + "," +
+            gyroYBias.ToString("0.###") + "," +
+            gyroZBias.ToString("0.###") +
+            " result=" + lastResult;
+
+        public string StartManualCalibration()
+        {
+            manualCalibrating = true;
+            lastResult = "manual_collecting_keep_controller_still";
+            ResetLearningWindow();
+            return "陀螺仪三秒校准已开始；请将手柄静置在稳定平面。";
+        }
 
         public void Apply(GamepadState state)
         {
@@ -401,14 +509,27 @@ public sealed class Pro2HidReportParser
             int gyroY = state.GyroY;
             int gyroZ = state.GyroZ;
 
-            if (!calibrated)
+            bool canLearn =
+                ControlsAreIdle(state) &&
+                IsStationary(accelX, accelY, accelZ, gyroX, gyroY, gyroZ);
+
+            if (manualCalibrating)
             {
-                bool canLearn =
-                    ControlsAreIdle(state) &&
-                    IsStationary(accelX, accelY, accelZ, gyroX, gyroY, gyroZ);
                 if (canLearn)
                 {
-                    Learn(gyroX, gyroY, gyroZ);
+                    Learn(accelX, accelY, accelZ, gyroX, gyroY, gyroZ, ManualSamplesRequired, true);
+                }
+                else
+                {
+                    lastResult = "manual_motion_detected_window_restarted";
+                    ResetLearningWindow();
+                }
+            }
+            else if (!calibrated)
+            {
+                if (canLearn)
+                {
+                    Learn(accelX, accelY, accelZ, gyroX, gyroY, gyroZ, AutoSamplesRequired, false);
                 }
                 else
                 {
@@ -421,9 +542,9 @@ public sealed class Pro2HidReportParser
                 return;
             }
 
-            state.GyroX = ClampInt16(gyroX - gyroXBias);
-            state.GyroY = ClampInt16(gyroY - gyroYBias);
-            state.GyroZ = ClampInt16(gyroZ - gyroZBias);
+            state.GyroX = ClampInt16((int)Math.Round(gyroX - gyroXBias));
+            state.GyroY = ClampInt16((int)Math.Round(gyroY - gyroYBias));
+            state.GyroZ = ClampInt16((int)Math.Round(gyroZ - gyroZBias));
         }
 
         private static bool ControlsAreIdle(GamepadState state)
@@ -458,22 +579,76 @@ public sealed class Pro2HidReportParser
             return plausibleGravity && gyroQuiet;
         }
 
-        private void Learn(int gyroX, int gyroY, int gyroZ)
+        private void Learn(
+            int accelX,
+            int accelY,
+            int accelZ,
+            int gyroX,
+            int gyroY,
+            int gyroZ,
+            int samplesRequired,
+            bool manual)
         {
             gyroXSum += gyroX;
             gyroYSum += gyroY;
             gyroZSum += gyroZ;
+            gyroXSquareSum += (long)gyroX * gyroX;
+            gyroYSquareSum += (long)gyroY * gyroY;
+            gyroZSquareSum += (long)gyroZ * gyroZ;
+            double accelNorm = Math.Sqrt(
+                (double)accelX * accelX +
+                (double)accelY * accelY +
+                (double)accelZ * accelZ);
+            accelNormSum += accelNorm;
+            accelNormSquareSum += accelNorm * accelNorm;
             sampleCount++;
-            if (sampleCount < SamplesRequired)
+            if (sampleCount < samplesRequired)
             {
                 return;
             }
 
-            gyroXBias = (int)(gyroXSum / sampleCount);
-            gyroYBias = (int)(gyroYSum / sampleCount);
-            gyroZBias = (int)(gyroZSum / sampleCount);
+            double gyroXMean = (double)gyroXSum / sampleCount;
+            double gyroYMean = (double)gyroYSum / sampleCount;
+            double gyroZMean = (double)gyroZSum / sampleCount;
+            double gyroXStd = StandardDeviation(gyroXSquareSum, gyroXMean, sampleCount);
+            double gyroYStd = StandardDeviation(gyroYSquareSum, gyroYMean, sampleCount);
+            double gyroZStd = StandardDeviation(gyroZSquareSum, gyroZMean, sampleCount);
+            double accelNormMean = accelNormSum / sampleCount;
+            double accelNormVariance = Math.Max(0, accelNormSquareSum / sampleCount - accelNormMean * accelNormMean);
+            double accelNormStd = Math.Sqrt(accelNormVariance);
+            if (gyroXStd > MaxGyroStdRaw ||
+                gyroYStd > MaxGyroStdRaw ||
+                gyroZStd > MaxGyroStdRaw ||
+                accelNormStd > MaxAccelNormStdRaw)
+            {
+                lastResult = (manual ? "manual" : "auto") +
+                             "_rejected_unstable std_gyro=" +
+                             gyroXStd.ToString("0.###") + "," +
+                             gyroYStd.ToString("0.###") + "," +
+                             gyroZStd.ToString("0.###") +
+                             " accel_norm_std=" + accelNormStd.ToString("0.###");
+                ResetLearningWindow();
+                return;
+            }
+
+            gyroXBias = gyroXMean;
+            gyroYBias = gyroYMean;
+            gyroZBias = gyroZMean;
             calibrated = true;
+            manualCalibrating = false;
+            lastResult = (manual ? "manual" : "auto") +
+                         "_committed std_gyro=" +
+                         gyroXStd.ToString("0.###") + "," +
+                         gyroYStd.ToString("0.###") + "," +
+                         gyroZStd.ToString("0.###") +
+                         " accel_norm_std=" + accelNormStd.ToString("0.###");
             ResetLearningWindow();
+        }
+
+        private static double StandardDeviation(long squareSum, double mean, int count)
+        {
+            double variance = Math.Max(0, (double)squareSum / count - mean * mean);
+            return Math.Sqrt(variance);
         }
 
         private static short ClampInt16(int value)
@@ -488,6 +663,11 @@ public sealed class Pro2HidReportParser
             gyroXSum = 0;
             gyroYSum = 0;
             gyroZSum = 0;
+            gyroXSquareSum = 0;
+            gyroYSquareSum = 0;
+            gyroZSquareSum = 0;
+            accelNormSum = 0;
+            accelNormSquareSum = 0;
             sampleCount = 0;
         }
     }

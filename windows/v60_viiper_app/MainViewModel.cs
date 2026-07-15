@@ -18,6 +18,8 @@ namespace Y700Switch2V60Viiper;
 
 public sealed class MainViewModel : INotifyPropertyChanged
 {
+    private const string UsbipPortableInstallHint =
+        "如果使用的是非标准绿色版/便携版，并且它既不写安装注册表、不加入 PATH、也不位于常见 USBIP 目录，程序无法自动发现；建议直接使用本 EXE 内置的正式 USBIP 安装器。";
     private const int MaxUiLogCharacters = 120000;
     private const int TrimmedUiLogCharacters = 70000;
     private readonly StringBuilder log = new();
@@ -42,7 +44,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private ViiperBridgeSession? session;
     private string host = "127.0.0.1";
     private string port = "3242";
-    private string status = "V6.2.27 IMU 与触觉审计版已就绪。PS5 / Edge / Pro2 / Xbox 均支持 1-4 个独立 Pro2 BLE Slot。";
+    private string status = "V6.2.28 Test r22 已就绪。VIIPER/USBIP 内置安装与驱动三态诊断版。";
     private string inputStatus = "真实 Pro2 BLE 输入未连接。";
     private string selectedPushRateLabel = ViiperPushRateOption.Default.Label;
     private string selectedBackendLabel = VirtualBackendOption.Default.Label;
@@ -58,6 +60,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private bool startupAutomationPaused;
     private bool startupAutomationRan;
     private bool startupAutomationNoticeSent;
+    private bool steamGhostNoticeSent;
     private DateTimeOffset? startupAutomationDeadlineUtc;
     private string runtimeReadinessText = "";
     private string professionalBiasStatusText =
@@ -90,9 +93,11 @@ public sealed class MainViewModel : INotifyPropertyChanged
         ScanPro2InputCommand = new RelayCommand(_ => RunExclusiveAsync("扫描 Pro2 BLE", ScanPro2InputAsync));
         ConnectPro2InputCommand = new RelayCommand(_ => RunExclusiveAsync("进入游戏", EnterGameAsync));
         DisconnectPro2InputCommand = new RelayCommand(_ => RunExclusiveAsync("断开 Pro2 BLE", DisconnectPro2InputAsync));
+        CalibrateSourceGyroCommand = new RelayCommand(_ => RunExclusiveAsync("校准真实 Pro2 陀螺仪", CalibrateSourceGyroAsync));
         FixAudioDefaultsCommand = new RelayCommand(_ => RunExclusiveAsync("修复音频默认设备", FixAudioDefaultsAsync));
         DumpControllerEnumerationCommand = new RelayCommand(_ => RunExclusiveAsync("设备枚举诊断", DumpControllerEnumerationAsync));
         CleanupStaleVirtualDevicesCommand = new RelayCommand(_ => RunExclusiveAsync("清理残留虚拟设备", CleanupStaleVirtualDevicesAsync));
+        RefreshSteamControllerCacheCommand = new RelayCommand(_ => RunExclusiveAsync("刷新 Steam 控制器缓存", RefreshSteamControllerCacheAsync));
         ExportDiagnosticsLogCommand = new RelayCommand(_ => RunExclusiveAsync("导出诊断包", ExportDiagnosticsLogAsync));
         ScanPro2SlotCommand = new RelayCommand(parameter => RunExclusiveAsync(
             "扫描 Pro2 Slot",
@@ -168,12 +173,13 @@ public sealed class MainViewModel : INotifyPropertyChanged
         inputSource.SetStickProcessingMode(SelectedStickProcessingOption.Mode);
         ApplyPro2SlotRuntimeOptions();
         RefreshRuntimeReadiness();
+        _ = RefreshRuntimeReadinessAsync();
         AppendLog("[SESSION_LOG] " + sessionLog.FilePath);
         if (!string.IsNullOrWhiteSpace(StartupProcessGuard.LastSummary))
         {
             AppendLog(StartupProcessGuard.LastSummary);
         }
-        AppendLog("V6.2.27 说明：PS5 / Edge IMU 采用 G=+X,+Z,-Y / A=+X,+Z,-Y，并使用最新已校准的 5ms 子样本；HD 触觉只读取 DualSense 第 3/4 声道；四个模式均支持 1-4 个独立 Pro2 BLE Slot。");
+        AppendLog("V6.2.28 Test r22 说明：VIIPER 与 USBIP 安装器已内嵌；USBIP 会区分未安装、已安装但驱动待重启、完全就绪，并从注册表补查安装路径。保留 r21 输入和 USB 收尾链路。 ");
         AppendLog("[LOG_POLICY] previous v6 logs are cleaned at startup; manager log limit=" +
                   (SessionLogWriter.MaxLogBytes / 1024 / 1024) + "MB; VIIPER server log level=info.");
         AppendLog("[RUNTIME] " + RuntimeReadinessText);
@@ -737,9 +743,11 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public ICommand ScanPro2InputCommand { get; }
     public ICommand ConnectPro2InputCommand { get; }
     public ICommand DisconnectPro2InputCommand { get; }
+    public ICommand CalibrateSourceGyroCommand { get; }
     public ICommand FixAudioDefaultsCommand { get; }
     public ICommand DumpControllerEnumerationCommand { get; }
     public ICommand CleanupStaleVirtualDevicesCommand { get; }
+    public ICommand RefreshSteamControllerCacheCommand { get; }
     public ICommand ExportDiagnosticsLogCommand { get; }
     public ICommand ScanPro2SlotCommand { get; }
     public ICommand ConnectPro2SlotCommand { get; }
@@ -913,8 +921,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
         {
             UsbipInstaller? installer = UsbipRuntimeLocator.FindBundledInstaller();
             Status = installer == null
-                ? "未找到 usbip-win2 的 usbip.exe，也没有找到随包安装器。请确认发布包完整。"
-                : "未安装 usbip-win2。请点击“安装/修复 usbip-win2”，完成后再启动本地 VIIPER。";
+                ? "未找到 usbip-win2 的 usbip.exe，也没有找到随包安装器。请确认发布包完整。" + UsbipPortableInstallHint
+                : "未找到可用的 usbip-win2。请点击“安装/修复 usbip-win2”，使用 EXE 内置的正式安装器完成安装。" + UsbipPortableInstallHint;
             AppendLog("[USBIP] usbip.exe not found. VIIPER can answer ping without it, but all three modes will fail during auto-attach.");
             if (installer != null)
             {
@@ -1295,7 +1303,18 @@ public sealed class MainViewModel : INotifyPropertyChanged
             }
 
             await process.WaitForExitAsync(cancellationToken);
-            AppendLog("[USBIP] installer exited code=" + process.ExitCode);
+            int installerExitCode = process.ExitCode;
+            AppendLog("[USBIP] installer exited code=" + installerExitCode);
+            if (installerExitCode is 1641 or 3010)
+            {
+                Status = "USBIP 驱动安装成功，但 Windows 要求重启。请重启后再启动角色，不要反复重装。";
+                AppendLog("[USBIP] reboot_required=1 installer_exit=" + installerExitCode);
+            }
+            else if (installerExitCode != 0)
+            {
+                Status = "USBIP 安装器返回错误 exit=" + installerExitCode + "。请查看安装向导提示，或再次点击“安装/修复 USBIP”。";
+                AppendLog("[USBIP] installer_failed exit=" + installerExitCode);
+            }
             await Task.Delay(1000, cancellationToken);
         }
         catch (Win32Exception ex) when (ex.NativeErrorCode == 1223)
@@ -1335,10 +1354,10 @@ public sealed class MainViewModel : INotifyPropertyChanged
         }
         else
         {
-            Status = "usbip-win2 安装器已结束，但还没找到 usbip.exe。若安装器提示重启，请重启后再打开本 EXE。";
+            Status = "usbip-win2 安装器已结束，但还没找到 usbip.exe。若安装器提示重启，请重启后再打开本 EXE。" + UsbipPortableInstallHint;
             AppendLog("[USBIP] usbip.exe still not found after installer exit; reboot may be required.");
         }
-        RefreshRuntimeReadiness();
+        await RefreshRuntimeReadinessAsync(cancellationToken);
     }
 
     private async Task ScanPro2InputAsync(CancellationToken cancellationToken)
@@ -1463,6 +1482,42 @@ public sealed class MainViewModel : INotifyPropertyChanged
         }
     }
 
+    private async Task CalibrateSourceGyroAsync(CancellationToken cancellationToken)
+    {
+        Pro2BleInputSource[] liveSources = pro2Slots
+            .Where(slot => slot.InputSource.IsRunning)
+            .Select(slot => slot.InputSource)
+            .Distinct()
+            .ToArray();
+        if (liveSources.Length == 0)
+        {
+            Status = "没有已连接的真实 Pro2，无法校准陀螺仪。";
+            AppendLog("[PRO2_GYRO_CAL] rejected=no_live_source");
+            return;
+        }
+
+        foreach (Pro2BleInputSource source in liveSources)
+        {
+            AppendLog("[PRO2_GYRO_CAL] " + source.StartManualGyroCalibration());
+        }
+        Status = "正在校准真实 Pro2 陀螺仪，请将手柄静置三秒。按键和摇杆仍保持连接。";
+        InputStatus = "陀螺仪零偏校准中，请勿移动手柄...";
+        await Task.Delay(TimeSpan.FromSeconds(3.5), cancellationToken);
+
+        string[] summaries = liveSources
+            .Select((source, index) => "slot=" + (index + 1) + " " + source.GyroCalibrationSummary)
+            .ToArray();
+        foreach (string summary in summaries)
+        {
+            AppendLog("[PRO2_GYRO_CAL] " + summary);
+        }
+        bool complete = summaries.All(summary => summary.Contains("status=calibrated", StringComparison.Ordinal));
+        Status = complete
+            ? "真实 Pro2 陀螺仪零偏校准完成。未使用死区或滤波。"
+            : "陀螺仪校准尚未提交，检测到移动；请保持静置后重试。";
+        InputStatus = inputSource.Status + " · " + inputSource.GyroCalibrationSummary;
+    }
+
     private async Task EnterGameAsync(CancellationToken cancellationToken)
     {
         if (!Running || activeMode != selectedMode)
@@ -1551,7 +1606,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
                 if (runtime == null)
                 {
                     throw new InvalidOperationException(
-                        "USBIP 驱动尚未就绪。请完成安装向导；若安装器要求重启，请重启 Windows 后再次选择角色。");
+                        "USBIP 驱动尚未就绪。请完成 EXE 内置的正式安装向导；若安装器要求重启，请重启 Windows 后再次选择角色。" +
+                        UsbipPortableInstallHint);
                 }
 
                 probe = await UsbipRuntimeLocator.ProbeAsync(runtime, cancellationToken);
@@ -2225,7 +2281,18 @@ public sealed class MainViewModel : INotifyPropertyChanged
                              inputAge <= TimeSpan.FromMilliseconds(500);
             Running = true;
             Status = "正在启动 " + profile.Label + " 虚拟手柄...";
-            ViiperPushRateOption pushRate = SelectedPushRateOption;
+            ViiperPushRateOption requestedPushRate = SelectedPushRateOption;
+            ViiperPushRateOption pushRate = profile.Mode == ViiperVirtualMode.Pro2
+                ? ViiperPushRateOption.All.First(option => option.Mode == ViiperPushRateMode.Hz250)
+                : requestedPushRate;
+            if (profile.Mode == ViiperVirtualMode.Pro2 &&
+                requestedPushRate.Mode != ViiperPushRateMode.Hz250)
+            {
+                AppendLog("[PRO2_REALTIME] endpoint_clock_policy requested_hz=" +
+                          requestedPushRate.Hz.ToString("F1") +
+                          " effective_hz=" + pushRate.Hz.ToString("F1") +
+                          " hid_bInterval_ms=4 scheduler=realtime_ordered_1ms reason=viiper_drains_real_samples_then_holds_latest");
+            }
             ViiperGyroModeOption gyro = ViiperGyroModeOption.Default;
             GyroAxisInversion gyroAxisInversion = default;
             Ps5ImuMappingOption ps5ImuMapping = Ps5ImuMappingOption.Default;
@@ -2309,6 +2376,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
                 {
                     await ApplyDualSenseAudioGuardAsync(cancellationToken);
                 }
+                DiagnoseSteamControllerCache(runtimeProfile);
                 Status = runtimeProfile.Label + " 多手柄模式已部署 " + runningSlots +
                          " 个独立 VIIPER 实例。点击“连接 Pro2 · 进入游戏”后，每个启用 Slot 会独立寻找真实手柄。";
                 return;
@@ -2347,6 +2415,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             {
                 await ApplyDualSenseAudioGuardAsync(cancellationToken);
             }
+            DiagnoseSteamControllerCache(runtimeProfile);
             Status = runtimeProfile.Label + " 虚拟设备已连接。当前输入源：" +
                 (inputLive
                     ? "Pro2 BLE live，rumble 写回已启用"
@@ -2545,7 +2614,107 @@ public sealed class MainViewModel : INotifyPropertyChanged
         {
             AppendLog(line);
         }
-        Status = "残留虚拟设备清理已完成。若 [PNP_HID] 仍有 If_Hid，请根据 MI/usage 判断是否是描述符命名问题。";
+        Status = "虚拟设备已按 USBIP detach → VIIPER remove 顺序清理。Steam 内存中的旧 If_Hid 需使用“刷新 Steam 缓存”完成一次性收尾。";
+    }
+
+    private async Task RefreshSteamControllerCacheAsync(CancellationToken cancellationToken)
+    {
+        SteamControllerCacheAnalysis before = SteamControllerCacheService.AnalyzeRecentIfHid(
+            ActiveProfile.ExpectedVid,
+            ActiveProfile.ExpectedPid,
+            TimeSpan.FromMinutes(30));
+        AppendLog("[STEAM_CACHE_REFRESH] preflight steam_running=" + before.SteamRunning.ToString().ToLowerInvariant() +
+                  " stale_if_hid=" + before.PotentialStaleIfHid.ToString().ToLowerInvariant() +
+                  " detail=" + before.Detail);
+        if (!before.SteamRunning)
+        {
+            Status = "Steam 当前没有运行，不存在进程内控制器缓存需要刷新。";
+            return;
+        }
+
+        ViiperDeviceProfile restoreProfile = activeMode.HasValue
+            ? ProfileFor(activeMode.Value)
+            : SelectedProfile;
+        bool restorePrimaryAutoReconnect = AutoReconnectEnabled && !IsMultiSlotMode(restoreProfile.Mode);
+        bool restoreSlotAutoReconnect =
+            IsMultiSlotMode(restoreProfile.Mode) &&
+            (AutoReconnectEnabled || pro2Slots.Any(slot => slot.AutoReconnectEnabled));
+
+        Status = "正在正常拔出虚拟手柄并请求 Steam 退出，程序不会强制结束 Steam 进程。";
+        await StopAutoReconnectAsync();
+        await StopSessionAsync(updateStatus: false);
+        await CleanupVirtualDeviceResidueAsync(
+            "steam_controller_cache_refresh",
+            cancellationToken,
+            includePnpDump: false);
+
+        SteamControllerCacheRefreshResult refresh =
+            await SteamControllerCacheService.RestartSteamAsync(cancellationToken);
+        AppendLog("[STEAM_CACHE_REFRESH] success=" + refresh.Success.ToString().ToLowerInvariant() +
+                  " steam_was_running=" + refresh.SteamWasRunning.ToString().ToLowerInvariant() +
+                  " detail=" + refresh.Detail +
+                  " exe=\"" + (refresh.SteamExePath ?? "") + "\"");
+        if (!refresh.Success)
+        {
+            await RestoreAfterSteamCacheRefreshAsync(
+                restoreProfile,
+                restorePrimaryAutoReconnect,
+                restoreSlotAutoReconnect,
+                cancellationToken);
+            Status = "Steam 没有在 20 秒内正常退出，程序未强制结束它；当前虚拟手柄已恢复。请先退出正在运行的 Steam 游戏，再重试刷新。";
+            return;
+        }
+
+        steamGhostNoticeSent = false;
+        await Task.Delay(1500, cancellationToken);
+        await RestoreAfterSteamCacheRefreshAsync(
+            restoreProfile,
+            restorePrimaryAutoReconnect,
+            restoreSlotAutoReconnect,
+            cancellationToken);
+
+        Status = restoreProfile.Label + " 已在新的 Steam 进程中恢复，旧 If_Hid/SDL 槽位不再复用。";
+    }
+
+    private async Task RestoreAfterSteamCacheRefreshAsync(
+        ViiperDeviceProfile restoreProfile,
+        bool restorePrimaryAutoReconnect,
+        bool restoreSlotAutoReconnect,
+        CancellationToken cancellationToken)
+    {
+        await EnsureViiperReadyAsync(cancellationToken);
+        await StartAsync(restoreProfile, cancellationToken);
+        if (restoreSlotAutoReconnect && Running)
+        {
+            await StartEnabledSlotsAutoReconnectAsync(cancellationToken);
+        }
+        else if (restorePrimaryAutoReconnect && Running)
+        {
+            StartAutoReconnect();
+        }
+    }
+
+    private void DiagnoseSteamControllerCache(ViiperDeviceProfile profile)
+    {
+        SteamControllerCacheAnalysis analysis = SteamControllerCacheService.AnalyzeRecentIfHid(
+            profile.ExpectedVid,
+            profile.ExpectedPid,
+            TimeSpan.FromMinutes(30));
+        AppendLog("[STEAM_CACHE] steam_running=" + analysis.SteamRunning.ToString().ToLowerInvariant() +
+                  " stale_if_hid=" + analysis.PotentialStaleIfHid.ToString().ToLowerInvariant() +
+                  " detail=" + analysis.Detail +
+                  " controller_log=\"" + (analysis.ControllerLogPath ?? "") + "\"");
+        if (!analysis.PotentialStaleIfHid || steamGhostNoticeSent)
+        {
+            return;
+        }
+
+        steamGhostNoticeSent = true;
+        RequestUserNotification(
+            "检测到 Steam 旧控制器槽位",
+            "当前虚拟设备身份是 " + profile.ExpectedVid.ToUpperInvariant() + ":" +
+            profile.ExpectedPid.ToUpperInvariant() +
+            "，但 Steam 仍在显示旧 If_Hid。设备端已经正常切换；可在主界面点击“刷新 Steam 缓存”做一次性清理。");
     }
 
     private async Task CleanupVirtualDeviceResidueAsync(
@@ -2602,9 +2771,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
         Directory.CreateDirectory(directory);
         string path = Path.Combine(
             directory,
-            "diagnostics_v6_2_20_" + DateTime.Now.ToString("yyyyMMdd_HHmmss") + ".log");
+            "diagnostics_v6_2_28_test_" + DateTime.Now.ToString("yyyyMMdd_HHmmss") + ".log");
         var builder = new StringBuilder();
-        builder.AppendLine("# V6.2.27 diagnostics export");
+        builder.AppendLine("# V6.2.28 Test r22 diagnostics export");
         builder.AppendLine("# session_log=" + sessionLog.FilePath);
         builder.AppendLine();
         foreach (string line in dump)
@@ -2849,6 +3018,14 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     private static string? FindLocalViiperExe()
     {
+        // A packaged build must use the server it was tested with. Looking up
+        // the repository copy first made release EXEs silently run stale code.
+        string? embedded = ExtractEmbeddedViiperRuntime();
+        if (!string.IsNullOrWhiteSpace(embedded))
+        {
+            return embedded;
+        }
+
         string relative = Path.Combine(
             "tools",
             "viiper",
@@ -2871,7 +3048,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             return cwdCandidate;
         }
 
-        return ExtractEmbeddedViiperRuntime();
+        return null;
     }
 
     private static string? ExtractEmbeddedViiperRuntime()
@@ -2881,7 +3058,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "PRO2WirelessReceiverControlBoard",
             "embedded",
-            "v6.2.27",
+            "v6.2.28-test-r22",
             "viiper",
             "haptic-v0.8.0");
         Directory.CreateDirectory(root);
@@ -3415,7 +3592,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
         if (first.Contains("usbip", StringComparison.OrdinalIgnoreCase) &&
             first.Contains("not found", StringComparison.OrdinalIgnoreCase))
         {
-            return "VIIPER 找不到 usbip.exe。请点击“安装/修复 usbip-win2”，完成后重新启动本地 VIIPER。";
+            return "VIIPER 找不到 usbip.exe。请点击“安装/修复 usbip-win2”，使用 EXE 内置的正式安装器，完成后重新启动本地 VIIPER。" +
+                   UsbipPortableInstallHint;
         }
 
         if (first.Contains("attach", StringComparison.OrdinalIgnoreCase) ||
@@ -3446,6 +3624,44 @@ public sealed class MainViewModel : INotifyPropertyChanged
         RuntimeReadinessText = installer != null
             ? "首次使用：需要安装 USBIP 内核驱动。直接选择角色即可自动打开内置安装向导，VIIPER 无需另行安装。"
             : "发布包不完整：未安装 USBIP，且没有找到内置安装器。请重新获取完整 EXE。";
+    }
+
+    private async Task RefreshRuntimeReadinessAsync(CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            UsbipRuntime? usbip = UsbipRuntimeLocator.Find();
+            if (usbip == null)
+            {
+                UsbipInstaller? installer = UsbipRuntimeLocator.FindBundledInstaller();
+                RuntimeReadinessText = installer != null
+                    ? "VIIPER 已内置；未发现可用的 USBIP。直接选择角色或点击“安装/修复 USBIP”会打开 EXE 内置的正式安装器。" + UsbipPortableInstallHint
+                    : "发布包不完整：VIIPER 可用，但没有找到 USBIP 内核驱动或内置安装器。";
+                AppendLog("[RUNTIME_DIAG] viiper=embedded usbip=not_installed installer=" + (installer != null ? "embedded" : "missing"));
+                return;
+            }
+
+            RuntimeReadinessText = "正在验证 USBIP 内核驱动；VIIPER 已内置，无需另行安装...";
+            UsbipProbeResult probe = await UsbipRuntimeLocator.ProbeAsync(usbip, cancellationToken);
+            if (probe.Ready)
+            {
+                RuntimeReadinessText = "运行环境已就绪：VIIPER 已内置，USBIP 内核驱动可用。无需额外下载或安装 VIIPER。";
+                AppendLog("[RUNTIME_DIAG] viiper=embedded usbip=ready exe=" + usbip.ExePath);
+                return;
+            }
+
+            RuntimeReadinessText = "已找到 USBIP 程序，但内核驱动尚未就绪。若刚安装，请先重启 Windows；重启后仍失败再点“安装/修复 USBIP”。VIIPER 本体已内置。";
+            AppendLog("[RUNTIME_DIAG] viiper=embedded usbip=installed_driver_not_ready detail=" + probe.Detail);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            RuntimeReadinessText = "VIIPER 已内置；USBIP 状态检测失败：" + FirstLine(ex.Message);
+            AppendLog("[RUNTIME_DIAG] failed " + ex.Message);
+        }
     }
 
     public event Action<string, string>? UserNotificationRequested;

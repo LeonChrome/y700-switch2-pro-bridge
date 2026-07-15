@@ -22,6 +22,8 @@ public sealed class Pro2Fd2SpikeRecorder : IAsyncDisposable
     public Pro2Fd2SpikeRecorder(Pro2InputStabilityOptions options)
     {
         this.options = Pro2InputStabilityOptions.Normalize(options);
+        CaptureEnabled = this.options.RawIntegrityModeEnabled ||
+                         IsEnvironmentFlagEnabled("PRO2_FD2_SPIKE_CAPTURE");
         frames = new Pro2Fd2FrameSnapshot[this.options.AxisSpikeRingBufferCapacity];
         dumpQueue = Channel.CreateBounded<SpikeDumpRequest>(
             new BoundedChannelOptions(16)
@@ -35,6 +37,7 @@ public sealed class Pro2Fd2SpikeRecorder : IAsyncDisposable
 
     public long DroppedDumpCount => droppedDumpCount;
     public long WrittenDumpCount => writtenDumpCount;
+    public bool CaptureEnabled { get; }
 
     public void Clear()
     {
@@ -46,6 +49,11 @@ public sealed class Pro2Fd2SpikeRecorder : IAsyncDisposable
 
     public void AddFrame(Pro2Fd2FrameSnapshot frame)
     {
+        if (!CaptureEnabled)
+        {
+            return;
+        }
+
         lock (gate)
         {
             frames[(int)(frame.FrameIndex % (ulong)frames.Length)] = frame;
@@ -58,7 +66,8 @@ public sealed class Pro2Fd2SpikeRecorder : IAsyncDisposable
         out string path)
     {
         path = "";
-        if (!options.AxisSpikeRawDumpEnabled ||
+        if (!CaptureEnabled ||
+            !options.AxisSpikeRawDumpEnabled ||
             options.AxisSpikeDumpRateLimitPer10Seconds <= 0)
         {
             droppedDumpCount++;
@@ -190,6 +199,16 @@ public sealed class Pro2Fd2SpikeRecorder : IAsyncDisposable
     {
         dumpQueue.Writer.TryComplete();
         await writerTask.ConfigureAwait(false);
+    }
+
+    private static bool IsEnvironmentFlagEnabled(string name)
+    {
+        string? value = Environment.GetEnvironmentVariable(name);
+        return value != null &&
+               (value.Equals("1", StringComparison.OrdinalIgnoreCase) ||
+                value.Equals("true", StringComparison.OrdinalIgnoreCase) ||
+                value.Equals("yes", StringComparison.OrdinalIgnoreCase) ||
+                value.Equals("on", StringComparison.OrdinalIgnoreCase));
     }
 
     private sealed record SpikeDumpRequest(

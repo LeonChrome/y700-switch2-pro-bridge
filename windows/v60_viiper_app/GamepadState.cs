@@ -54,6 +54,9 @@ public sealed class GamepadState
     public SwitchImuRawSample[] SwitchRawImuSamples { get; set; } = [];
     public int SwitchRawImuOffset { get; set; } = -1;
     public string SwitchRawImuBytesHex { get; set; } = "";
+    // Native Switch 2 motion clock from FD2, in microseconds. This is kept
+    // separate from SourceTimestampTicks, which measures Windows delivery.
+    public uint MotionTimestampUs { get; set; }
     public long SourceTimestampTicks { get; set; }
     public ulong RawNotificationSequence { get; set; }
     public byte BatteryPercent { get; set; } = BatteryUnknown;
@@ -88,6 +91,32 @@ public interface IGamepadInputMetricsSource
 public interface IGamepadInputRateSource
 {
     double CurrentParsedRateHz { get; }
+}
+
+public interface IGamepadSequentialInputSource
+{
+    bool TryGetNext(out GamepadState state, out TimeSpan age);
+}
+
+// A new virtual USB session must not replay BLE frames accumulated while the
+// previous device was being removed and the replacement was enumerating.
+public interface IGamepadSessionInputSource
+{
+    int PrepareForConsumerSession();
+}
+
+// A low-latency ordered consumer receives only newly arrived source frames.
+// When the source queue is empty, the virtual device owns latest-state reuse.
+public interface IGamepadFreshSequentialInputSource
+{
+    bool TryGetNextFresh(out GamepadState state, out TimeSpan age);
+}
+
+// A real-time consumer may discard already-stale queued notifications and
+// publish only the newest state. Axis and IMU values are never altered.
+public interface IGamepadRealtimeInputSource
+{
+    bool TryGetNewest(out GamepadState state, out TimeSpan age, out int supersededCount);
 }
 
 public interface IGamepadRuntimeTelemetrySink

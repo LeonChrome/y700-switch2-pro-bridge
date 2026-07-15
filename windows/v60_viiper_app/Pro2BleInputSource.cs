@@ -18,6 +18,10 @@ public sealed class Pro2BleInputSource :
     IGamepadInputSource,
     IGamepadInputMetricsSource,
     IGamepadInputRateSource,
+    IGamepadSequentialInputSource,
+    IGamepadSessionInputSource,
+    IGamepadFreshSequentialInputSource,
+    IGamepadRealtimeInputSource,
     IGamepadRuntimeTelemetrySink,
     IGamepadOutputSink
 {
@@ -26,16 +30,16 @@ public sealed class Pro2BleInputSource :
     private static readonly Guid AckUuid = Guid.Parse("c765a961-d9d8-4d36-a20a-5315b111836a");
     private static readonly Guid CmdUuid = Guid.Parse("649d4ac9-8eb7-4e6c-af44-1ea54fe5f005");
     private static readonly Guid RumbleUuid = Guid.Parse("cc483f51-9258-427d-a939-630c31f72b05");
+    private static readonly Guid ClientConfigurationDescriptorUuid =
+        Guid.Parse("00002902-0000-1000-8000-00805f9b34fb");
     private const ushort NintendoCompanyId = 0x0553;
+    private const ushort RequestedFd2ReportRateHz = 133;
     private const ushort FastestLegacyConnectionIntervalUnits = 6;
     private const ushort MinimumAcceptedConnectionIntervalUnits = 12;
     private const double MinimumTargetNotifyRateHz = 62.0;
     private const double MinimumUsableNotifyRateHz = 10.0;
     private const uint MinimumUsableNotifications = 8;
     private const double FastNotifyRateHz = 115.0;
-    private const double LinkHealthReassertGapMs = 55.0;
-    private const double LinkHealthReassertCooldownMs = 8000.0;
-    private const uint LinkHealthWarmupNotifications = 80;
 
     private static readonly byte[][] InitCommands =
     [
@@ -56,6 +60,14 @@ public sealed class Pro2BleInputSource :
         [0x02, 0x91, 0x01, 0x04, 0x00, 0x08, 0x00, 0x00, 0x09, 0x7e, 0x00, 0x00, 0xe8, 0x30, 0x01, 0x00],
     ];
 
+    // BLE flash reads return nine data bytes per ACK, so multi-byte factory
+    // calibration structures must be read in consecutive chunks.
+    private static readonly (uint BaseAddress, int Length)[] ImuCalibrationBlocks =
+    [
+        (0x00013040, 16),
+        (0x00013100, 24),
+    ];
+
     private readonly object gate = new();
     private readonly object writeGate = new();
     private readonly Pro2HidReportParser parser = new();
@@ -63,6 +75,8 @@ public sealed class Pro2BleInputSource :
         Pro2InputStabilityOptions.Default;
     private readonly Pro2InputStabilityFilter inputStability;
     private readonly Pro2Fd2SpikeRecorder spikeRecorder;
+    private readonly Pro2Fd2ResearchRecorder researchRecorder;
+    private readonly Pro2SequentialInputQueue sequentialInput = new();
     private readonly List<BleCandidate> lastCandidates = [];
     private BluetoothLEAdvertisementWatcher? watcher;
     private BluetoothLEDevice? device;
@@ -77,12 +91,24 @@ public sealed class Pro2BleInputSource :
     private DateTimeOffset latestAt;
     private uint updates;
     private uint rawNotifyCount;
+    private uint primaryInputNotifyCount;
+    private uint fd2InputNotifyCount;
+    private uint primaryInputParsedCount;
+    private uint fd2InputParsedCount;
     private uint parseFailCount;
     private uint axisSpikeRejectCount;
     private long firstRawNotifyTicks;
     private long lastRawNotifyTicks;
     private long lastRawNotifyGapTicks;
     private long maxRawNotifyGapTicks;
+    private long firstPrimaryInputTicks;
+    private long lastPrimaryInputTicks;
+    private long lastPrimaryInputGapTicks;
+    private long maxPrimaryInputGapTicks;
+    private long firstFd2InputTicks;
+    private long lastFd2InputTicks;
+    private long lastFd2InputGapTicks;
+    private long maxFd2InputGapTicks;
     private long firstParsedNotifyTicks;
     private long lastParsedNotifyTicks;
     private long lastParsedNotifyGapTicks;
@@ -103,6 +129,12 @@ public sealed class Pro2BleInputSource :
     private uint inputGap45Count;
     private uint inputGap250Count;
     private uint inputGap750Count;
+    private ulong notifyHandlerCount;
+    private long notifyHandlerTotalTicks;
+    private long notifyHandlerMaxTicks;
+    private uint notifyHandlerOver1MsCount;
+    private uint notifyHandlerOver4MsCount;
+    private uint notifyHandlerOver8MsCount;
     private double rumbleGain = 1.0;
     private StickProcessingMode stickProcessingMode = StickProcessingOption.Default.Mode;
     private string status = "未连接真实 Pro2 BLE。";
@@ -110,6 +142,16 @@ public sealed class Pro2BleInputSource :
     private string connectedLabel = "";
     private string connectedAddress = "";
     private string lastNotifySummary = "";
+    private string lastParseSource = "";
+    private long lastNotifySummaryTicks;
+    private int primaryInputLastLength;
+    private int fd2InputLastLength;
+    private bool primaryInputFirstPacketLogged;
+    private bool fd2FirstParseFailureLogged;
+    private GamepadState latestPrimaryControls = GamepadState.Neutral();
+    private GamepadState latestFd2Motion = GamepadState.Neutral();
+    private long latestPrimaryControlsTicks;
+    private long latestFd2MotionTicks;
     private string connectionPreferenceStatus = "not_requested";
     private ushort connectionIntervalUnits;
     private ushort connectionLatency;
@@ -117,6 +159,9 @@ public sealed class Pro2BleInputSource :
     private string lastConnectionParametersSummary = "";
     private string gattSelectionMode = "not_scanned";
     private string gattDiscoverySummary = "";
+    private string fd2ReportRateStatus = "not_requested";
+    private ushort fd2ReportRateDescriptorHandle;
+    private string fd2ReportRateDescriptorUuid = "";
     private IProgress<string>? connectionProgress;
     private string linkRateClass = "unknown";
     private string lastPerformanceFailure = "";
@@ -124,14 +169,13 @@ public sealed class Pro2BleInputSource :
     private double lastViiperPushHz;
     private ulong axisSpikeLogCount;
     private long asyncProgressDroppedCount;
-    private long lastThroughputReassertTicks;
-    private uint throughputReassertCount;
-    private double lastThroughputReassertGapMs;
+    private bool researchCaptureLogged;
 
     public Pro2BleInputSource()
     {
         inputStability = new Pro2InputStabilityFilter(inputStabilityOptions);
         spikeRecorder = new Pro2Fd2SpikeRecorder(inputStabilityOptions);
+        researchRecorder = new Pro2Fd2ResearchRecorder();
     }
 
     public bool IsRunning { get; private set; }
@@ -150,7 +194,21 @@ public sealed class Pro2BleInputSource :
 
     public string Status
     {
-        get { lock (gate) return status; }
+        get
+        {
+            lock (gate)
+            {
+                if (IsRunning && latestAt != default && updates > 0)
+                {
+                    return "真实 Pro2 BLE live，updates=" + updates +
+                           " source=" + lastParseSource +
+                           " raw_notify=" + rawNotifyCount + " " +
+                           BuildMetricsSummaryNoLock();
+                }
+
+                return status;
+            }
+        }
         private set { lock (gate) status = value; }
     }
 
@@ -182,7 +240,15 @@ public sealed class Pro2BleInputSource :
         {
             lock (gate)
             {
-                return SampleRate(updates, firstParsedNotifyTicks, lastParsedNotifyTicks);
+                double primaryRate = SampleRate(
+                    primaryInputParsedCount,
+                    firstPrimaryInputTicks,
+                    lastPrimaryInputTicks);
+                double fd2Rate = SampleRate(
+                    fd2InputParsedCount,
+                    firstFd2InputTicks,
+                    lastFd2InputTicks);
+                return Math.Max(primaryRate, fd2Rate);
             }
         }
     }
@@ -407,6 +473,88 @@ public sealed class Pro2BleInputSource :
         }
     }
 
+    public bool TryGetNext(out GamepadState state, out TimeSpan age)
+    {
+        lock (gate)
+        {
+            if (!IsRunning || latestAt == default)
+            {
+                state = GamepadState.Neutral();
+                age = TimeSpan.MaxValue;
+                return false;
+            }
+
+            if (sequentialInput.TryDequeue(out state, out long arrivalTicks))
+            {
+                long elapsedTicks = Math.Max(0, Stopwatch.GetTimestamp() - arrivalTicks);
+                age = TimeSpan.FromSeconds(elapsedTicks / (double)Stopwatch.Frequency);
+                return true;
+            }
+
+            state = latest.Clone();
+            age = DateTimeOffset.UtcNow - latestAt;
+            return true;
+        }
+    }
+
+    public int PrepareForConsumerSession()
+    {
+        lock (gate)
+        {
+            int discardedFrames = sequentialInput.Count;
+            sequentialInput.Reset();
+            return discardedFrames;
+        }
+    }
+
+    public bool TryGetNextFresh(out GamepadState state, out TimeSpan age)
+    {
+        lock (gate)
+        {
+            if (!IsRunning || latestAt == default ||
+                !sequentialInput.TryDequeue(out state, out long arrivalTicks))
+            {
+                state = GamepadState.Neutral();
+                age = TimeSpan.MaxValue;
+                return false;
+            }
+
+            long elapsedTicks = Math.Max(0, Stopwatch.GetTimestamp() - arrivalTicks);
+            age = TimeSpan.FromSeconds(elapsedTicks / (double)Stopwatch.Frequency);
+            return true;
+        }
+    }
+
+    public bool TryGetNewest(
+        out GamepadState state,
+        out TimeSpan age,
+        out int supersededCount)
+    {
+        lock (gate)
+        {
+            if (!IsRunning || latestAt == default)
+            {
+                state = GamepadState.Neutral();
+                age = TimeSpan.MaxValue;
+                supersededCount = 0;
+                return false;
+            }
+
+            if (!sequentialInput.TryDequeueNewest(
+                    out state,
+                    out long arrivalTicks,
+                    out supersededCount))
+            {
+                age = TimeSpan.MaxValue;
+                return false;
+            }
+
+            long elapsedTicks = Math.Max(0, Stopwatch.GetTimestamp() - arrivalTicks);
+            age = TimeSpan.FromSeconds(elapsedTicks / (double)Stopwatch.Frequency);
+            return true;
+        }
+    }
+
     public bool TryWriteOutputReport(ReadOnlySpan<byte> report, out string error)
     {
         error = "";
@@ -482,6 +630,7 @@ public sealed class Pro2BleInputSource :
     {
         await StopAsync();
         await spikeRecorder.DisposeAsync();
+        await researchRecorder.DisposeAsync();
     }
 
     public void ReportViiperPushRate(double actualHz)
@@ -585,64 +734,68 @@ public sealed class Pro2BleInputSource :
             }
         }
 
-        ackTcs = null;
+        foreach ((uint baseAddress, int length) in ImuCalibrationBlocks)
+        {
+            await ReadAndLogImuCalibrationBlockAsync(
+                commandCharacteristic,
+                baseAddress,
+                length,
+                progress,
+                cancellationToken);
+        }
+
         if (fd2Characteristic != null)
         {
-            fd2Characteristic.ValueChanged += OnNotifyValueChanged;
-            if (!await SubscribeAsync(fd2Characteristic, "fd2", progress))
-            {
-                return false;
-            }
-
-            progress.Report("[PRO2_BLE] waiting for FD2 live input...");
-            if (await WaitForLiveInputAsync(TimeSpan.FromSeconds(3), cancellationToken))
-            {
-                if (!await EnsureUsableBlePerformanceAsync(progress, cancellationToken))
-                {
-                    return false;
-                }
-
-                IsRunning = true;
-                StartRumbleWriter(progress);
-                progress.Report("[PRO2_BLE] live input confirmed updates=" + updates +
-                                " raw_notify=" + rawNotifyCount +
-                                " rumble=" + (rumbleCharacteristic != null) +
-                                " " + MetricsSummary);
-                return true;
-            }
-
-            progress.Report("[PRO2_BLE] no live FD2 yet; raw_notify=" + rawNotifyCount +
-                            " parse_fail=" + parseFailCount +
-                            " last=" + lastNotifySummary);
+            await ConfigureFd2ReportRateAsync(
+                fd2Characteristic,
+                progress,
+                cancellationToken);
         }
 
-        if (legacyCharacteristic != null)
+        ackTcs = null;
+        if (fd2Characteristic == null)
         {
-            legacyCharacteristic.ValueChanged += OnNotifyValueChanged;
-            if (!await SubscribeAsync(legacyCharacteristic, "legacy-c0f8", progress))
+            progress.Report("[PRO2_FD2_INPUT] required FD2 characteristic is missing; refusing a controls-only connection without IMU.");
+            return false;
+        }
+
+        fd2Characteristic.ValueChanged += OnNotifyValueChanged;
+        if (!await SubscribeAsync(fd2Characteristic, "fd2-exclusive", progress))
+        {
+            fd2Characteristic.ValueChanged -= OnNotifyValueChanged;
+            return false;
+        }
+
+        progress.Report("[PRO2_FD2_INPUT] exclusive FD2 enabled; waiting for a parsed report with live IMU.");
+        if (await WaitForFd2MotionAsync(TimeSpan.FromSeconds(6), cancellationToken))
+        {
+            if (!await EnsureUsableBlePerformanceAsync(progress, cancellationToken))
             {
                 return false;
             }
 
-            progress.Report("[PRO2_BLE] waiting for legacy C0F8 live input fallback...");
-            if (await WaitForLiveInputAsync(TimeSpan.FromSeconds(5), cancellationToken))
+            lock (gate)
             {
-                if (!await EnsureUsableBlePerformanceAsync(progress, cancellationToken))
-                {
-                    return false;
-                }
-
+                // Initialization notifications validate the link but must not
+                // become a delayed gameplay backlog.
+                sequentialInput.ResetTo(latest, lastParsedNotifyTicks);
                 IsRunning = true;
-                StartRumbleWriter(progress);
-                progress.Report("[PRO2_BLE] live input confirmed updates=" + updates +
-                                " raw_notify=" + rawNotifyCount +
-                                " fallback=legacy rumble=" + (rumbleCharacteristic != null) +
-                                " " + MetricsSummary);
-                return true;
             }
+            StartRumbleWriter(progress);
+            progress.Report("[PRO2_BLE_REPORT_RATE] requested_hz=" + RequestedFd2ReportRateHz +
+                            " negotiation=" + fd2ReportRateStatus +
+                            " effective_rate_class=" + LinkRateClass +
+                            " parsed_hz=" + CurrentParsedRateHz.ToString("F1"));
+            progress.Report("[PRO2_BLE] FD2 live input confirmed updates=" + updates +
+                            " fd2_notify=" + fd2InputNotifyCount +
+                            " gyro_valid=" + latestFd2Motion.GyroValid +
+                            " accel_valid=" + latestFd2Motion.AccelValid +
+                            " rumble=" + (rumbleCharacteristic != null) +
+                            " " + MetricsSummary);
+            return true;
         }
 
-        progress.Report("[PRO2_BLE] no live input after notify subscribe; raw_notify=" + rawNotifyCount +
+        progress.Report("[PRO2_FD2_INPUT] no parsed FD2 IMU within timeout; connection rejected instead of exposing a gyro-less virtual controller. raw_notify=" + rawNotifyCount +
                         " parse_fail=" + parseFailCount +
                         " last=" + lastNotifySummary);
         if (rawNotifyCount == 0)
@@ -787,6 +940,127 @@ public sealed class Pro2BleInputSource :
         progress.Report("[PRO2_BLE_GATT] services=" + services.Count +
                         " selection=" + mode +
                         " summary=" + summary);
+    }
+
+    private async Task ConfigureFd2ReportRateAsync(
+        GattCharacteristic characteristic,
+        IProgress<string> progress,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        try
+        {
+            GattDescriptorsResult result =
+                await characteristic.GetDescriptorsAsync(BluetoothCacheMode.Uncached);
+            if (result.Status != GattCommunicationStatus.Success)
+            {
+                lock (gate)
+                {
+                    fd2ReportRateStatus = "descriptor_discovery_" + result.Status;
+                }
+                progress.Report("[PRO2_BLE_REPORT_RATE] descriptor discovery failed status=" +
+                                result.Status);
+                return;
+            }
+
+            List<GattDescriptor> descriptors = result.Descriptors
+                .OrderBy(d => d.AttributeHandle)
+                .ToList();
+            string descriptorSummary = descriptors.Count == 0
+                ? "none"
+                : string.Join(",", descriptors.Select(d =>
+                    "0x" + d.AttributeHandle.ToString("X4") + "/" + ShortGuid(d.Uuid)));
+            progress.Report("[PRO2_BLE_REPORT_RATE] fd2_handle=0x" +
+                            characteristic.AttributeHandle.ToString("X4") +
+                            " descriptors=" + descriptorSummary);
+
+            int preferredHandle = characteristic.AttributeHandle + 3;
+            int alternateHandle = characteristic.AttributeHandle + 2;
+            List<GattDescriptor> writableCandidates = descriptors
+                .Where(d => d.Uuid != ClientConfigurationDescriptorUuid)
+                .ToList();
+            GattDescriptor? target = writableCandidates.FirstOrDefault(
+                                         d => d.AttributeHandle == preferredHandle) ??
+                                     writableCandidates.FirstOrDefault(
+                                         d => d.AttributeHandle == alternateHandle) ??
+                                     (writableCandidates.Count == 1
+                                         ? writableCandidates[0]
+                                         : null);
+            if (target == null)
+            {
+                lock (gate)
+                {
+                    fd2ReportRateStatus = "descriptor_not_found";
+                }
+                progress.Report("[PRO2_BLE_REPORT_RATE] custom report-rate descriptor not found; " +
+                                "continuing with measured Windows BLE rate.");
+                return;
+            }
+
+            byte[] requested = new byte[2];
+            BinaryPrimitives.WriteUInt16LittleEndian(requested, RequestedFd2ReportRateHz);
+            string before = await TryReadDescriptorValueAsync(target);
+            cancellationToken.ThrowIfCancellationRequested();
+            GattCommunicationStatus writeStatus =
+                await target.WriteValueAsync(ToBuffer(requested));
+            string after = writeStatus == GattCommunicationStatus.Success
+                ? await TryReadDescriptorValueAsync(target)
+                : "not_read_after_failed_write";
+
+            lock (gate)
+            {
+                fd2ReportRateDescriptorHandle = target.AttributeHandle;
+                fd2ReportRateDescriptorUuid = ShortGuid(target.Uuid);
+                fd2ReportRateStatus = writeStatus == GattCommunicationStatus.Success
+                    ? "write_success"
+                    : "write_" + writeStatus;
+            }
+            progress.Report("[PRO2_BLE_REPORT_RATE] requested_hz=" + RequestedFd2ReportRateHz +
+                            " descriptor=0x" + target.AttributeHandle.ToString("X4") +
+                            "/" + ShortGuid(target.Uuid) +
+                            " value=" + Convert.ToHexString(requested) +
+                            " before=" + before +
+                            " write_status=" + writeStatus +
+                            " after=" + after +
+                            "; live notification telemetry decides the effective rate.");
+            if (writeStatus == GattCommunicationStatus.Success &&
+                device != null &&
+                OperatingSystem.IsWindowsVersionAtLeast(10, 0, 22000))
+            {
+                TryRequestWindows11ThroughputPreference(
+                    device,
+                    "fd2_report_rate",
+                    progress);
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            lock (gate)
+            {
+                fd2ReportRateStatus = "error_0x" + ex.HResult.ToString("X8");
+            }
+            progress.Report("[PRO2_BLE_REPORT_RATE] negotiation unavailable; continuing with " +
+                            "measured Windows BLE rate. " + ex.GetType().Name + ": " + ex.Message);
+        }
+    }
+
+    private static async Task<string> TryReadDescriptorValueAsync(GattDescriptor descriptor)
+    {
+        try
+        {
+            GattReadResult read = await descriptor.ReadValueAsync(BluetoothCacheMode.Uncached);
+            return read.Status == GattCommunicationStatus.Success
+                ? ShortHex(ReadBuffer(read.Value), 8)
+                : "status_" + read.Status;
+        }
+        catch (Exception ex)
+        {
+            return "unreadable_0x" + ex.HResult.ToString("X8");
+        }
     }
 
     private static GattCharacteristic? SelectDynamicCommandCharacteristic(
@@ -1197,27 +1471,106 @@ public sealed class Pro2BleInputSource :
         return false;
     }
 
+    private async Task ReadAndLogImuCalibrationBlockAsync(
+        GattCharacteristic command,
+        uint baseAddress,
+        int length,
+        IProgress<string> progress,
+        CancellationToken cancellationToken)
+    {
+        byte[] block = new byte[length];
+        for (int offset = 0; offset < length; offset += 9)
+        {
+            uint address = baseAddress + (uint)offset;
+            int expectedLength = Math.Min(9, length - offset);
+            byte[] request = BuildBleFlashReadCommand(address);
+            ackTcs = new TaskCompletionSource<byte[]>(TaskCreationOptions.RunContinuationsAsynchronously);
+            GattCommunicationStatus write = await WriteCharacteristicWithRetryAsync(
+                command,
+                request,
+                "imu-flash-" + address.ToString("X8"),
+                progress,
+                cancellationToken);
+            if (write != GattCommunicationStatus.Success)
+            {
+                progress.Report("[PRO2_IMU_FLASH] read write failed address=0x" +
+                                address.ToString("X8") + " status=" + write);
+                return;
+            }
+
+            Task completed = await Task.WhenAny(ackTcs.Task, Task.Delay(1500, cancellationToken));
+            if (completed != ackTcs.Task)
+            {
+                progress.Report("[PRO2_IMU_FLASH] read ACK timeout address=0x" +
+                                address.ToString("X8"));
+                return;
+            }
+
+            byte[] response = ackTcs.Task.Result;
+            if (response.Length < 16 + expectedLength ||
+                BinaryPrimitives.ReadUInt32LittleEndian(response.AsSpan(12, 4)) != address)
+            {
+                progress.Report("[PRO2_IMU_FLASH] invalid ACK address=0x" +
+                                address.ToString("X8") + " ack_len=" + response.Length +
+                                " ack_hex=" + Convert.ToHexString(response));
+                return;
+            }
+
+            response.AsSpan(16, expectedLength).CopyTo(block.AsSpan(offset));
+            progress.Report("[PRO2_IMU_FLASH_CHUNK] address=0x" + address.ToString("X8") +
+                            " data=" + Convert.ToHexString(response.AsSpan(16, expectedLength)));
+        }
+
+        progress.Report("[PRO2_IMU_FLASH_BLOCK] base=0x" + baseAddress.ToString("X8") +
+                        " length=" + length + " data=" + Convert.ToHexString(block));
+    }
+
+    private static byte[] BuildBleFlashReadCommand(uint address)
+    {
+        byte[] command =
+            [0x02, 0x91, 0x01, 0x04, 0x00, 0x08, 0x00, 0x00,
+             0x09, 0x7e, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00];
+        BinaryPrimitives.WriteUInt32LittleEndian(command.AsSpan(12, 4), address);
+        return command;
+    }
+
     private void OnAckValueChanged(GattCharacteristic sender, GattValueChangedEventArgs args)
     {
         byte[] data = ReadBuffer(args.CharacteristicValue);
         ackTcs?.TrySetResult(data);
     }
 
+    public string StartManualGyroCalibration()
+    {
+        string message = parser.StartManualGyroCalibration();
+        lock (gate)
+        {
+            lastNotifySummary = "gyro_calibration=" + parser.GyroCalibrationSummary;
+        }
+        return message;
+    }
+
+    public string GyroCalibrationSummary => parser.GyroCalibrationSummary;
+
     private void OnNotifyValueChanged(GattCharacteristic sender, GattValueChangedEventArgs args)
     {
+        using NotifyHandlerScope handlerScope = new(this, Stopwatch.GetTimestamp());
         byte[] data = ReadBuffer(args.CharacteristicValue);
         long nowTicks = Stopwatch.GetTimestamp();
         DateTimeOffset now = DateTimeOffset.UtcNow;
-        string reportType = sender.Uuid == NotifyFd2Uuid
+        bool isFd2 = sender.Uuid == NotifyFd2Uuid;
+        bool isPrimary = sender.Uuid == NotifyLegacyUuid;
+        string reportType = isFd2
             ? "fd2"
-            : sender.Uuid == NotifyLegacyUuid
-                ? "legacy"
+            : isPrimary
+                ? "primary_0x000e"
                 : "unknown";
         ulong parseSeq;
         double rawGapMs = 0;
         double sourceAgeMs = 0;
         double bleHz;
         double viiperPushHz;
+        bool logFirstPrimary = false;
         lock (gate)
         {
             sourceAgeMs = latestAt == default
@@ -1248,23 +1601,85 @@ public sealed class Pro2BleInputSource :
                 ref lastRawNotifyTicks,
                 ref lastRawNotifyGapTicks,
                 ref maxRawNotifyGapTicks);
-            lastNotifySummary = sender.Uuid + " len=" + data.Length + " head=" + ShortHex(data, 24);
+            if (isPrimary)
+            {
+                primaryInputNotifyCount++;
+                NoteSample(
+                    nowTicks,
+                    ref firstPrimaryInputTicks,
+                    ref lastPrimaryInputTicks,
+                    ref lastPrimaryInputGapTicks,
+                    ref maxPrimaryInputGapTicks);
+                primaryInputLastLength = data.Length;
+                logFirstPrimary = !primaryInputFirstPacketLogged;
+                primaryInputFirstPacketLogged = true;
+            }
+            else if (isFd2)
+            {
+                fd2InputNotifyCount++;
+                fd2InputLastLength = data.Length;
+                NoteSample(
+                    nowTicks,
+                    ref firstFd2InputTicks,
+                    ref lastFd2InputTicks,
+                    ref lastFd2InputGapTicks,
+                    ref maxFd2InputGapTicks);
+            }
+            if (lastNotifySummaryTicks == 0 ||
+                nowTicks - lastNotifySummaryTicks >= Stopwatch.Frequency)
+            {
+                lastNotifySummary = sender.Uuid + " len=" + data.Length +
+                                    " head=" + ShortHex(data, 24);
+                lastNotifySummaryTicks = nowTicks;
+            }
             bleHz = SampleRate(rawNotifyCount, firstRawNotifyTicks, lastRawNotifyTicks);
             viiperPushHz = lastViiperPushHz;
         }
 
-        bool parsed = sender.Uuid == NotifyFd2Uuid
+        if (logFirstPrimary)
+        {
+            connectionProgress?.Report(
+                "[PRO2_PRIMARY_INPUT] first handle=0x" + sender.AttributeHandle.ToString("X4") +
+                " uuid=" + sender.Uuid +
+                " len=" + data.Length +
+                " raw_hex=" + Convert.ToHexString(data));
+        }
+
+        if (isFd2 && researchRecorder.Enabled)
+        {
+            researchRecorder.TryRecord(parseSeq, now, rawGapMs, data);
+            if (!researchCaptureLogged)
+            {
+                researchCaptureLogged = true;
+                connectionProgress?.Report(
+                    "[PRO2_FD2_RESEARCH] raw capture enabled path=" + researchRecorder.OutputPath);
+            }
+        }
+
+        bool parsed = isFd2
             ? parser.TryParseFd2Payload(data, out GamepadState state, out string source)
-            : sender.Uuid == NotifyLegacyUuid
-                ? parser.TryParseLegacyPayload(data, out state, out source)
+            : isPrimary
+                ? parser.TryParsePrimaryProPayload(data, out state, out source)
                 : parser.TryParse(data, out state, out source);
         if (!parsed)
         {
+            bool logFd2Failure = false;
             lock (gate)
             {
                 parseFailCount++;
+                if (isFd2 && !fd2FirstParseFailureLogged)
+                {
+                    fd2FirstParseFailureLogged = true;
+                    logFd2Failure = true;
+                }
             }
-            if (sender.Uuid == NotifyFd2Uuid)
+            if (logFd2Failure)
+            {
+                connectionProgress?.Report(
+                    "[PRO2_FD2_PARSE_FAIL] first len=" + data.Length +
+                    " raw_hex=" + Convert.ToHexString(data));
+            }
+            if (isFd2)
             {
                 spikeRecorder.AddFrame(new Pro2Fd2FrameSnapshot(
                     parseSeq,
@@ -1285,22 +1700,49 @@ public sealed class Pro2BleInputSource :
             return;
         }
 
+        lock (gate)
+        {
+            if (isPrimary) primaryInputParsedCount++;
+            if (isFd2) fd2InputParsedCount++;
+        }
+
         state.SourceTimestampTicks = nowTicks;
         state.RawNotificationSequence = parseSeq;
         if (state.SwitchRawImuSamples.Length > 0)
         {
-            SwitchImuRawSample[] stamped = new SwitchImuRawSample[state.SwitchRawImuSamples.Length];
             long imuSubSampleSpacingTicks = Stopwatch.Frequency / 200; // Switch-style IMU sub-samples are 5 ms apart.
-            for (int i = 0; i < stamped.Length; i++)
+            for (int i = 0; i < state.SwitchRawImuSamples.Length; i++)
             {
-                int samplesAfterThis = stamped.Length - 1 - i;
+                int samplesAfterThis = state.SwitchRawImuSamples.Length - 1 - i;
                 long sampleTicks = nowTicks - samplesAfterThis * imuSubSampleSpacingTicks;
-                stamped[i] = ProfessionalImuConverter.Stamp(
+                state.SwitchRawImuSamples[i] = ProfessionalImuConverter.Stamp(
                     state.SwitchRawImuSamples[i],
                     sampleTicks > 0 ? sampleTicks : nowTicks,
                     parseSeq);
             }
-            state.SwitchRawImuSamples = stamped;
+        }
+
+        lock (gate)
+        {
+            if (isPrimary)
+            {
+                latestPrimaryControls = state.Clone();
+                latestPrimaryControlsTicks = nowTicks;
+                if (latestFd2MotionTicks != 0 &&
+                    TicksToMilliseconds(nowTicks - latestFd2MotionTicks) <= 50)
+                {
+                    CopyMotion(latestFd2Motion, state);
+                }
+            }
+            else if (isFd2)
+            {
+                latestFd2Motion = state.Clone();
+                latestFd2MotionTicks = nowTicks;
+                if (latestPrimaryControlsTicks != 0)
+                {
+                    CopyControls(latestPrimaryControls, state);
+                }
+            }
         }
 
         Pro2InputFilterResult filterResult;
@@ -1312,11 +1754,11 @@ public sealed class Pro2BleInputSource :
         lock (gate)
         {
             filterResult = stickProcessingMode == StickProcessingMode.RawDirect
-                ? new Pro2InputFilterResult(state.Clone(), state.Clone(), Array.Empty<Pro2AxisFilterEvent>())
+                ? new Pro2InputFilterResult(state, state, Array.Empty<Pro2AxisFilterEvent>())
                 : inputStability.Process(state, nowTicks);
             stableState = filterResult.AcceptedState;
-            rawStateSnapshot = filterResult.RawState.Clone();
-            filteredStateSnapshot = stableState.Clone();
+            rawStateSnapshot = filterResult.RawState;
+            filteredStateSnapshot = stableState;
             if (filterResult.HasAxisIntervention)
             {
                 axisSpikeRejectCount += (uint)filterResult.InterventionCount;
@@ -1340,13 +1782,16 @@ public sealed class Pro2BleInputSource :
             filteredStateAt = now;
             latest = stableState;
             latestAt = DateTimeOffset.UtcNow;
+            if (IsRunning)
+            {
+                sequentialInput.Enqueue(stableState, nowTicks);
+            }
             parsedBleHz = SampleRate(updates, firstParsedNotifyTicks, lastParsedNotifyTicks);
             bleHz = Math.Max(bleHz, parsedBleHz);
-            status = "真实 Pro2 BLE live，updates=" + updates + " source=" + source +
-                     " raw_notify=" + rawNotifyCount + " " + BuildMetricsSummaryNoLock();
+            lastParseSource = source;
         }
 
-        if (sender.Uuid == NotifyFd2Uuid)
+        if (isFd2 && spikeRecorder.CaptureEnabled)
         {
             Pro2Fd2FrameSnapshot frame = new(
                 parseSeq,
@@ -1365,8 +1810,6 @@ public sealed class Pro2BleInputSource :
                 FilterEvents: Pro2SpikeSnapshot.Events(filterResult.Events));
             spikeRecorder.AddFrame(frame);
         }
-
-        MaybeReassertThroughputForGap(rawGapMs, parsedBleHz);
 
         if (filterResult.HasAxisIntervention && inputStabilityOptions.AxisSpikeLogEnabled)
         {
@@ -1393,53 +1836,6 @@ public sealed class Pro2BleInputSource :
                 ReportAxisSpikeTelemetry(telemetry, parseSeq);
             }
         }
-    }
-
-    private void MaybeReassertThroughputForGap(double rawGapMs, double parsedBleHz)
-    {
-        if (rawGapMs < LinkHealthReassertGapMs ||
-            !OperatingSystem.IsWindowsVersionAtLeast(10, 0, 22000))
-        {
-            return;
-        }
-
-        BluetoothLEDevice? currentDevice = device;
-        IProgress<string>? progress = connectionProgress;
-        if (currentDevice == null || progress == null)
-        {
-            return;
-        }
-
-        long nowTicks = Stopwatch.GetTimestamp();
-        bool shouldReassert;
-        uint reassertSeq;
-        lock (gate)
-        {
-            double sinceLastMs = lastThroughputReassertTicks == 0
-                ? double.MaxValue
-                : TicksToMilliseconds(nowTicks - lastThroughputReassertTicks);
-            shouldReassert =
-                rawNotifyCount >= LinkHealthWarmupNotifications &&
-                sinceLastMs >= LinkHealthReassertCooldownMs;
-            if (!shouldReassert)
-            {
-                return;
-            }
-
-            lastThroughputReassertTicks = nowTicks;
-            lastThroughputReassertGapMs = rawGapMs;
-            throughputReassertCount++;
-            reassertSeq = throughputReassertCount;
-            connectionPreferenceStatus = "health_reassert_pending";
-        }
-
-        progress.Report("[PRO2_BLE_LINK] health reassert #" + reassertSeq +
-                        " raw_gap_ms=" + rawGapMs.ToString("F1") +
-                        " parsed_hz=" + parsedBleHz.ToString("F1"));
-        TryRequestWindows11ThroughputPreference(
-            currentDevice,
-            "health_reassert",
-            progress);
     }
 
     private void ObserveWindowsConnectionParameters(
@@ -1558,7 +1954,7 @@ public sealed class Pro2BleInputSource :
         BlePerformanceSnapshot failed = GetPerformanceSnapshot();
         if (HasUsableLivePerformance(failed))
         {
-            string warning = "BLE 输入保持 live，但没有达到 66.7 Hz 目标；V6.2.27 将自动降低虚拟 USB 输出刷新率：" +
+            string warning = "BLE 输入保持 live，但没有达到 66.7 Hz 目标；虚拟 USB 将保持用户选择的刷新率并重复 latest_state：" +
                              FormatPerformanceSnapshot(failed);
             lock (gate)
             {
@@ -1684,6 +2080,28 @@ public sealed class Pro2BleInputSource :
             await Task.Delay(50, cancellationToken);
         }
 
+        return false;
+    }
+
+    private async Task<bool> WaitForFd2MotionAsync(
+        TimeSpan timeout,
+        CancellationToken cancellationToken)
+    {
+        DateTimeOffset deadline = DateTimeOffset.UtcNow + timeout;
+        while (DateTimeOffset.UtcNow < deadline)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            lock (gate)
+            {
+                if (latestFd2MotionTicks != 0 &&
+                    latestFd2Motion.GyroValid &&
+                    latestFd2Motion.AccelValid)
+                {
+                    return true;
+                }
+            }
+            await Task.Delay(50, cancellationToken);
+        }
         return false;
     }
 
@@ -1946,12 +2364,24 @@ public sealed class Pro2BleInputSource :
             filteredStateAt = default;
             updates = 0;
             rawNotifyCount = 0;
+            primaryInputNotifyCount = 0;
+            fd2InputNotifyCount = 0;
+            primaryInputParsedCount = 0;
+            fd2InputParsedCount = 0;
             parseFailCount = 0;
             axisSpikeRejectCount = 0;
             firstRawNotifyTicks = 0;
             lastRawNotifyTicks = 0;
             lastRawNotifyGapTicks = 0;
             maxRawNotifyGapTicks = 0;
+            firstPrimaryInputTicks = 0;
+            lastPrimaryInputTicks = 0;
+            lastPrimaryInputGapTicks = 0;
+            maxPrimaryInputGapTicks = 0;
+            firstFd2InputTicks = 0;
+            lastFd2InputTicks = 0;
+            lastFd2InputGapTicks = 0;
+            maxFd2InputGapTicks = 0;
             firstParsedNotifyTicks = 0;
             lastParsedNotifyTicks = 0;
             lastParsedNotifyGapTicks = 0;
@@ -1959,13 +2389,26 @@ public sealed class Pro2BleInputSource :
             inputGap45Count = 0;
             inputGap250Count = 0;
             inputGap750Count = 0;
+            notifyHandlerCount = 0;
+            notifyHandlerTotalTicks = 0;
+            notifyHandlerMaxTicks = 0;
+            notifyHandlerOver1MsCount = 0;
+            notifyHandlerOver4MsCount = 0;
+            notifyHandlerOver8MsCount = 0;
             lastNotifySummary = "";
+            lastParseSource = "";
+            lastNotifySummaryTicks = 0;
+            primaryInputLastLength = 0;
+            fd2InputLastLength = 0;
+            primaryInputFirstPacketLogged = false;
+            fd2FirstParseFailureLogged = false;
+            latestPrimaryControls = GamepadState.Neutral();
+            latestFd2Motion = GamepadState.Neutral();
+            latestPrimaryControlsTicks = 0;
+            latestFd2MotionTicks = 0;
             axisSpikeLogCount = 0;
             Interlocked.Exchange(ref asyncProgressDroppedCount, 0);
             lastViiperPushHz = 0;
-            lastThroughputReassertTicks = 0;
-            throughputReassertCount = 0;
-            lastThroughputReassertGapMs = 0;
             spikeRecorder.Clear();
             connectionPreferenceStatus = "not_requested";
             connectionIntervalUnits = 0;
@@ -1974,9 +2417,13 @@ public sealed class Pro2BleInputSource :
             lastConnectionParametersSummary = "";
             gattSelectionMode = "not_scanned";
             gattDiscoverySummary = "";
+            fd2ReportRateStatus = "not_requested";
+            fd2ReportRateDescriptorHandle = 0;
+            fd2ReportRateDescriptorUuid = "";
             linkRateClass = "unknown";
             lastPerformanceWarning = "";
             inputStability.Reset();
+            sequentialInput.Reset();
         }
     }
 
@@ -1986,12 +2433,24 @@ public sealed class Pro2BleInputSource :
         {
             updates = 0;
             rawNotifyCount = 0;
+            primaryInputNotifyCount = 0;
+            fd2InputNotifyCount = 0;
+            primaryInputParsedCount = 0;
+            fd2InputParsedCount = 0;
             parseFailCount = 0;
             axisSpikeRejectCount = 0;
             firstRawNotifyTicks = 0;
             lastRawNotifyTicks = 0;
             lastRawNotifyGapTicks = 0;
             maxRawNotifyGapTicks = 0;
+            firstPrimaryInputTicks = 0;
+            lastPrimaryInputTicks = 0;
+            lastPrimaryInputGapTicks = 0;
+            maxPrimaryInputGapTicks = 0;
+            firstFd2InputTicks = 0;
+            lastFd2InputTicks = 0;
+            lastFd2InputGapTicks = 0;
+            maxFd2InputGapTicks = 0;
             firstParsedNotifyTicks = 0;
             lastParsedNotifyTicks = 0;
             lastParsedNotifyGapTicks = 0;
@@ -1999,6 +2458,12 @@ public sealed class Pro2BleInputSource :
             inputGap45Count = 0;
             inputGap250Count = 0;
             inputGap750Count = 0;
+            notifyHandlerCount = 0;
+            notifyHandlerTotalTicks = 0;
+            notifyHandlerMaxTicks = 0;
+            notifyHandlerOver1MsCount = 0;
+            notifyHandlerOver4MsCount = 0;
+            notifyHandlerOver8MsCount = 0;
             axisSpikeLogCount = 0;
             Interlocked.Exchange(ref asyncProgressDroppedCount, 0);
             spikeRecorder.Clear();
@@ -2015,6 +2480,12 @@ public sealed class Pro2BleInputSource :
         int filteredLatestMaxDelta = MaxAxisDelta(filteredState, latest);
         return "ble_raw_hz=" + SampleRate(rawNotifyCount, firstRawNotifyTicks, lastRawNotifyTicks).ToString("F1") +
                " ble_parsed_hz=" + SampleRate(updates, firstParsedNotifyTicks, lastParsedNotifyTicks).ToString("F1") +
+               " primary_input_hz=" + SampleRate(primaryInputNotifyCount, firstPrimaryInputTicks, lastPrimaryInputTicks).ToString("F1") +
+               " primary_input_len=" + primaryInputLastLength +
+               " primary_input_max_gap_ms=" + TicksToMilliseconds(maxPrimaryInputGapTicks).ToString("F1") +
+               " fd2_input_hz=" + SampleRate(fd2InputNotifyCount, firstFd2InputTicks, lastFd2InputTicks).ToString("F1") +
+               " fd2_input_len=" + fd2InputLastLength +
+               " fd2_input_max_gap_ms=" + TicksToMilliseconds(maxFd2InputGapTicks).ToString("F1") +
                " ble_last_gap_ms=" + TicksToMilliseconds(lastParsedNotifyGapTicks).ToString("F1") +
                " ble_max_gap_ms=" + TicksToMilliseconds(maxParsedNotifyGapTicks).ToString("F1") +
                " ble_conn_ms=" + connectionIntervalMs.ToString("F2") +
@@ -2023,12 +2494,30 @@ public sealed class Pro2BleInputSource :
                " ble_timeout_ms=" + (connectionLinkTimeout * 10) +
                " ble_pref=" + connectionPreferenceStatus +
                " ble_rate_class=" + linkRateClass +
-               " ble_reassert=" + throughputReassertCount +
-               " ble_reassert_last_gap_ms=" + lastThroughputReassertGapMs.ToString("F1") +
+               " fd2_rate_request_hz=" + RequestedFd2ReportRateHz +
+               " fd2_rate_status=" + fd2ReportRateStatus +
+               " fd2_rate_descriptor=" +
+               (fd2ReportRateDescriptorHandle == 0
+                   ? "none"
+                   : "0x" + fd2ReportRateDescriptorHandle.ToString("X4") +
+                     "/" + fd2ReportRateDescriptorUuid) +
+               " ble_runtime_reconfigure=disabled" +
                " gatt_mode=" + gattSelectionMode +
                " ble_gap45=" + inputGap45Count +
                " ble_gap250=" + inputGap250Count +
                " ble_gap750=" + inputGap750Count +
+               " notify_handler_avg_us=" + NotifyHandlerAverageMicrosecondsNoLock().ToString("F1") +
+               " notify_handler_max_us=" + TicksToMicroseconds(notifyHandlerMaxTicks).ToString("F1") +
+               " notify_handler_over1ms=" + notifyHandlerOver1MsCount +
+               " notify_handler_over4ms=" + notifyHandlerOver4MsCount +
+               " notify_handler_over8ms=" + notifyHandlerOver8MsCount +
+               " fd2_spike_capture=" + (spikeRecorder.CaptureEnabled ? "enabled" : "disabled") +
+               " fd2_queue_depth=" + sequentialInput.Count +
+               " fd2_queue_max=" + sequentialInput.MaximumDepth +
+               " fd2_queue_in=" + sequentialInput.EnqueuedCount +
+               " fd2_queue_out=" + sequentialInput.DequeuedCount +
+               " fd2_queue_drop=" + sequentialInput.OverflowDropCount +
+               " fd2_queue_realtime_superseded=" + sequentialInput.RealtimeSupersededCount +
                " axis_spike=" + axisSpikeRejectCount +
                inputStability.MetricsSummary +
                " stick_mode=" + StickProcessingModeLabel(stickProcessingMode) +
@@ -2070,6 +2559,33 @@ public sealed class Pro2BleInputSource :
         };
     }
 
+    private static void CopyControls(GamepadState source, GamepadState destination)
+    {
+        destination.Buttons = source.Buttons;
+        destination.Lx = source.Lx;
+        destination.Ly = source.Ly;
+        destination.Rx = source.Rx;
+        destination.Ry = source.Ry;
+        destination.L2 = source.L2;
+        destination.R2 = source.R2;
+    }
+
+    private static void CopyMotion(GamepadState source, GamepadState destination)
+    {
+        destination.AccelValid = source.AccelValid;
+        destination.GyroValid = source.GyroValid;
+        destination.AccelX = source.AccelX;
+        destination.AccelY = source.AccelY;
+        destination.AccelZ = source.AccelZ;
+        destination.GyroX = source.GyroX;
+        destination.GyroY = source.GyroY;
+        destination.GyroZ = source.GyroZ;
+        destination.SwitchRawImuSamples = source.SwitchRawImuSamples;
+        destination.SwitchRawImuOffset = source.SwitchRawImuOffset;
+        destination.SwitchRawImuBytesHex = source.SwitchRawImuBytesHex;
+        destination.MotionTimestampUs = source.MotionTimestampUs;
+    }
+
     private static int MaxAxisDelta(GamepadState a, GamepadState b)
     {
         return Math.Max(
@@ -2081,12 +2597,21 @@ public sealed class Pro2BleInputSource :
     {
         lock (gate)
         {
+            bool usePrimary = primaryInputNotifyCount >= MinimumUsableNotifications;
+            uint rawCount = usePrimary ? primaryInputNotifyCount : fd2InputNotifyCount;
+            uint parsedCount = usePrimary ? primaryInputParsedCount : fd2InputParsedCount;
+            double notifyRate = usePrimary
+                ? SampleRate(primaryInputNotifyCount, firstPrimaryInputTicks, lastPrimaryInputTicks)
+                : SampleRate(fd2InputNotifyCount, firstFd2InputTicks, lastFd2InputTicks);
+            double parsedRate = rawCount == 0
+                ? 0
+                : notifyRate * parsedCount / rawCount;
             return new BlePerformanceSnapshot(
                 connectionIntervalUnits,
-                SampleRate(rawNotifyCount, firstRawNotifyTicks, lastRawNotifyTicks),
-                SampleRate(updates, firstParsedNotifyTicks, lastParsedNotifyTicks),
-                rawNotifyCount,
-                updates);
+                notifyRate,
+                parsedRate,
+                rawCount,
+                parsedCount);
         }
     }
 
@@ -2238,6 +2763,42 @@ public sealed class Pro2BleInputSource :
     private static double TicksToMilliseconds(long ticks)
     {
         return ticks <= 0 ? 0 : ticks * 1000.0 / Stopwatch.Frequency;
+    }
+
+    private static double TicksToMicroseconds(long ticks)
+    {
+        return ticks <= 0 ? 0 : ticks * 1_000_000.0 / Stopwatch.Frequency;
+    }
+
+    private double NotifyHandlerAverageMicrosecondsNoLock()
+    {
+        return notifyHandlerCount == 0
+            ? 0
+            : TicksToMicroseconds(notifyHandlerTotalTicks) / notifyHandlerCount;
+    }
+
+    private void RecordNotifyHandlerDuration(long startedAtTicks)
+    {
+        long elapsedTicks = Math.Max(0, Stopwatch.GetTimestamp() - startedAtTicks);
+        double elapsedMs = TicksToMilliseconds(elapsedTicks);
+        lock (gate)
+        {
+            notifyHandlerCount++;
+            notifyHandlerTotalTicks += elapsedTicks;
+            notifyHandlerMaxTicks = Math.Max(notifyHandlerMaxTicks, elapsedTicks);
+            if (elapsedMs >= 1)
+            {
+                notifyHandlerOver1MsCount++;
+            }
+            if (elapsedMs >= 4)
+            {
+                notifyHandlerOver4MsCount++;
+            }
+            if (elapsedMs >= 8)
+            {
+                notifyHandlerOver8MsCount++;
+            }
+        }
     }
 
     private static IBuffer ToBuffer(byte[] data)
@@ -2443,6 +3004,23 @@ public sealed class Pro2BleInputSource :
         double ParsedRateHz,
         uint RawNotifications,
         uint ParsedNotifications);
+
+    private readonly struct NotifyHandlerScope : IDisposable
+    {
+        private readonly Pro2BleInputSource owner;
+        private readonly long startedAtTicks;
+
+        public NotifyHandlerScope(Pro2BleInputSource owner, long startedAtTicks)
+        {
+            this.owner = owner;
+            this.startedAtTicks = startedAtTicks;
+        }
+
+        public void Dispose()
+        {
+            owner.RecordNotifyHandlerDuration(startedAtTicks);
+        }
+    }
 }
 
 

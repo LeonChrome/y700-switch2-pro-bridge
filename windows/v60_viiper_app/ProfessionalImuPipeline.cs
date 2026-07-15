@@ -102,8 +102,10 @@ public sealed record ProfessionalImuOptions(
         XboxOutputMode: XboxProfessionalImuOutputMode.Off,
         AllowLowBleRate: true,
         MinimumAllowedBleRateHz: 10.0,
-        AutoReduceVirtualReportRate: true,
-        OutputReportRateMode: OutputReportRateMode.AutoByBleSourceRate,
+        // BLE sampling and virtual USB reporting are separate clocks. Hold
+        // latest_state at the explicitly selected USB report rate.
+        AutoReduceVirtualReportRate: false,
+        OutputReportRateMode: OutputReportRateMode.Fixed,
         ProfessionalGyroUncalibratedBehavior: ProfessionalGyroUncalibratedBehavior.ZeroOutput,
         LowRateSafeNeutralTimeoutMs: 800);
 
@@ -1290,7 +1292,9 @@ public sealed class ProfessionalImuRuntime : IDisposable
 public static class ProfessionalImuConverter
 {
     public const double SwitchAccelRawPerG = 4096.0;
-    public const double SwitchGyroRawPerDps = 14.247;
+    // Switch 2 Pro dynamic wired/wireless integration converges near the
+    // 16.384-count scale. The old 14.247 value belongs to Switch 1 IMUs.
+    public const double SwitchGyroRawPerDps = 16.384;
     public const double DualSenseAccelRawPerG = 8192.0;
     public const double DualSenseGyroRawPerDps = 16.384;
 
