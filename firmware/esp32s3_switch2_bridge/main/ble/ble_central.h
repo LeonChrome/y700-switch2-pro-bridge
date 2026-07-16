@@ -34,6 +34,10 @@ typedef struct {
     uint32_t connect_failure_count;
     uint32_t disconnect_count;
     uint32_t stale_recovery_count;
+    uint32_t operation_generation;
+    uint32_t reconnect_deduped_count;
+    char pending_action[24];
+    char last_transition_error[48];
     uint32_t notify_rx_count;
     uint32_t notify_parsed_count;
     uint32_t notify_actual_millihz;
@@ -139,6 +143,7 @@ esp_err_t ble_central_start_scan(void);
 esp_err_t ble_central_connect(const char *address_or_name);
 esp_err_t ble_central_reconnect_saved_or_scan(void);
 void ble_central_start_auto_reconnect(void);
+void ble_central_cancel_auto_reconnect(void);
 void ble_central_disconnect(void);
 esp_err_t ble_central_recover_stale_link(void);
 esp_err_t ble_central_request_fast_params(void);

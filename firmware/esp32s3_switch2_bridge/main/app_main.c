@@ -98,6 +98,7 @@ static void control_task(void *arg)
                 if (line_len > 0) {
                     line[line_len] = 0;
                     control_protocol_handle_line(line, reply, sizeof(reply));
+                    printf("%s\n", reply);
                     line_len = 0;
                 }
                 continue;
