@@ -5,6 +5,9 @@
 #include <string.h>
 #include "esp_err.h"
 #include "esp_system.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
+#include "freertos/task.h"
 #include "app_log.h"
 #include "ble_central.h"
 #include "ble_dual_probe.h"
@@ -20,6 +23,14 @@
 #include "control_protocol.h"
 
 static const char *TAG = "control";
+static SemaphoreHandle_t s_protocol_mutex;
+
+static void delayed_reboot_task(void *arg)
+{
+    (void)arg;
+    vTaskDelay(pdMS_TO_TICKS(100));
+    esp_restart();
+}
 
 #define RAW02_HEX_LEFT_RIGHT_LEN 64
 #define RAW02_HEX_FULL_LEN 128
@@ -244,24 +255,26 @@ static esp_err_t json_ok(char *reply, int reply_len, const char *cmd, const char
     } else {
         snprintf(reply, reply_len, "{\"ok\":true,\"cmd\":\"%s\"}", cmd);
     }
-    printf("%s\n", reply);
     return ESP_OK;
 }
 
 static esp_err_t json_error(char *reply, int reply_len, const char *cmd, const char *error)
 {
     snprintf(reply, reply_len, "{\"ok\":false,\"cmd\":\"%s\",\"error\":\"%s\"}", cmd, error);
-    printf("%s\n", reply);
     return ESP_FAIL;
 }
 
 void control_protocol_init(void)
 {
+    s_protocol_mutex = xSemaphoreCreateMutex();
+    if (!s_protocol_mutex) {
+        APP_LOGE(TAG, "failed to create control protocol mutex");
+    }
     APP_LOGI(TAG, "serial control protocol ready on CH343P console");
     APP_LOGI(TAG, "manager integration ready: status, rate, BLE reconnect, and rumble test commands are available");
 }
 
-esp_err_t control_protocol_handle_line(const char *line, char *reply, int reply_len)
+static esp_err_t control_protocol_handle_line_locked(const char *line, char *reply, int reply_len)
 {
     char cmd[192];
     snprintf(cmd, sizeof(cmd), "%s", line ? line : "");
@@ -291,9 +304,11 @@ esp_err_t control_protocol_handle_line(const char *line, char *reply, int reply_
                                                 &rumble_hold_ms,
                                                 &rumble_tick_ms,
                                                 &rumble_stop_packets);
-        char xbox_paddle_json[512];
-        char dual_probe_json[2400];
-        char combined_status_json[3000];
+        /* Keep large status scratch buffers off the 6 KiB control-task stack.
+         * The public entry point serializes access to these buffers. */
+        static char xbox_paddle_json[512];
+        static char dual_probe_json[2400];
+        static char combined_status_json[3000];
         xbox_paddle_status_json(xbox_paddle_json, sizeof(xbox_paddle_json));
         ble_dual_probe_format_status_json(dual_probe_json, sizeof(dual_probe_json));
         snprintf(combined_status_json,
@@ -442,6 +457,17 @@ esp_err_t control_protocol_handle_line(const char *line, char *reply, int reply_
                  (unsigned)rumble_stop_packets,
                  combined_status_json,
                  device_config_get_version());
+        size_t status_used = strlen(extra);
+        if (status_used < sizeof(extra)) {
+            snprintf(extra + status_used,
+                     sizeof(extra) - status_used,
+                     ",\"ble_pending_action\":\"%s\",\"ble_operation_generation\":%lu,"
+                     "\"ble_reconnect_deduped\":%lu,\"ble_last_transition_error\":\"%s\"",
+                     ble_conn.pending_action,
+                     (unsigned long)ble_conn.operation_generation,
+                     (unsigned long)ble_conn.reconnect_deduped_count,
+                     ble_conn.last_transition_error);
+        }
         return json_ok(reply, reply_len, "status", extra);
     }
     if (strcmp(cmd, "hidguard arm") == 0) {
@@ -510,7 +536,9 @@ esp_err_t control_protocol_handle_line(const char *line, char *reply, int reply_
     }
     if (strcmp(cmd, "reboot") == 0) {
         json_ok(reply, reply_len, "reboot", "\"note\":\"restarting\"");
-        esp_restart();
+        if (xTaskCreate(delayed_reboot_task, "delayed_reboot", 2048, NULL, 3, NULL) != pdPASS) {
+            return json_error(reply, reply_len, "reboot", "failed to schedule restart");
+        }
         return ESP_OK;
     }
     if (strcmp(cmd, "loglevel debug") == 0) {
@@ -522,9 +550,19 @@ esp_err_t control_protocol_handle_line(const char *line, char *reply, int reply_
         return json_ok(reply, reply_len, "loglevel", "\"level\":\"info\"");
     }
     if (strcmp(cmd, "ble scan") == 0) {
-        return ble_central_start_scan() == ESP_OK ?
-            json_ok(reply, reply_len, "ble scan", "\"ble\":\"scanning\"") :
-            json_error(reply, reply_len, "ble scan", "scan start failed");
+        ble_central_conn_metrics_t before;
+        ble_central_conn_metrics_t after;
+        ble_central_get_conn_metrics(&before);
+        esp_err_t err = ble_central_start_scan();
+        ble_central_get_conn_metrics(&after);
+        if (err != ESP_OK) {
+            return json_error(reply, reply_len, "ble scan", "scan start failed");
+        }
+        char extra[96];
+        snprintf(extra, sizeof(extra), "\"ble\":\"%s\",\"deduped\":%s",
+                 ble_central_state_string(),
+                 after.reconnect_deduped_count != before.reconnect_deduped_count ? "true" : "false");
+        return json_ok(reply, reply_len, "ble scan", extra);
     }
     if (strcmp(cmd, "ble list") == 0 || strcmp(cmd, "ble candidates") == 0) {
         static char extra[1800];
@@ -536,11 +574,19 @@ esp_err_t control_protocol_handle_line(const char *line, char *reply, int reply_
         if (!copy_trimmed_arg(cmd + 11, target, sizeof(target))) {
             return json_error(reply, reply_len, "ble connect", "BLE target is too long");
         }
+        ble_central_conn_metrics_t before;
+        ble_central_conn_metrics_t after;
+        ble_central_get_conn_metrics(&before);
         esp_err_t err = ble_central_connect(target[0] ? target : NULL);
+        ble_central_get_conn_metrics(&after);
         if (err != ESP_OK) {
             return json_error(reply, reply_len, "ble connect", "connect start failed; run ble scan and use ble connect last, ble connect <addr>, or ble connect <name>");
         }
-        return json_ok(reply, reply_len, "ble connect", "\"ble\":\"connecting\"");
+        char extra[96];
+        snprintf(extra, sizeof(extra), "\"ble\":\"%s\",\"deduped\":%s",
+                 ble_central_state_string(),
+                 after.reconnect_deduped_count != before.reconnect_deduped_count ? "true" : "false");
+        return json_ok(reply, reply_len, "ble connect", extra);
     }
     if (strcmp(cmd, "ble reconnect") == 0 || strcmp(cmd, "ble auto connect") == 0) {
         if (device_config_get_mode() == DUAL_PRO2_EXPERIMENT_MODE) {
@@ -550,11 +596,19 @@ esp_err_t control_protocol_handle_line(const char *line, char *reply, int reply_
             }
             return json_ok(reply, reply_len, "ble reconnect", "\"dual_pro2\":\"scanning\"");
         }
+        ble_central_conn_metrics_t before;
+        ble_central_conn_metrics_t after;
+        ble_central_get_conn_metrics(&before);
         esp_err_t err = ble_central_reconnect_saved_or_scan();
+        ble_central_get_conn_metrics(&after);
         if (err != ESP_OK) {
             return json_error(reply, reply_len, "ble reconnect", "reconnect start failed");
         }
-        return json_ok(reply, reply_len, "ble reconnect", "\"ble\":\"connecting\"");
+        char extra[96];
+        snprintf(extra, sizeof(extra), "\"ble\":\"%s\",\"deduped\":%s",
+                 ble_central_state_string(),
+                 after.reconnect_deduped_count != before.reconnect_deduped_count ? "true" : "false");
+        return json_ok(reply, reply_len, "ble reconnect", extra);
     }
     if (strcmp(cmd, "ble multiprobe") == 0 ||
         strcmp(cmd, "ble multi probe") == 0 ||
@@ -588,6 +642,7 @@ esp_err_t control_protocol_handle_line(const char *line, char *reply, int reply_
         if (err != ESP_OK) {
             return json_error(reply, reply_len, "ble auto", "failed to save BLE autoconnect");
         }
+        ble_central_cancel_auto_reconnect();
         return json_ok(reply, reply_len, "ble auto", "\"ble_auto\":\"off\"");
     }
     if (strcmp(cmd, "ble forget") == 0 || strcmp(cmd, "ble target clear") == 0) {
@@ -617,7 +672,9 @@ esp_err_t control_protocol_handle_line(const char *line, char *reply, int reply_
             return json_ok(reply, reply_len, "ble disconnect", "\"dual_pro2\":\"stopped\"");
         }
         ble_central_disconnect();
-        return json_ok(reply, reply_len, "ble disconnect", "\"ble\":\"idle\"");
+        char extra[64];
+        snprintf(extra, sizeof(extra), "\"ble\":\"%s\"", ble_central_state_string());
+        return json_ok(reply, reply_len, "ble disconnect", extra);
     }
     if (strcmp(cmd, "dual start") == 0 ||
         strcmp(cmd, "dual pro2 start") == 0 ||
@@ -1126,6 +1183,21 @@ esp_err_t control_protocol_handle_line(const char *line, char *reply, int reply_
     }
 
     return json_error(reply, reply_len, cmd[0] ? cmd : "empty", "unknown command");
+}
+
+esp_err_t control_protocol_handle_line(const char *line, char *reply, int reply_len)
+{
+    if (!reply || reply_len <= 0) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (s_protocol_mutex && xSemaphoreTake(s_protocol_mutex, portMAX_DELAY) != pdTRUE) {
+        return json_error(reply, reply_len, "control", "protocol lock failed");
+    }
+    esp_err_t result = control_protocol_handle_line_locked(line, reply, reply_len);
+    if (s_protocol_mutex) {
+        xSemaphoreGive(s_protocol_mutex);
+    }
+    return result;
 }
 
 
