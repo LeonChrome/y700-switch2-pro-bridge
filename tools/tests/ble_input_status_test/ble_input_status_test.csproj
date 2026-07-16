@@ -7,5 +7,6 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="..\..\..\windows\v55_manager_app\BleInputStatus.cs" Link="BleInputStatus.cs" />
+    <Compile Include="..\..\..\windows\v55_manager_app\SerialResponseFramer.cs" Link="SerialResponseFramer.cs" />
   </ItemGroup>
 </Project>

@@ -1715,9 +1715,10 @@ public sealed class MainViewModel : INotifyPropertyChanged
             {
                 BleStatus = "BLE 已连接但输入通知停滞，正在重新建立连接...";
                 await SendSerialCoreAsync("ble disconnect", 4);
-                await Task.Delay(800);
+                await WaitForBleTransportIdleAsync(8);
             }
-            await SendSerialCoreAsync("ble reconnect", 8);
+            // Enabling autoconnect is the single reconnect trigger.  Sending an
+            // additional manual reconnect races the firmware's background scan.
             string refreshed = await WaitForBleInputReadyAsync(25);
             BleStatus = SummarizeBle(refreshed, "reconnect");
             NextAction = "已恢复已配对手柄。以后普通休眠或短暂断联会继续自动重连。";
@@ -4367,9 +4368,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
             await SendSerialCoreAsync("ble auto off", 4);
             await SendSerialCoreAsync("ble forget", 5);
             SetBleSavedTarget("");
-            await Task.Delay(600);
+            await WaitForBleTransportIdleAsync(8);
             await SendSerialCoreAsync("ble auto on", 4);
-            await SendSerialCoreAsync("ble reconnect", 8);
             string ready = await WaitForBleInputReadyAsync(35);
 
             BleStatus = SummarizeBle(ready, replacing ? "replace" : "first-pair");
@@ -4420,7 +4420,6 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private async Task<string> WaitForBleInputReadyAsync(int timeoutSeconds, CancellationToken token = default)
     {
         DateTime deadline = DateTime.UtcNow.AddSeconds(Math.Max(3, timeoutSeconds));
-        DateTime nextReconnectAt = DateTime.MinValue;
         string lastStatus = "";
         BleInputStatus lastInput = BleInputStatusParser.Parse("");
         while (DateTime.UtcNow < deadline)
@@ -4437,16 +4436,6 @@ public sealed class MainViewModel : INotifyPropertyChanged
                 }
             }
 
-            if (DateTime.UtcNow >= nextReconnectAt &&
-                !lastInput.Connected &&
-                !string.Equals(lastInput.TransportState, "connecting", StringComparison.OrdinalIgnoreCase) &&
-                !string.Equals(lastInput.TransportState, "scanning", StringComparison.OrdinalIgnoreCase))
-            {
-                AppendLog("[BLE_WAIT] 已请求重连，正在等待 Pro2 实时输入。");
-                await SendSerialCoreAsync("ble reconnect", 6);
-                nextReconnectAt = DateTime.UtcNow.AddSeconds(4);
-            }
-
             await Task.Delay(1000, token);
         }
 
@@ -4461,6 +4450,25 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
         throw new InvalidOperationException(
             "Pro2 BLE 尚未完成连接。请确认手柄只连接到桥接板，并保持手柄唤醒。");
+    }
+
+    private async Task<string> WaitForBleTransportIdleAsync(int timeoutSeconds, CancellationToken token = default)
+    {
+        DateTime deadline = DateTime.UtcNow.AddSeconds(Math.Max(2, timeoutSeconds));
+        string lastStatus = "";
+        while (DateTime.UtcNow < deadline)
+        {
+            token.ThrowIfCancellationRequested();
+            lastStatus = await SendSerialCoreAsync("status lite", 2, logOutput: false);
+            string transport = BleInputStatusParser.Parse(lastStatus).TransportState;
+            if (string.Equals(transport, "idle", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(transport, "disconnected", StringComparison.OrdinalIgnoreCase))
+            {
+                return lastStatus;
+            }
+            await Task.Delay(250, token);
+        }
+        throw new InvalidOperationException("BLE 断开操作未在限定时间内回到 idle 状态。");
     }
 
     private string SummarizeBle(string output, string source)
