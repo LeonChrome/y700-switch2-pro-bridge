@@ -40,4 +40,23 @@ BleInputStatus priority = BleInputStatusParser.Parse(
 Expect(priority.Schema == "input" && !priority.Ready,
     "DualSense input schema must take priority when both schemas are present.");
 
+var framer = new SerialResponseFramer();
+var framed = new List<string>();
+framed.AddRange(framer.Push("I (10) ble: scanning\n{\"ok\":tr"));
+framed.AddRange(framer.Push("ue,\"cmd\":\"status\",\"ble\":\"scanning\"}\n"));
+Expect(framed.Count == 2, "Serial framer must retain a JSON line split across chunks.");
+Expect(SerialResponseFramer.TryMatchCommandResponse(framed[1], "status lite", out string statusJson),
+    "status lite must accept a complete status response.");
+Expect(statusJson.Contains("\"scanning\""), "Matched status JSON was not preserved.");
+
+Expect(!SerialResponseFramer.TryMatchCommandResponse(
+        "{\"ok\":true,USBD Bus Reset", "status lite", out _),
+    "Malformed/interleaved JSON must never satisfy a command.");
+Expect(!SerialResponseFramer.TryMatchCommandResponse(
+        "{\"ok\":true,\"cmd\":\"ble list\"}", "status lite", out _),
+    "A response for another command must not satisfy the active request.");
+Expect(SerialResponseFramer.TryMatchCommandResponse(
+        "{\"ok\":true,\"cmd\":\"ble auto\"}", "ble auto on", out _),
+    "ble auto on must match the normalized ble auto response.");
+
 Console.WriteLine("ble_input_status_test: passed");

@@ -185,7 +185,7 @@ public static class SerialCommandClient
             ThrowIfGenerationStopped(generation, cancellationToken);
             try
             {
-                var builder = new StringBuilder();
+                var framer = new SerialResponseFramer();
                 SerialPort port = EnsureOpen(portName, progress, generation, cancellationToken);
 
                 ThrowIfGenerationStopped(generation, cancellationToken);
@@ -193,7 +193,7 @@ public static class SerialCommandClient
                 port.WriteLine(command.TrimEnd());
 
                 DateTime deadline = DateTime.UtcNow.AddSeconds(readSeconds);
-                DateTime? responseSeenAt = null;
+                string matchedResponse = "";
                 while (DateTime.UtcNow < deadline)
                 {
                     cancellationToken.ThrowIfCancellationRequested();
@@ -202,28 +202,30 @@ public static class SerialCommandClient
                     if (!string.IsNullOrEmpty(chunk))
                     {
                         string clean = AnsiEscape.Replace(chunk, "");
-                        builder.Append(clean);
-                        foreach (string line in clean.Replace("\r", "").Split('\n'))
+                        foreach (string line in framer.Push(clean))
                         {
                             if (ShouldReportSerialLine(line))
                             {
                                 progress.Report(line.Trim());
                             }
-                        }
-                        if (clean.Contains("{\"ok\":", StringComparison.Ordinal) ||
-                            clean.Contains("{\"cmd\":", StringComparison.Ordinal))
-                        {
-                            responseSeenAt = DateTime.UtcNow;
+                            if (SerialResponseFramer.TryMatchCommandResponse(line, command, out string response))
+                            {
+                                matchedResponse = response;
+                            }
                         }
                     }
-                    if (responseSeenAt.HasValue &&
-                        DateTime.UtcNow - responseSeenAt.Value >= TimeSpan.FromMilliseconds(200))
+                    if (matchedResponse.Length > 0)
                     {
                         break;
                     }
                     cancellationToken.WaitHandle.WaitOne(75);
                 }
-                return builder.ToString();
+                if (matchedResponse.Length == 0)
+                {
+                    throw new SerialCommandTimeoutException(
+                        "串口命令“" + command + "”没有收到匹配的完整 JSON 回包。");
+                }
+                return matchedResponse;
             }
             catch (Exception ex) when (IsPortFailure(ex) && attempt == 1)
             {
