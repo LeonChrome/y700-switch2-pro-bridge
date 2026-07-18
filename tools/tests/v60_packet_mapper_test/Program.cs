@@ -2,6 +2,7 @@ using System;
 using System.Buffers.Binary;
 using System.Collections.Generic;
 using System.Diagnostics;
+using Windows.Devices.Bluetooth;
 using Y700Switch2V60Viiper;
 
 static void Expect(bool condition, string message)
@@ -287,6 +288,32 @@ Expect(
         sourceIsRunning: false,
         neutralAlreadyPublished: true),
     "a stopped BLE source does not repeat neutral reports");
+Expect(
+    !Pro2BleDisconnectSignal.IsAbnormalBluetoothError(null) &&
+    !Pro2BleDisconnectSignal.IsAbnormalBluetoothError(BluetoothError.Success) &&
+    !Pro2BleDisconnectSignal.IsAbnormalBluetoothError(BluetoothError.DeviceNotConnected),
+    "missing reason and a plain remote disconnect remain honest unknown-offline classifications");
+Expect(
+    Pro2BleDisconnectSignal.IsAbnormalBluetoothError(BluetoothError.RadioNotAvailable) &&
+    Pro2BleDisconnectSignal.IsAbnormalBluetoothError(BluetoothError.ResourceInUse) &&
+    Pro2BleDisconnectSignal.IsAbnormalBluetoothError(BluetoothError.OtherError),
+    "explicit Windows Bluetooth failures are classified as abnormal disconnects");
+var disconnectTelemetry = new Pro2BleDisconnectSignal(
+    DateTimeOffset.UtcNow,
+    ConnectionSequence: 7,
+    Detector: "gatt_session_closed",
+    ConnectedAddress: "001122334455",
+    WindowsConnectionStatus: "Disconnected",
+    BluetoothErrorCode: "DeviceNotConnected",
+    LastInputAgeMs: 88,
+    LastBatteryPercent: GamepadState.BatteryUnknown,
+    LastBatteryCharging: false,
+    IsAbnormal: false);
+Expect(
+    disconnectTelemetry.TelemetryValue.Contains("connection_seq=7") &&
+    disconnectTelemetry.TelemetryValue.Contains("battery=unknown") &&
+    disconnectTelemetry.TelemetryValue.Contains("bluetooth_error=DeviceNotConnected"),
+    "disconnect telemetry preserves session identity, Windows evidence, and unknown battery state");
 uint edgeButtons = BinaryPrimitives.ReadUInt32LittleEndian(edge.AsSpan(4, 4));
 Expect((edgeButtons & 0x00400000) != 0, "DualSense Edge maps Pro2 left paddle to L4");
 Expect((edgeButtons & 0x00800000) != 0, "DualSense Edge maps Pro2 right paddle to R4");

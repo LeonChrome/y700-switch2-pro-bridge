@@ -14,6 +14,39 @@ using Windows.Storage.Streams;
 
 namespace Y700Switch2V60Viiper;
 
+public sealed record Pro2BleDisconnectSignal(
+    DateTimeOffset ObservedAtUtc,
+    long ConnectionSequence,
+    string Detector,
+    string ConnectedAddress,
+    string WindowsConnectionStatus,
+    string BluetoothErrorCode,
+    double LastInputAgeMs,
+    byte LastBatteryPercent,
+    bool LastBatteryCharging,
+    bool IsAbnormal)
+{
+    public static bool IsAbnormalBluetoothError(BluetoothError? error) =>
+        error.HasValue &&
+        error.Value is not BluetoothError.Success and
+            not BluetoothError.DeviceNotConnected;
+
+    public string TelemetryValue =>
+        "connection_seq=" + ConnectionSequence +
+        " detector=" + Detector +
+        " address=" + (string.IsNullOrWhiteSpace(ConnectedAddress) ? "unknown" : ConnectedAddress) +
+        " windows_status=" + WindowsConnectionStatus +
+        " bluetooth_error=" + BluetoothErrorCode +
+        " last_input_age_ms=" +
+        (double.IsFinite(LastInputAgeMs) ? LastInputAgeMs.ToString("F0") : "unknown") +
+        " battery=" +
+        (LastBatteryPercent == GamepadState.BatteryUnknown
+            ? "unknown"
+            : LastBatteryPercent + "%") +
+        " charging=" + LastBatteryCharging.ToString().ToLowerInvariant() +
+        " abnormal=" + IsAbnormal.ToString().ToLowerInvariant();
+}
+
 public sealed class Pro2BleInputSource :
     IGamepadInputSource,
     IGamepadInputMetricsSource,
@@ -80,6 +113,7 @@ public sealed class Pro2BleInputSource :
     private readonly List<BleCandidate> lastCandidates = [];
     private BluetoothLEAdvertisementWatcher? watcher;
     private BluetoothLEDevice? device;
+    private GattSession? gattSession;
     private BluetoothLEPreferredConnectionParametersRequest? connectionParametersRequest;
     private GattCharacteristic? commandCharacteristic;
     private GattCharacteristic? fd2Characteristic;
@@ -170,6 +204,9 @@ public sealed class Pro2BleInputSource :
     private ulong axisSpikeLogCount;
     private long asyncProgressDroppedCount;
     private bool researchCaptureLogged;
+    private bool disconnectSignalCaptured;
+    private Pro2BleDisconnectSignal? pendingDisconnectSignal;
+    private long connectionSequence;
 
     public Pro2BleInputSource()
     {
@@ -177,6 +214,8 @@ public sealed class Pro2BleInputSource :
         spikeRecorder = new Pro2Fd2SpikeRecorder(inputStabilityOptions);
         researchRecorder = new Pro2Fd2ResearchRecorder();
     }
+
+    public event Action<Pro2BleDisconnectSignal>? DisconnectDetected;
 
     public bool IsRunning { get; private set; }
     public bool IsOutputReady =>
@@ -221,6 +260,34 @@ public sealed class Pro2BleInputSource :
     public string ConnectedAddress
     {
         get { lock (gate) return connectedAddress; }
+    }
+
+    public bool TryConsumeDisconnectSignal(out Pro2BleDisconnectSignal signal)
+    {
+        lock (gate)
+        {
+            if (pendingDisconnectSignal == null)
+            {
+                signal = default!;
+                return false;
+            }
+
+            signal = pendingDisconnectSignal;
+            pendingDisconnectSignal = null;
+            return true;
+        }
+    }
+
+    public Pro2BleDisconnectSignal CreateInputTimeoutDisconnectSignal(TimeSpan age)
+    {
+        lock (gate)
+        {
+            return CreateDisconnectSignalNoLock(
+                detector: "fd2_input_timeout",
+                bluetoothError: null,
+                ageOverride: age,
+                forceAbnormal: true);
+        }
     }
 
     public string MetricsSummary
@@ -663,9 +730,11 @@ public sealed class Pro2BleInputSource :
 
         device = opened;
         connectionProgress = progress;
+        opened.ConnectionStatusChanged += OnBluetoothConnectionStatusChanged;
         progress.Report("[PRO2_BLE] opened address=" + FormatAddress(candidate.Address) +
                         " name=" + (opened.Name ?? candidate.Name ?? "<unnamed>"));
 
+        await ObserveGattSessionAsync(opened, progress);
         ObserveWindowsConnectionParameters(opened, progress);
         await Task.Delay(500, cancellationToken);
         if (OperatingSystem.IsWindowsVersionAtLeast(10, 0, 22000))
@@ -779,6 +848,9 @@ public sealed class Pro2BleInputSource :
                 // Initialization notifications validate the link but must not
                 // become a delayed gameplay backlog.
                 sequentialInput.ResetTo(latest, lastParsedNotifyTicks);
+                disconnectSignalCaptured = false;
+                pendingDisconnectSignal = null;
+                connectionSequence++;
                 IsRunning = true;
             }
             StartRumbleWriter(progress);
@@ -1867,6 +1939,153 @@ public sealed class Pro2BleInputSource :
         }
     }
 
+    private async Task ObserveGattSessionAsync(
+        BluetoothLEDevice opened,
+        IProgress<string> progress)
+    {
+        try
+        {
+            GattSession? session =
+                await GattSession.FromDeviceIdAsync(opened.BluetoothDeviceId);
+            if (session == null)
+            {
+                progress.Report("[PRO2_BLE_LINK] GATT session observation unavailable: null session.");
+                return;
+            }
+
+            gattSession = session;
+            session.SessionStatusChanged += OnGattSessionStatusChanged;
+            progress.Report("[PRO2_BLE_LINK] GATT session observer active status=" +
+                            session.SessionStatus +
+                            " can_maintain=" + session.CanMaintainConnection);
+        }
+        catch (Exception ex)
+        {
+            progress.Report("[PRO2_BLE_LINK] GATT session observation unavailable: " +
+                            ex.GetType().Name + ": " + ex.Message);
+        }
+    }
+
+    private void OnBluetoothConnectionStatusChanged(
+        BluetoothLEDevice sender,
+        object args)
+    {
+        try
+        {
+            BluetoothConnectionStatus status = sender.ConnectionStatus;
+            connectionProgress?.Report(
+                "[PRO2_BLE_LINK] windows_connection_status=" + status);
+            if (status == BluetoothConnectionStatus.Disconnected)
+            {
+                CaptureDisconnectSignal(
+                    detector: "windows_connection_status",
+                    bluetoothError: null);
+            }
+        }
+        catch (Exception ex)
+        {
+            connectionProgress?.Report(
+                "[PRO2_BLE_LINK] connection status handler failed: " + ex.Message);
+        }
+    }
+
+    private void OnGattSessionStatusChanged(
+        GattSession sender,
+        GattSessionStatusChangedEventArgs args)
+    {
+        try
+        {
+            connectionProgress?.Report(
+                "[PRO2_BLE_LINK] gatt_session_status=" + args.Status +
+                " bluetooth_error=" + args.Error);
+            if (args.Status == GattSessionStatus.Closed)
+            {
+                CaptureDisconnectSignal(
+                    detector: "gatt_session_closed",
+                    bluetoothError: args.Error);
+            }
+        }
+        catch (Exception ex)
+        {
+            connectionProgress?.Report(
+                "[PRO2_BLE_LINK] GATT session status handler failed: " + ex.Message);
+        }
+    }
+
+    private void CaptureDisconnectSignal(
+        string detector,
+        BluetoothError? bluetoothError)
+    {
+        Pro2BleDisconnectSignal? captured = null;
+        lock (gate)
+        {
+            if (!IsRunning)
+            {
+                return;
+            }
+
+            Pro2BleDisconnectSignal candidate = CreateDisconnectSignalNoLock(
+                detector,
+                bluetoothError,
+                ageOverride: null,
+                forceAbnormal: false);
+            if (!disconnectSignalCaptured)
+            {
+                disconnectSignalCaptured = true;
+                pendingDisconnectSignal = candidate;
+                captured = candidate;
+            }
+            else if (pendingDisconnectSignal != null &&
+                     pendingDisconnectSignal.BluetoothErrorCode == "not_provided" &&
+                     bluetoothError.HasValue)
+            {
+                pendingDisconnectSignal = candidate;
+                captured = candidate;
+            }
+        }
+
+        if (captured != null)
+        {
+            connectionProgress?.Report(
+                "[PRO2_BLE_DISCONNECT_SIGNAL] " + captured.TelemetryValue);
+            DisconnectDetected?.Invoke(captured);
+        }
+    }
+
+    private Pro2BleDisconnectSignal CreateDisconnectSignalNoLock(
+        string detector,
+        BluetoothError? bluetoothError,
+        TimeSpan? ageOverride,
+        bool forceAbnormal)
+    {
+        TimeSpan age = ageOverride ??
+            (latestAt == default
+                ? TimeSpan.MaxValue
+                : DateTimeOffset.UtcNow - latestAt);
+        string windowsStatus;
+        try
+        {
+            windowsStatus = device?.ConnectionStatus.ToString() ?? "unknown";
+        }
+        catch
+        {
+            windowsStatus = "unavailable";
+        }
+
+        return new Pro2BleDisconnectSignal(
+            DateTimeOffset.UtcNow,
+            connectionSequence,
+            detector,
+            connectedAddress,
+            windowsStatus,
+            bluetoothError?.ToString() ?? "not_provided",
+            age == TimeSpan.MaxValue ? double.PositiveInfinity : age.TotalMilliseconds,
+            latest.BatteryPercent,
+            latest.BatteryCharging,
+            forceAbnormal ||
+            Pro2BleDisconnectSignal.IsAbnormalBluetoothError(bluetoothError));
+    }
+
     [SupportedOSPlatform("windows10.0.22000.0")]
     private void ObserveWindows11ConnectionParameters(
         BluetoothLEDevice opened,
@@ -2338,9 +2557,19 @@ public sealed class Pro2BleInputSource :
         {
             connectedAddress = "";
         }
-        if (device != null && OperatingSystem.IsWindowsVersionAtLeast(10, 0, 22000))
+        if (device != null)
         {
-            UnsubscribeWindows11ConnectionEvents(device);
+            device.ConnectionStatusChanged -= OnBluetoothConnectionStatusChanged;
+            if (OperatingSystem.IsWindowsVersionAtLeast(10, 0, 22000))
+            {
+                UnsubscribeWindows11ConnectionEvents(device);
+            }
+        }
+        if (gattSession != null)
+        {
+            gattSession.SessionStatusChanged -= OnGattSessionStatusChanged;
+            gattSession.Dispose();
+            gattSession = null;
         }
         connectionParametersRequest?.Dispose();
         connectionParametersRequest = null;
@@ -2422,6 +2651,8 @@ public sealed class Pro2BleInputSource :
             fd2ReportRateDescriptorUuid = "";
             linkRateClass = "unknown";
             lastPerformanceWarning = "";
+            disconnectSignalCaptured = false;
+            pendingDisconnectSignal = null;
             inputStability.Reset();
             sequentialInput.Reset();
         }

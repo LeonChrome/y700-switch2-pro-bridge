@@ -30,6 +30,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
         new(3, false),
         new(4, false)
     ];
+    private readonly long[] lastDisconnectNoticeSequence = [-1, -1, -1, -1];
+    private readonly SynchronizationContext? uiContext = SynchronizationContext.Current;
     private readonly Pro2BleInputSource inputSource;
     private readonly ProfessionalHidAuditController professionalHidAuditController = new();
     private readonly SessionLogWriter sessionLog = new();
@@ -44,7 +46,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private ViiperBridgeSession? session;
     private string host = "127.0.0.1";
     private string port = "3242";
-    private string status = "V6.2.30 已就绪。真实 BLE 源节奏与按键边沿热修版。";
+    private string status = "V6.2.31 已就绪。Pro2 离线提示与异常断联诊断版。";
     private string inputStatus = "真实 Pro2 BLE 输入未连接。";
     private string selectedPushRateLabel = ViiperPushRateOption.Default.Label;
     private string selectedBackendLabel = VirtualBackendOption.Default.Label;
@@ -87,6 +89,12 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public MainViewModel()
     {
         inputSource = pro2Slots[0].InputSource;
+        foreach (Pro2ControllerSlot slot in pro2Slots)
+        {
+            int slotIndex = slot.Index;
+            slot.InputSource.DisconnectDetected +=
+                signal => OnPro2DisconnectDetected(slotIndex, signal);
+        }
         PingCommand = new RelayCommand(_ => RunExclusiveAsync("Ping VIIPER", PingAsync));
         InstallUsbipCommand = new RelayCommand(_ => RunExclusiveAsync("安装/修复 usbip-win2", InstallUsbipAsync));
         StartViiperServerCommand = new RelayCommand(_ => RunExclusiveAsync("启动本地 VIIPER", StartLocalViiperServerAsync));
@@ -179,7 +187,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         {
             AppendLog(StartupProcessGuard.LastSummary);
         }
-        AppendLog("V6.2.30 说明：虚拟手柄继续跟随真实 Pro2 BLE 通知；BLE 短暂没有新帧时保持最后状态，不再注入会把持续按键拆成双击的中立帧。只有输入源明确停止时才发送一次全松开。USBIP 内嵌安装与三态诊断保持不变。");
+        AppendLog("V6.2.31 说明：每个已 live 的 Pro2 连接在离线时都会弹出一次提示，并记录 Windows 连接状态、GATT 错误、最后输入年龄、地址和可用电量证据。明确蓝牙错误会报警；无法区分关机、没电、离开范围时会诚实标注原因未知。V6.2.30 按键边沿热修保持不变。");
         AppendLog("[LOG_POLICY] previous v6 logs are cleaned at startup; manager log limit=" +
                   (SessionLogWriter.MaxLogBytes / 1024 / 1024) + "MB; VIIPER server log level=info.");
         AppendLog("[RUNTIME] " + RuntimeReadinessText);
@@ -1674,6 +1682,27 @@ public sealed class MainViewModel : INotifyPropertyChanged
         {
             while (!cancellationToken.IsCancellationRequested)
             {
+                if (inputSource.TryConsumeDisconnectSignal(
+                        out Pro2BleDisconnectSignal lowLevelDisconnect))
+                {
+                    previouslyLive = false;
+                    NotifyPro2Offline(
+                        slotIndex: 1,
+                        lowLevelDisconnect,
+                        autoReconnectContinues: true);
+                    InputStatus = "Windows 已确认 Pro2 离线，正在清理连接并自动重连...";
+                    await bleOperationGate.WaitAsync(cancellationToken);
+                    try
+                    {
+                        await inputSource.StopAsync();
+                    }
+                    finally
+                    {
+                        bleOperationGate.Release();
+                    }
+                    RaiseConnectionStateChanged();
+                }
+
                 bool live = inputSource.IsRunning &&
                             inputSource.TryGetLatest(out _, out TimeSpan age) &&
                             age <= TimeSpan.FromMilliseconds(LostInputTimeoutMilliseconds);
@@ -1707,6 +1736,10 @@ public sealed class MainViewModel : INotifyPropertyChanged
                     TimeSpan staleAge = inputSource.TryGetLatest(out _, out TimeSpan measuredAge)
                         ? measuredAge
                         : TimeSpan.MaxValue;
+                    NotifyPro2Offline(
+                        slotIndex: 1,
+                        inputSource.CreateInputTimeoutDisconnectSignal(staleAge),
+                        autoReconnectContinues: true);
                     AppendLog("[PRO2_AUTO] input stale age_ms=" +
                               (staleAge == TimeSpan.MaxValue ? "unknown" : staleAge.TotalMilliseconds.ToString("F0")) +
                               "; recycling BLE session.");
@@ -1872,6 +1905,28 @@ public sealed class MainViewModel : INotifyPropertyChanged
         {
             while (!cancellationToken.IsCancellationRequested)
             {
+                if (slot.InputSource.TryConsumeDisconnectSignal(
+                        out Pro2BleDisconnectSignal lowLevelDisconnect))
+                {
+                    previouslyLive = false;
+                    NotifyPro2Offline(
+                        slot.Index,
+                        lowLevelDisconnect,
+                        autoReconnectContinues: true);
+                    slot.Status = "Windows 已确认手柄离线，正在清理连接并自动重连。";
+                    await bleOperationGate.WaitAsync(cancellationToken);
+                    try
+                    {
+                        await slot.InputSource.StopAsync();
+                    }
+                    finally
+                    {
+                        bleOperationGate.Release();
+                    }
+                    slot.RefreshFromSource();
+                    UpdateMultiSlotInputStatus();
+                }
+
                 bool live = slot.InputSource.IsRunning &&
                             slot.InputSource.TryGetLatest(out _, out TimeSpan age) &&
                             age <= TimeSpan.FromMilliseconds(LostInputTimeoutMilliseconds);
@@ -1904,6 +1959,10 @@ public sealed class MainViewModel : INotifyPropertyChanged
                     TimeSpan staleAge = slot.InputSource.TryGetLatest(out _, out TimeSpan measuredAge)
                         ? measuredAge
                         : TimeSpan.MaxValue;
+                    NotifyPro2Offline(
+                        slot.Index,
+                        slot.InputSource.CreateInputTimeoutDisconnectSignal(staleAge),
+                        autoReconnectContinues: true);
                     AppendLog("[SLOT_MULTI] slot=" + slot.Index +
                               " input stale age_ms=" +
                               (staleAge == TimeSpan.MaxValue ? "unknown" : staleAge.TotalMilliseconds.ToString("F0")) +
@@ -2136,6 +2195,110 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private void RequestUserNotification(string title, string message)
     {
         UserNotificationRequested?.Invoke(title, message);
+    }
+
+    private void OnPro2DisconnectDetected(
+        int slotIndex,
+        Pro2BleDisconnectSignal signal)
+    {
+        void Notify()
+        {
+            if (shuttingDown)
+            {
+                return;
+            }
+
+            Pro2ControllerSlot slot = pro2Slots[Math.Clamp(slotIndex - 1, 0, pro2Slots.Length - 1)];
+            bool reconnecting = slotIndex == 1
+                ? AutoReconnectEnabled || slot.AutoReconnectEnabled
+                : slot.AutoReconnectEnabled;
+            NotifyPro2Offline(slotIndex, signal, reconnecting);
+        }
+
+        if (uiContext != null)
+        {
+            uiContext.Post(_ => Notify(), null);
+        }
+        else
+        {
+            Notify();
+        }
+    }
+
+    private void NotifyPro2Offline(
+        int slotIndex,
+        Pro2BleDisconnectSignal signal,
+        bool autoReconnectContinues)
+    {
+        int noticeIndex = Math.Clamp(slotIndex - 1, 0, lastDisconnectNoticeSequence.Length - 1);
+        if (signal.ConnectionSequence > 0 &&
+            lastDisconnectNoticeSequence[noticeIndex] == signal.ConnectionSequence)
+        {
+            AppendLog("[PRO2_OFFLINE_NOTICE] duplicate_suppressed=1 slot=" +
+                      slotIndex + " " + signal.TelemetryValue);
+            return;
+        }
+
+        lastDisconnectNoticeSequence[noticeIndex] = signal.ConnectionSequence;
+        string severity = signal.IsAbnormal ? "abnormal" : "offline";
+        string title = signal.IsAbnormal
+            ? "Pro2 异常断联警报"
+            : "Pro2 手柄已离线";
+        string reason = DescribePro2DisconnectReason(signal);
+        string address = string.IsNullOrWhiteSpace(signal.ConnectedAddress)
+            ? "未知地址"
+            : signal.ConnectedAddress;
+        string age = double.IsFinite(signal.LastInputAgeMs)
+            ? signal.LastInputAgeMs.ToString("F0") + "ms"
+            : "未知";
+        string battery = signal.LastBatteryPercent == GamepadState.BatteryUnknown
+            ? "电量未知"
+            : "最后电量 " + signal.LastBatteryPercent + "%" +
+              (signal.LastBatteryCharging ? "（充电中）" : "");
+        string followUp = autoReconnectContinues
+            ? "程序将继续自动重连。"
+            : "自动重连未启用。";
+
+        AppendLog("[PRO2_OFFLINE_NOTICE] slot=" + slotIndex +
+                  " severity=" + severity + " " + signal.TelemetryValue +
+                  " reason=\"" + reason + "\"");
+        RequestUserNotification(
+            title,
+            "Slot " + slotIndex + " 的 Pro2 已离线。\n" +
+            reason + "\n" +
+            "地址：" + address + "；最后输入距今：" + age + "；" + battery + "。\n" +
+            followUp);
+    }
+
+    private static string DescribePro2DisconnectReason(
+        Pro2BleDisconnectSignal signal)
+    {
+        if (signal.Detector == "fd2_input_timeout")
+        {
+            return "超过 2 秒没有收到 FD2 输入，且 Windows 尚未先报告物理断开；这是疑似异常断流，也可能是手柄关机或没电后系统状态更新延迟。";
+        }
+
+        return signal.BluetoothErrorCode switch
+        {
+            "RadioNotAvailable" =>
+                "Windows 报告蓝牙无线电不可用，可能是蓝牙被关闭、USB 蓝牙接收器掉线或驱动异常。",
+            "ResourceInUse" =>
+                "Windows 报告蓝牙资源被占用，属于异常链路错误。",
+            "OtherError" =>
+                "Windows GATT 会话报告未分类错误，属于异常断联。",
+            "DisabledByPolicy" =>
+                "Windows 策略禁用了蓝牙访问。",
+            "NotSupported" or "TransportNotSupported" =>
+                "当前蓝牙适配器或驱动报告不支持所需传输。",
+            "DisabledByUser" =>
+                "Windows 报告蓝牙已被用户关闭。",
+            "ConsentRequired" =>
+                "Windows 报告蓝牙访问需要用户授权。",
+            "DeviceNotConnected" =>
+                "Windows 确认远端设备已断开，但无法区分手柄关机、没电、离开范围或无线链路丢失。",
+            _ =>
+                "Windows 确认手柄已离线，但没有提供具体原因；可能是手柄关机、没电、离开范围或无线链路中断。"
+        };
     }
 
     private HashSet<string> ConnectedPro2AddressesExcept(Pro2ControllerSlot slot)
@@ -2766,9 +2929,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
         Directory.CreateDirectory(directory);
         string path = Path.Combine(
             directory,
-            "diagnostics_v6_2_30_" + DateTime.Now.ToString("yyyyMMdd_HHmmss") + ".log");
+            "diagnostics_v6_2_31_" + DateTime.Now.ToString("yyyyMMdd_HHmmss") + ".log");
         var builder = new StringBuilder();
-        builder.AppendLine("# V6.2.30 button-edge diagnostics export");
+        builder.AppendLine("# V6.2.31 disconnect-alert diagnostics export");
         builder.AppendLine("# session_log=" + sessionLog.FilePath);
         builder.AppendLine();
         foreach (string line in dump)
@@ -3053,7 +3216,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "PRO2WirelessReceiverControlBoard",
             "embedded",
-            "v6.2.30-button-edge-hotfix",
+            "v6.2.31-disconnect-alerts",
             "viiper",
             "haptic-v0.8.0");
         Directory.CreateDirectory(root);
