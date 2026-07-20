@@ -405,11 +405,28 @@ public sealed class Pro2BleInputSource :
             cancellationToken);
     }
 
+    public Task StartAsync(
+        IProgress<string> progress,
+        IReadOnlySet<string> excludedAddresses,
+        IReadOnlySet<string>? preferredAddresses,
+        bool onlyPreferredAddresses,
+        CancellationToken cancellationToken)
+    {
+        return StartAsync(
+            progress,
+            excludedAddresses,
+            preferredAddresses,
+            onlyPreferredAddresses,
+            stickCalibrationResolver: null,
+            cancellationToken);
+    }
+
     public async Task StartAsync(
         IProgress<string> progress,
         IReadOnlySet<string> excludedAddresses,
         IReadOnlySet<string>? preferredAddresses,
         bool onlyPreferredAddresses,
+        Func<string, Pro2StickCalibrationProfile?>? stickCalibrationResolver,
         CancellationToken cancellationToken)
     {
         if (IsRunning)
@@ -488,6 +505,15 @@ public sealed class Pro2BleInputSource :
             progress.Report("[PRO2_BLE] trying " + DescribeCandidate(candidate));
             try
             {
+                Pro2StickCalibrationProfile? stickCalibration =
+                    stickCalibrationResolver?.Invoke(candidateAddress);
+                string calibrationSummary = parser.SetStickCalibration(stickCalibration);
+                progress.Report("[PRO2_STICK_CAL] address=" + candidateAddress +
+                                " source=" +
+                                (stickCalibration?.CenterCalibrated == true
+                                    ? "saved_profile"
+                                    : "fixed_1600_fallback") +
+                                " " + calibrationSummary);
                 if (await ConnectCandidateAsync(candidate, progress, cancellationToken))
                 {
                     connectedLabel = DescribeCandidate(candidate);
@@ -1623,6 +1649,59 @@ public sealed class Pro2BleInputSource :
     }
 
     public string GyroCalibrationSummary => parser.GyroCalibrationSummary;
+
+    public string SetStickCalibration(Pro2StickCalibrationProfile? profile)
+    {
+        string summary = parser.SetStickCalibration(profile);
+        lock (gate)
+        {
+            lastNotifySummary = "stick_calibration=" + summary;
+        }
+        return summary;
+    }
+
+    public string StartManualStickCenterCalibration()
+    {
+        return parser.StartManualStickCenterCalibration();
+    }
+
+    public Pro2StickCalibrationResult CompleteManualStickCenterCalibration()
+    {
+        Pro2StickCalibrationResult result =
+            parser.CompleteManualStickCenterCalibration();
+        lock (gate)
+        {
+            lastNotifySummary = "stick_center_calibration=" + result.Message;
+        }
+        return result;
+    }
+
+    public string StartManualStickRangeCalibration()
+    {
+        return parser.StartManualStickRangeCalibration();
+    }
+
+    public Pro2StickCalibrationResult CompleteManualStickRangeCalibration()
+    {
+        Pro2StickCalibrationResult result =
+            parser.CompleteManualStickRangeCalibration();
+        lock (gate)
+        {
+            lastNotifySummary = "stick_range_calibration=" + result.Message;
+        }
+        return result;
+    }
+
+    public Pro2StickCalibrationProfile StickCalibrationProfile =>
+        parser.StickCalibrationProfile;
+
+    public Pro2PhysicalStickAxes LastPhysicalStickAxes =>
+        parser.LastPhysicalStickAxes;
+
+    public string StickCalibrationSummary => parser.StickCalibrationSummary;
+
+    public bool IsStickCalibrationCaptureActive =>
+        parser.IsStickCalibrationCaptureActive;
 
     private void OnNotifyValueChanged(GattCharacteristic sender, GattValueChangedEventArgs args)
     {

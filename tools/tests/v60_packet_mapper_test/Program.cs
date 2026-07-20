@@ -513,6 +513,143 @@ Expect(fd2Parsed.SwitchRawImuOffset == 48, "FD2 raw IMU block offset is recorded
 Expect(fd2Parsed.MotionTimestampUs == 0x89ABCDEF, "FD2 native motion timestamp is preserved");
 Expect(fd2Parsed.SwitchRawImuSamples[0].AccelX == -7 && fd2Parsed.SwitchRawImuSamples[0].GyroZ == 77, "FD2 raw IMU sample carries signed values");
 
+var stickCalibrationParser = new Pro2HidReportParser();
+byte[] stickCalibrationFd2 = new byte[60];
+Expect(
+    stickCalibrationParser.StartManualStickCenterCalibration().Contains("status=started", StringComparison.Ordinal),
+    "stick center calibration starts");
+for (int i = 0; i < 40; i++)
+{
+    Pack12(stickCalibrationFd2, 10, 2060, 2030);
+    Pack12(stickCalibrationFd2, 13, 2075, 2010);
+    Expect(
+        stickCalibrationParser.TryParseFd2Payload(stickCalibrationFd2, out _, out _),
+        "stick center calibration parses source sample");
+}
+Pro2StickCalibrationResult stickCenterResult =
+    stickCalibrationParser.CompleteManualStickCenterCalibration();
+Expect(stickCenterResult.Success, "stick center calibration succeeds");
+Expect(
+    stickCenterResult.Profile is
+    {
+        CenterCalibrated: true,
+        CenterLx: 2060,
+        CenterLy: 2030,
+        CenterRx: 2075,
+        CenterRy: 2010
+    },
+    "stick center calibration preserves four independent centers");
+
+Expect(
+    stickCalibrationParser.StartManualStickRangeCalibration().Contains("status=started", StringComparison.Ordinal),
+    "stick range calibration starts after center calibration");
+for (int i = 0; i < 80; i++)
+{
+    bool minimum = (i & 1) == 0;
+    Pack12(
+        stickCalibrationFd2,
+        10,
+        minimum ? (ushort)700 : (ushort)3500,
+        minimum ? (ushort)600 : (ushort)3420);
+    Pack12(
+        stickCalibrationFd2,
+        13,
+        minimum ? (ushort)760 : (ushort)3600,
+        minimum ? (ushort)650 : (ushort)3380);
+    Expect(
+        stickCalibrationParser.TryParseFd2Payload(stickCalibrationFd2, out _, out _),
+        "stick range calibration parses source sample");
+}
+Pro2StickCalibrationResult stickRangeResult =
+    stickCalibrationParser.CompleteManualStickRangeCalibration();
+Expect(
+    stickRangeResult.Success && stickRangeResult.Profile?.RangeCalibrated == true,
+    "stick range calibration succeeds with all eight directions");
+
+Pack12(stickCalibrationFd2, 10, 700, 3420);
+Pack12(stickCalibrationFd2, 13, 3600, 650);
+Expect(
+    stickCalibrationParser.TryParseFd2Payload(
+        stickCalibrationFd2,
+        out GamepadState calibratedEndpoints,
+        out _),
+    "calibrated endpoint report parses");
+Expect(
+    calibratedEndpoints.Lx == 0 &&
+    calibratedEndpoints.Ly == GamepadState.AxisMax &&
+    calibratedEndpoints.Rx == GamepadState.AxisMax &&
+    calibratedEndpoints.Ry == 0,
+    "asymmetric calibrated endpoints reach full output");
+
+Pro2StickCalibrationProfile savedStickProfile = stickRangeResult.Profile!;
+var restoredStickParser = new Pro2HidReportParser();
+restoredStickParser.SetStickCalibration(savedStickProfile);
+Pack12(stickCalibrationFd2, 10, 2060, 2030);
+Pack12(stickCalibrationFd2, 13, 2075, 2010);
+Expect(
+    restoredStickParser.TryParseFd2Payload(
+        stickCalibrationFd2,
+        out GamepadState restoredStickCenter,
+        out _),
+    "saved stick calibration parses after restore");
+Expect(
+    restoredStickCenter.Lx == GamepadState.AxisCenter &&
+    restoredStickCenter.Ly == GamepadState.AxisCenter &&
+    restoredStickCenter.Rx == GamepadState.AxisCenter &&
+    restoredStickCenter.Ry == GamepadState.AxisCenter,
+    "saved stick calibration restores all centers");
+
+Expect(
+    restoredStickParser.StartManualStickRangeCalibration().Contains("status=started", StringComparison.Ordinal),
+    "incomplete range retry starts");
+for (int i = 0; i < 80; i++)
+{
+    Pack12(stickCalibrationFd2, 10, 1900, 1900);
+    Pack12(stickCalibrationFd2, 13, 2200, 2200);
+    restoredStickParser.TryParseFd2Payload(stickCalibrationFd2, out _, out _);
+}
+Pro2StickCalibrationResult incompleteRange =
+    restoredStickParser.CompleteManualStickRangeCalibration();
+Expect(!incompleteRange.Success, "incomplete range calibration is rejected");
+Expect(
+    restoredStickParser.StickCalibrationProfile == savedStickProfile,
+    "rejected range calibration does not overwrite saved profile");
+
+Expect(
+    restoredStickParser.StartManualStickRangeCalibration().Contains("status=started", StringComparison.Ordinal),
+    "range calibration starts for idempotent profile reload regression");
+restoredStickParser.SetStickCalibration(savedStickProfile);
+for (int i = 0; i < 80; i++)
+{
+    bool minimum = (i & 1) == 0;
+    Pack12(
+        stickCalibrationFd2,
+        10,
+        minimum ? (ushort)700 : (ushort)3500,
+        minimum ? (ushort)600 : (ushort)3420);
+    Pack12(
+        stickCalibrationFd2,
+        13,
+        minimum ? (ushort)760 : (ushort)3600,
+        minimum ? (ushort)650 : (ushort)3380);
+    restoredStickParser.TryParseFd2Payload(stickCalibrationFd2, out _, out _);
+}
+Pro2StickCalibrationResult profileReloadRange =
+    restoredStickParser.CompleteManualStickRangeCalibration();
+Expect(
+    profileReloadRange.Success,
+    "reapplying the same saved profile does not cancel active range capture");
+
+Dictionary<string, Pro2StickCalibrationProfile> normalizedStickProfiles =
+    V60UserSettings.NormalizeStickCalibrations(
+        new Dictionary<string, Pro2StickCalibrationProfile>
+        {
+            ["c8-48-05-5c-35-31"] = savedStickProfile
+        });
+Expect(
+    normalizedStickProfiles.ContainsKey("C8:48:05:5C:35:31"),
+    "stick calibration settings normalize BLE address keys");
+
 byte[] primaryPro = new byte[63];
 primaryPro[1] = 0x20;
 primaryPro[2] = 0x01 | 0x20 | 0x40;

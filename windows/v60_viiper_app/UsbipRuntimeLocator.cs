@@ -356,7 +356,7 @@ public static class UsbipRuntimeLocator
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "PRO2WirelessReceiverControlBoard",
             "embedded",
-            "v6.2.31",
+            "v6.2.32-test-r2",
             "usbip-win2",
             BundledVersion);
         Directory.CreateDirectory(root);

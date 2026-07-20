@@ -34,6 +34,102 @@ public sealed class Pro2HidReportParser
         }
     }
 
+    public string SetStickCalibration(Pro2StickCalibrationProfile? profile)
+    {
+        lock (gate)
+        {
+            standardAxis.ApplyProfile(profile);
+            legacyAxis.ApplyProfile(profile);
+            return standardAxis.Summary;
+        }
+    }
+
+    public string StartManualStickCenterCalibration()
+    {
+        lock (gate)
+        {
+            return standardAxis.StartCenterCapture();
+        }
+    }
+
+    public Pro2StickCalibrationResult CompleteManualStickCenterCalibration()
+    {
+        lock (gate)
+        {
+            Pro2StickCalibrationResult result = standardAxis.CompleteCenterCapture();
+            if (result.Success && result.Profile != null)
+            {
+                legacyAxis.ApplyProfile(result.Profile);
+            }
+            return result;
+        }
+    }
+
+    public string StartManualStickRangeCalibration()
+    {
+        lock (gate)
+        {
+            return standardAxis.StartRangeCapture();
+        }
+    }
+
+    public Pro2StickCalibrationResult CompleteManualStickRangeCalibration()
+    {
+        lock (gate)
+        {
+            Pro2StickCalibrationResult result = standardAxis.CompleteRangeCapture();
+            if (result.Success && result.Profile != null)
+            {
+                legacyAxis.ApplyProfile(result.Profile);
+            }
+            return result;
+        }
+    }
+
+    public Pro2StickCalibrationProfile StickCalibrationProfile
+    {
+        get
+        {
+            lock (gate)
+            {
+                return standardAxis.Profile;
+            }
+        }
+    }
+
+    public Pro2PhysicalStickAxes LastPhysicalStickAxes
+    {
+        get
+        {
+            lock (gate)
+            {
+                return standardAxis.LastRaw;
+            }
+        }
+    }
+
+    public string StickCalibrationSummary
+    {
+        get
+        {
+            lock (gate)
+            {
+                return standardAxis.Summary;
+            }
+        }
+    }
+
+    public bool IsStickCalibrationCaptureActive
+    {
+        get
+        {
+            lock (gate)
+            {
+                return standardAxis.CaptureActive;
+            }
+        }
+    }
+
     public bool TryParse(ReadOnlySpan<byte> report, out GamepadState state, out string source)
     {
         lock (gate)
@@ -336,11 +432,12 @@ public sealed class Pro2HidReportParser
         ushort rx,
         ushort ry)
     {
+        calibration.ObserveRaw(lx, ly, rx, ry);
         calibration.LearnIfCentered(state.Buttons, lx, ly, rx, ry);
-        state.Lx = calibration.Normalize(lx, calibration.CenterLx);
-        state.Ly = calibration.Normalize(ly, calibration.CenterLy);
-        state.Rx = calibration.Normalize(rx, calibration.CenterRx);
-        state.Ry = calibration.Normalize(ry, calibration.CenterRy);
+        state.Lx = calibration.Normalize(lx, StickAxis.Lx);
+        state.Ly = calibration.Normalize(ly, StickAxis.Ly);
+        state.Rx = calibration.Normalize(rx, StickAxis.Rx);
+        state.Ry = calibration.Normalize(ry, StickAxis.Ry);
     }
 
     private void ApplyMotionSample(GamepadState state, ReadOnlySpan<byte> sample)
@@ -377,19 +474,179 @@ public sealed class Pro2HidReportParser
     private sealed class AxisCalibration
     {
         private const int SamplesRequired = 20;
+        private const int CenterCaptureSamplesRequired = 16;
+        private const int CenterCaptureMaximumSpread = 96;
+        private const int RangeCaptureSamplesRequired = 60;
+        private const int MinimumDirectionalRange = 900;
+        private const double CalibratedEndpointReserve = 0.97;
         private uint sampleCount;
         private uint sumLx;
         private uint sumLy;
         private uint sumRx;
         private uint sumRy;
+        private Pro2StickCalibrationProfile profile = new();
+        private AxisCapture? capture;
 
         public ushort CenterLx { get; private set; } = Center12;
         public ushort CenterLy { get; private set; } = Center12;
         public ushort CenterRx { get; private set; } = Center12;
         public ushort CenterRy { get; private set; } = Center12;
+        public Pro2PhysicalStickAxes LastRaw { get; private set; } =
+            new(Center12, Center12, Center12, Center12);
+        public Pro2StickCalibrationProfile Profile => profile;
+        public bool CaptureActive => capture != null;
+        public string Summary =>
+            profile.Summary +
+            (capture == null
+                ? ""
+                : " capture=" + capture.Mode.ToString().ToLowerInvariant() +
+                  " samples=" + capture.SampleCount);
+
+        public void ApplyProfile(Pro2StickCalibrationProfile? saved)
+        {
+            Pro2StickCalibrationProfile normalized =
+                Pro2StickCalibrationProfile.Normalize(saved);
+            if (profile == normalized)
+            {
+                return;
+            }
+
+            profile = normalized;
+            CenterLx = profile.CenterLx;
+            CenterLy = profile.CenterLy;
+            CenterRx = profile.CenterRx;
+            CenterRy = profile.CenterRy;
+            capture = null;
+            ResetSums();
+        }
+
+        public void ObserveRaw(ushort lx, ushort ly, ushort rx, ushort ry)
+        {
+            LastRaw = new Pro2PhysicalStickAxes(lx, ly, rx, ry);
+            capture?.Add(lx, ly, rx, ry);
+        }
+
+        public string StartCenterCapture()
+        {
+            capture = new AxisCapture(AxisCaptureMode.Center);
+            return "status=started mode=center duration_seconds=2 keep_sticks_released=1";
+        }
+
+        public Pro2StickCalibrationResult CompleteCenterCapture()
+        {
+            AxisCapture? completed = TakeCapture(AxisCaptureMode.Center);
+            if (completed == null)
+            {
+                return Failed("status=rejected mode=center reason=not_started");
+            }
+            if (completed.SampleCount < CenterCaptureSamplesRequired)
+            {
+                return Failed(
+                    "status=rejected mode=center reason=insufficient_samples samples=" +
+                    completed.SampleCount);
+            }
+            if (completed.MaximumSpread > CenterCaptureMaximumSpread)
+            {
+                return Failed(
+                    "status=rejected mode=center reason=sticks_moved max_spread=" +
+                    completed.MaximumSpread);
+            }
+
+            Pro2PhysicalStickAxes center = completed.Average;
+            if (!NearFactoryCenterForManualCapture(center.Lx) ||
+                !NearFactoryCenterForManualCapture(center.Ly) ||
+                !NearFactoryCenterForManualCapture(center.Rx) ||
+                !NearFactoryCenterForManualCapture(center.Ry))
+            {
+                return Failed(
+                    "status=rejected mode=center reason=outside_safe_center_window " +
+                    center.TelemetryValue);
+            }
+
+            Pro2StickCalibrationProfile candidate =
+                Pro2StickCalibrationProfile.Normalize(profile with
+                {
+                    CenterCalibrated = true,
+                    CenterLx = center.Lx,
+                    CenterLy = center.Ly,
+                    CenterRx = center.Rx,
+                    CenterRy = center.Ry,
+                    UpdatedAtUtc = DateTimeOffset.UtcNow
+                });
+            ApplyProfile(candidate);
+            return new Pro2StickCalibrationResult(
+                true,
+                "status=calibrated mode=center samples=" + completed.SampleCount +
+                " max_spread=" + completed.MaximumSpread + " " + profile.Summary,
+                profile);
+        }
+
+        public string StartRangeCapture()
+        {
+            if (!profile.CenterCalibrated)
+            {
+                return "status=rejected mode=range reason=center_calibration_required";
+            }
+
+            capture = new AxisCapture(AxisCaptureMode.Range);
+            return "status=started mode=range duration_seconds=8 rotate_both_sticks_full_circle=1";
+        }
+
+        public Pro2StickCalibrationResult CompleteRangeCapture()
+        {
+            AxisCapture? completed = TakeCapture(AxisCaptureMode.Range);
+            if (completed == null)
+            {
+                return Failed("status=rejected mode=range reason=not_started");
+            }
+            if (completed.SampleCount < RangeCaptureSamplesRequired)
+            {
+                return Failed(
+                    "status=rejected mode=range reason=insufficient_samples samples=" +
+                    completed.SampleCount);
+            }
+
+            Pro2PhysicalStickAxes minimum = completed.Minimum;
+            Pro2PhysicalStickAxes maximum = completed.Maximum;
+            string spans = RangeSpans(minimum, maximum);
+            if (!HasRequiredRange(minimum.Lx, profile.CenterLx, maximum.Lx) ||
+                !HasRequiredRange(minimum.Ly, profile.CenterLy, maximum.Ly) ||
+                !HasRequiredRange(minimum.Rx, profile.CenterRx, maximum.Rx) ||
+                !HasRequiredRange(minimum.Ry, profile.CenterRy, maximum.Ry))
+            {
+                return Failed(
+                    "status=rejected mode=range reason=incomplete_directional_travel " + spans);
+            }
+
+            Pro2StickCalibrationProfile candidate =
+                Pro2StickCalibrationProfile.Normalize(profile with
+                {
+                    RangeCalibrated = true,
+                    MinLx = minimum.Lx,
+                    MaxLx = maximum.Lx,
+                    MinLy = minimum.Ly,
+                    MaxLy = maximum.Ly,
+                    MinRx = minimum.Rx,
+                    MaxRx = maximum.Rx,
+                    MinRy = minimum.Ry,
+                    MaxRy = maximum.Ry,
+                    UpdatedAtUtc = DateTimeOffset.UtcNow
+                });
+            ApplyProfile(candidate);
+            return new Pro2StickCalibrationResult(
+                true,
+                "status=calibrated mode=range samples=" + completed.SampleCount +
+                " endpoint_reserve_percent=3 " + spans + " " + profile.Summary,
+                profile);
+        }
 
         public void LearnIfCentered(GamepadButtons buttons, ushort lx, ushort ly, ushort rx, ushort ry)
         {
+            if (profile.CenterCalibrated || capture != null)
+            {
+                return;
+            }
+
             if (buttons == GamepadButtons.None &&
                 NearFactoryCenter(lx) &&
                 NearFactoryCenter(ly) &&
@@ -416,8 +673,9 @@ public sealed class Pro2HidReportParser
             }
         }
 
-        public ushort Normalize(ushort value, ushort center)
+        public ushort Normalize(ushort value, StickAxis axis)
         {
+            (ushort center, ushort minimum, ushort maximum) = AxisParameters(axis);
             int delta = value - center;
             bool negative = delta < 0;
             int magnitude = negative ? -delta : delta;
@@ -426,7 +684,15 @@ public sealed class Pro2HidReportParser
                 return Center12;
             }
 
-            int usable = FullScaleRange - AxisDeadzone;
+            int directionalRange = FullScaleRange;
+            if (profile.RangeCalibrated)
+            {
+                int measuredRange = negative ? center - minimum : maximum - center;
+                directionalRange = Math.Max(
+                    AxisDeadzone + 1,
+                    (int)Math.Round(measuredRange * CalibratedEndpointReserve));
+            }
+            int usable = directionalRange - AxisDeadzone;
             int target = negative ? Center12 : GamepadState.AxisMax - Center12;
             int scaled = ((magnitude - AxisDeadzone) * target + usable / 2) / usable;
             if (scaled > target)
@@ -436,6 +702,53 @@ public sealed class Pro2HidReportParser
 
             int output = negative ? Center12 - scaled : Center12 + scaled;
             return Clamp12(output);
+        }
+
+        private (ushort Center, ushort Minimum, ushort Maximum) AxisParameters(StickAxis axis)
+        {
+            return axis switch
+            {
+                StickAxis.Lx => (CenterLx, profile.MinLx, profile.MaxLx),
+                StickAxis.Ly => (CenterLy, profile.MinLy, profile.MaxLy),
+                StickAxis.Rx => (CenterRx, profile.MinRx, profile.MaxRx),
+                StickAxis.Ry => (CenterRy, profile.MinRy, profile.MaxRy),
+                _ => (Center12, 0, GamepadState.AxisMax)
+            };
+        }
+
+        private AxisCapture? TakeCapture(AxisCaptureMode expectedMode)
+        {
+            AxisCapture? completed = capture;
+            capture = null;
+            return completed?.Mode == expectedMode ? completed : null;
+        }
+
+        private Pro2StickCalibrationResult Failed(string message)
+        {
+            return new Pro2StickCalibrationResult(false, message, profile);
+        }
+
+        private static bool HasRequiredRange(ushort minimum, ushort center, ushort maximum)
+        {
+            return minimum < center &&
+                   maximum > center &&
+                   center - minimum >= MinimumDirectionalRange &&
+                   maximum - center >= MinimumDirectionalRange;
+        }
+
+        private string RangeSpans(
+            Pro2PhysicalStickAxes minimum,
+            Pro2PhysicalStickAxes maximum)
+        {
+            return "span_lx=" + (CenterLx - minimum.Lx) + "/" + (maximum.Lx - CenterLx) +
+                   " span_ly=" + (CenterLy - minimum.Ly) + "/" + (maximum.Ly - CenterLy) +
+                   " span_rx=" + (CenterRx - minimum.Rx) + "/" + (maximum.Rx - CenterRx) +
+                   " span_ry=" + (CenterRy - minimum.Ry) + "/" + (maximum.Ry - CenterRy);
+        }
+
+        private static bool NearFactoryCenterForManualCapture(ushort value)
+        {
+            return value is >= Center12 - 512 and <= Center12 + 512;
         }
 
         private static bool NearFactoryCenter(ushort value)
@@ -456,6 +769,74 @@ public sealed class Pro2HidReportParser
             sumRx = 0;
             sumRy = 0;
         }
+
+        private enum AxisCaptureMode
+        {
+            Center,
+            Range
+        }
+
+        private sealed class AxisCapture
+        {
+            private ulong sumLx;
+            private ulong sumLy;
+            private ulong sumRx;
+            private ulong sumRy;
+
+            public AxisCapture(AxisCaptureMode mode)
+            {
+                Mode = mode;
+            }
+
+            public AxisCaptureMode Mode { get; }
+            public uint SampleCount { get; private set; }
+            public Pro2PhysicalStickAxes Minimum { get; private set; } =
+                new(ushort.MaxValue, ushort.MaxValue, ushort.MaxValue, ushort.MaxValue);
+            public Pro2PhysicalStickAxes Maximum { get; private set; }
+            public Pro2PhysicalStickAxes Average =>
+                SampleCount == 0
+                    ? new Pro2PhysicalStickAxes(Center12, Center12, Center12, Center12)
+                    : new Pro2PhysicalStickAxes(
+                        RoundedAverage(sumLx, SampleCount),
+                        RoundedAverage(sumLy, SampleCount),
+                        RoundedAverage(sumRx, SampleCount),
+                        RoundedAverage(sumRy, SampleCount));
+            public int MaximumSpread => Math.Max(
+                Math.Max(Maximum.Lx - Minimum.Lx, Maximum.Ly - Minimum.Ly),
+                Math.Max(Maximum.Rx - Minimum.Rx, Maximum.Ry - Minimum.Ry));
+
+            public void Add(ushort lx, ushort ly, ushort rx, ushort ry)
+            {
+                Minimum = new Pro2PhysicalStickAxes(
+                    Math.Min(Minimum.Lx, lx),
+                    Math.Min(Minimum.Ly, ly),
+                    Math.Min(Minimum.Rx, rx),
+                    Math.Min(Minimum.Ry, ry));
+                Maximum = new Pro2PhysicalStickAxes(
+                    Math.Max(Maximum.Lx, lx),
+                    Math.Max(Maximum.Ly, ly),
+                    Math.Max(Maximum.Rx, rx),
+                    Math.Max(Maximum.Ry, ry));
+                sumLx += lx;
+                sumLy += ly;
+                sumRx += rx;
+                sumRy += ry;
+                SampleCount++;
+            }
+
+            private static ushort RoundedAverage(ulong sum, uint count)
+            {
+                return (ushort)((sum + count / 2u) / count);
+            }
+        }
+    }
+
+    private enum StickAxis
+    {
+        Lx,
+        Ly,
+        Rx,
+        Ry
     }
 
     private sealed class MotionCalibration

@@ -13,6 +13,7 @@ public sealed class Pro2ControllerSlot : INotifyPropertyChanged
     private bool virtualDeviceRunning;
     private string status;
     private string connectedAddress = "";
+    private string stickCalibrationStatus = "摇杆校准：连接手柄后可执行零位或完整行程校准。";
 
     public Pro2ControllerSlot(int index, bool enabled)
     {
@@ -33,6 +34,7 @@ public sealed class Pro2ControllerSlot : INotifyPropertyChanged
     public ViiperBridgeSession? Session { get; set; }
     public CancellationTokenSource? AutoReconnectCts { get; set; }
     public Task? AutoReconnectTask { get; set; }
+    public string AppliedStickCalibrationKey { get; set; } = "";
 
     public bool Enabled
     {
@@ -114,6 +116,22 @@ public sealed class Pro2ControllerSlot : INotifyPropertyChanged
             }
 
             status = normalized;
+            OnPropertyChanged();
+        }
+    }
+
+    public string StickCalibrationStatus
+    {
+        get => stickCalibrationStatus;
+        set
+        {
+            string normalized = value ?? "";
+            if (stickCalibrationStatus == normalized)
+            {
+                return;
+            }
+
+            stickCalibrationStatus = normalized;
             OnPropertyChanged();
         }
     }

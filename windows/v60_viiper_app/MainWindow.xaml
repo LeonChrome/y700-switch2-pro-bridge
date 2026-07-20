@@ -2,7 +2,7 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:automation="clr-namespace:System.Windows.Automation;assembly=PresentationCore"
-        Title="PRO2 手柄无线接收器控制板 V6.2.31 · 四人三模大厅"
+        Title="PRO2 手柄无线接收器控制板 V6.2.32 Test r2 · 四人三模大厅"
         Icon="Assets/AppIcon.ico"
         Width="1440"
         Height="940"
@@ -435,7 +435,7 @@
                                         <DropShadowEffect Color="#5EF2A5" BlurRadius="12" ShadowDepth="0"/>
                                     </Ellipse.Effect>
                                 </Ellipse>
-                                <TextBlock FontWeight="Bold" Foreground="#C9FCE0" Text="V6.2.31 · Pro2 离线提示 + 异常断联诊断"/>
+                                <TextBlock FontWeight="Bold" Foreground="#C9FCE0" Text="V6.2.32 Test r2 · 双摇杆校准"/>
                             </StackPanel>
                         </Border>
                         <Button Margin="0,9,0,0" HorizontalAlignment="Right"
@@ -914,7 +914,7 @@
                                        MaxWidth="760"
                                        Foreground="#89A7CF"
                                        FontSize="11"
-                                       Text="V6.2.31：每个 Pro2 Slot 离线时仅提示一次；明确蓝牙错误会报警，原因不足时显示手柄离线并保留 Windows/GATT 证据。V6.2.30 按键边沿热修与真实 BLE 源节奏保持不变。"/>
+                                       Text="V6.2.32 Test r2：修复完整行程采样被后台配置刷新中止的问题；增加倒计时和明确完成提示。"/>
                             <StackPanel Margin="0,8,0,0"
                                         Orientation="Horizontal"
                                         VerticalAlignment="Center"
@@ -1221,7 +1221,7 @@
                                                    Foreground="#7D8DAD"
                                                    FontSize="10"
                                                    TextWrapping="Wrap"
-                                                   Text="四个正式模式均生效：新和联胜 PS5、PS5 Edge、Pro2 / Nintendo、Xbox。启用几个 Slot，就创建几个独立 VIIPER 实例；每个 Slot 独立扫描真实 Pro2、独立输入、独立震动回传。"/>
+                                                   Text="四个正式模式均生效：新和联胜 PS5、PS5 Edge、Pro2 / Nintendo、Xbox。每个 Slot 独立连接、独立震动，并按真实手柄 BLE 地址保存摇杆校准。建议先做零位，再做完整行程。"/>
                                         <ItemsControl ItemsSource="{Binding Pro2Slots}">
                                             <ItemsControl.ItemTemplate>
                                                 <DataTemplate>
@@ -1238,6 +1238,11 @@
                                                                        FontSize="10"
                                                                        TextWrapping="Wrap"
                                                                        Text="{Binding Status}"/>
+                                                            <TextBlock Margin="0,0,0,8"
+                                                                       Foreground="#72D7B0"
+                                                                       FontSize="10"
+                                                                       TextWrapping="Wrap"
+                                                                       Text="{Binding StickCalibrationStatus}"/>
                                                             <WrapPanel>
                                                                 <Button Style="{StaticResource ConsoleButton}"
                                                                         MinWidth="58"
@@ -1258,6 +1263,22 @@
                                                                         Padding="7,3"
                                                                         Content="断开"
                                                                         Command="{Binding DataContext.DisconnectPro2SlotCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                                        CommandParameter="{Binding}"
+                                                                        IsEnabled="{Binding DataContext.CanOperate, RelativeSource={RelativeSource AncestorType=Window}}"/>
+                                                                <Button Style="{StaticResource ConsoleButton}"
+                                                                        MinWidth="82"
+                                                                        Padding="7,3"
+                                                                        Content="零位 2 秒"
+                                                                        ToolTip="完全松开左右摇杆并保持两秒。只校准中心，不修改端点。"
+                                                                        Command="{Binding DataContext.CalibrateStickCenterSlotCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                                        CommandParameter="{Binding}"
+                                                                        IsEnabled="{Binding DataContext.CanOperate, RelativeSource={RelativeSource AncestorType=Window}}"/>
+                                                                <Button Style="{StaticResource ConsoleButton}"
+                                                                        MinWidth="108"
+                                                                        Padding="7,3"
+                                                                        Content="完整行程 8 秒"
+                                                                        ToolTip="先完成零位校准，再把左右摇杆贴着外圈各转满至少三圈。四轴八方向独立保存。"
+                                                                        Command="{Binding DataContext.CalibrateStickRangeSlotCommand, RelativeSource={RelativeSource AncestorType=Window}}"
                                                                         CommandParameter="{Binding}"
                                                                         IsEnabled="{Binding DataContext.CanOperate, RelativeSource={RelativeSource AncestorType=Window}}"/>
                                                             </WrapPanel>

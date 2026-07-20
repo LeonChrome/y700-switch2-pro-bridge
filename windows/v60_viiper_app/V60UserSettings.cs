@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Text.Json;
 
@@ -16,6 +17,8 @@ public sealed class V60UserSettings
     public bool LaunchAtLoginEnabled { get; set; }
     public bool AutoReconnectOnStartupEnabled { get; set; }
     public string[] LastConnectedPro2Addresses { get; set; } = new string[4];
+    public Dictionary<string, Pro2StickCalibrationProfile> Pro2StickCalibrations { get; set; } =
+        new(StringComparer.OrdinalIgnoreCase);
     public bool AudioEndpointGuardEnabled { get; set; } = true;
     public double Ps5GyroScalePitch { get; set; } = 1.0;
     public double Ps5GyroScaleYaw { get; set; } = 1.0;
@@ -54,6 +57,8 @@ public sealed class V60UserSettings
                     NormalizeModeKey(loaded.SelectedModeKey);
                 loaded.LastConnectedPro2Addresses =
                     NormalizeAddressSlots(loaded.LastConnectedPro2Addresses);
+                loaded.Pro2StickCalibrations =
+                    NormalizeStickCalibrations(loaded.Pro2StickCalibrations);
                 loaded.Ps5GyroScalePitch =
                     NormalizePs5GyroScale(loaded.Ps5GyroScalePitch);
                 loaded.Ps5GyroScaleYaw =
@@ -81,6 +86,7 @@ public sealed class V60UserSettings
             StickProcessingLabel = StickProcessingOption.FromLabel(StickProcessingLabel).Label;
             SelectedModeKey = NormalizeModeKey(SelectedModeKey);
             LastConnectedPro2Addresses = NormalizeAddressSlots(LastConnectedPro2Addresses);
+            Pro2StickCalibrations = NormalizeStickCalibrations(Pro2StickCalibrations);
             Ps5GyroScalePitch = NormalizePs5GyroScale(Ps5GyroScalePitch);
             Ps5GyroScaleYaw = NormalizePs5GyroScale(Ps5GyroScaleYaw);
             Ps5GyroScaleRoll = NormalizePs5GyroScale(Ps5GyroScaleRoll);
@@ -148,6 +154,60 @@ public sealed class V60UserSettings
             return "";
         }
         return text.Replace("-", ":");
+    }
+
+    public bool TryGetStickCalibration(
+        string? address,
+        out Pro2StickCalibrationProfile profile)
+    {
+        string normalizedAddress = NormalizeBleAddress(address);
+        if (normalizedAddress.Length > 0 &&
+            Pro2StickCalibrations.TryGetValue(normalizedAddress, out Pro2StickCalibrationProfile? saved))
+        {
+            profile = Pro2StickCalibrationProfile.Normalize(saved);
+            return profile.CenterCalibrated;
+        }
+
+        profile = new Pro2StickCalibrationProfile();
+        return false;
+    }
+
+    public void SetStickCalibration(
+        string address,
+        Pro2StickCalibrationProfile profile)
+    {
+        string normalizedAddress = NormalizeBleAddress(address);
+        Pro2StickCalibrationProfile normalizedProfile =
+            Pro2StickCalibrationProfile.Normalize(profile);
+        if (normalizedAddress.Length == 0 || !normalizedProfile.CenterCalibrated)
+        {
+            return;
+        }
+
+        Pro2StickCalibrations[normalizedAddress] = normalizedProfile;
+    }
+
+    public static Dictionary<string, Pro2StickCalibrationProfile> NormalizeStickCalibrations(
+        IDictionary<string, Pro2StickCalibrationProfile>? value)
+    {
+        var normalized =
+            new Dictionary<string, Pro2StickCalibrationProfile>(StringComparer.OrdinalIgnoreCase);
+        if (value == null)
+        {
+            return normalized;
+        }
+
+        foreach ((string address, Pro2StickCalibrationProfile profile) in value)
+        {
+            string normalizedAddress = NormalizeBleAddress(address);
+            Pro2StickCalibrationProfile normalizedProfile =
+                Pro2StickCalibrationProfile.Normalize(profile);
+            if (normalizedAddress.Length > 0 && normalizedProfile.CenterCalibrated)
+            {
+                normalized[normalizedAddress] = normalizedProfile;
+            }
+        }
+        return normalized;
     }
 
     private static string SettingsPath => Path.Combine(

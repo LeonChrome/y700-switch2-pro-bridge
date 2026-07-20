@@ -46,7 +46,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private ViiperBridgeSession? session;
     private string host = "127.0.0.1";
     private string port = "3242";
-    private string status = "V6.2.31 已就绪。Pro2 离线提示与异常断联诊断版。";
+    private string status = "V6.2.32 Test r2 已就绪。完整行程采样与完成提示修复版。";
     private string inputStatus = "真实 Pro2 BLE 输入未连接。";
     private string selectedPushRateLabel = ViiperPushRateOption.Default.Label;
     private string selectedBackendLabel = VirtualBackendOption.Default.Label;
@@ -116,6 +116,12 @@ public sealed class MainViewModel : INotifyPropertyChanged
         DisconnectPro2SlotCommand = new RelayCommand(parameter => RunExclusiveAsync(
             "断开 Pro2 Slot",
             token => DisconnectPro2SlotAsync(SlotFromParameter(parameter), token)));
+        CalibrateStickCenterSlotCommand = new RelayCommand(parameter => RunExclusiveAsync(
+            "校准 Pro2 摇杆零位",
+            token => CalibrateStickCenterSlotAsync(SlotFromParameter(parameter), token)));
+        CalibrateStickRangeSlotCommand = new RelayCommand(parameter => RunExclusiveAsync(
+            "校准 Pro2 摇杆完整行程",
+            token => CalibrateStickRangeSlotAsync(SlotFromParameter(parameter), token)));
         StartDualSenseCommand = new RelayCommand(_ => RunExclusiveAsync(
             "切换 新和联胜 / PS5",
             token => SwitchModeAsync(ViiperDeviceProfile.DualSenseLike, token)));
@@ -187,7 +193,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         {
             AppendLog(StartupProcessGuard.LastSummary);
         }
-        AppendLog("V6.2.31 说明：每个已 live 的 Pro2 连接在离线时都会弹出一次提示，并记录 Windows 连接状态、GATT 错误、最后输入年龄、地址和可用电量证据。明确蓝牙错误会报警；无法区分关机、没电、离开范围时会诚实标注原因未知。V6.2.30 按键边沿热修保持不变。");
+        AppendLog("V6.2.32 Test r2 说明：修复后台重复加载零位配置会中止完整行程采样的问题；校准期间显示倒计时，结束后明确提示成功、失败原因或离线中断。");
         AppendLog("[LOG_POLICY] previous v6 logs are cleaned at startup; manager log limit=" +
                   (SessionLogWriter.MaxLogBytes / 1024 / 1024) + "MB; VIIPER server log level=info.");
         AppendLog("[RUNTIME] " + RuntimeReadinessText);
@@ -762,6 +768,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public ICommand ScanPro2SlotCommand { get; }
     public ICommand ConnectPro2SlotCommand { get; }
     public ICommand DisconnectPro2SlotCommand { get; }
+    public ICommand CalibrateStickCenterSlotCommand { get; }
+    public ICommand CalibrateStickRangeSlotCommand { get; }
     public ICommand StartDualSenseCommand { get; }
     public ICommand StartDualSenseEdgeCommand { get; }
     public ICommand StartDualSenseProfessionalImuCommand { get; }
@@ -835,6 +843,10 @@ public sealed class MainViewModel : INotifyPropertyChanged
         {
             slot.InputSource.SetRumbleGain(rumbleMultiplier);
             slot.InputSource.SetStickProcessingMode(SelectedStickProcessingOption.Mode);
+            ApplySavedStickCalibration(
+                slot,
+                LastKnownPro2AddressForSlot(slot),
+                logChange: false);
             slot.RefreshFromSource();
         }
     }
@@ -1446,6 +1458,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
                 new HashSet<string>(StringComparer.OrdinalIgnoreCase),
                 preferred,
                 onlyPreferred,
+                ResolveStickCalibration,
                 cancellationToken);
         }
         finally
@@ -2063,6 +2076,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
                 excluded,
                 preferred,
                 onlyPreferred,
+                ResolveStickCalibration,
                 cancellationToken);
         }
         finally
@@ -2106,6 +2120,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             return;
         }
 
+        ApplySavedStickCalibration(slot, address, logChange: true);
         string[] addresses = V60UserSettings.NormalizeAddressSlots(userSettings.LastConnectedPro2Addresses);
         int index = slot.Index - 1;
         if (index < 0 || index >= addresses.Length ||
@@ -2118,6 +2133,71 @@ public sealed class MainViewModel : INotifyPropertyChanged
         userSettings.LastConnectedPro2Addresses = addresses;
         SaveUserSettings("[PRO2_BLE_ADDR]");
         AppendLog("[PRO2_BLE_ADDR] slot=" + slot.Index + " saved=" + address);
+    }
+
+    private Pro2StickCalibrationProfile? ResolveStickCalibration(string address)
+    {
+        return userSettings.TryGetStickCalibration(address, out Pro2StickCalibrationProfile profile)
+            ? profile
+            : null;
+    }
+
+    private void ApplySavedStickCalibration(
+        Pro2ControllerSlot slot,
+        string address,
+        bool logChange)
+    {
+        string normalizedAddress = V60UserSettings.NormalizeBleAddress(address);
+        Pro2StickCalibrationProfile? profile = ResolveStickCalibration(normalizedAddress);
+        string calibrationKey = StickCalibrationKey(normalizedAddress, profile);
+        bool captureActive = slot.InputSource.IsStickCalibrationCaptureActive;
+        if (captureActive)
+        {
+            return;
+        }
+
+        bool alreadyApplied =
+            string.Equals(
+                slot.AppliedStickCalibrationKey,
+                calibrationKey,
+                StringComparison.Ordinal);
+        string summary;
+        if (captureActive || alreadyApplied)
+        {
+            summary = slot.InputSource.StickCalibrationSummary;
+        }
+        else if (profile != null || !slot.InputSource.IsRunning)
+        {
+            summary = slot.InputSource.SetStickCalibration(profile);
+            slot.AppliedStickCalibrationKey = calibrationKey;
+        }
+        else
+        {
+            summary = slot.InputSource.StickCalibrationSummary;
+            slot.AppliedStickCalibrationKey = calibrationKey;
+        }
+        slot.StickCalibrationStatus = profile == null
+            ? "摇杆校准：未保存，使用中心自动学习 + 固定 ±1600 回退。"
+            : profile.RangeCalibrated
+                ? "摇杆校准：零位 + 完整行程已加载。"
+                : "摇杆校准：零位已加载，尚未完成完整行程。";
+        if (logChange && !captureActive && !alreadyApplied)
+        {
+            AppendLog("[PRO2_STICK_CAL] slot=" + slot.Index +
+                      " address=" +
+                      (normalizedAddress.Length == 0 ? "unknown" : normalizedAddress) +
+                      " source=" + (profile == null ? "fixed_1600_fallback" : "saved_profile") +
+                      " " + summary);
+        }
+    }
+
+    private static string StickCalibrationKey(
+        string address,
+        Pro2StickCalibrationProfile? profile)
+    {
+        string normalizedAddress = V60UserSettings.NormalizeBleAddress(address);
+        return normalizedAddress + "|" +
+               (profile == null ? "fallback" : profile.Summary);
     }
 
     private void MarkStartupAutomationConnected(string context)
@@ -2365,6 +2445,224 @@ public sealed class MainViewModel : INotifyPropertyChanged
         slot.Status = "已断开真实 Pro2；虚拟设备仍保持在线。";
         slot.RefreshFromSource();
         UpdateMultiSlotInputStatus();
+    }
+
+    private async Task CalibrateStickCenterSlotAsync(
+        Pro2ControllerSlot? slot,
+        CancellationToken cancellationToken)
+    {
+        if (!TryGetLiveCalibrationTarget(
+                slot,
+                out Pro2ControllerSlot liveSlot,
+                out string address))
+        {
+            return;
+        }
+
+        RequestUserNotification(
+            "摇杆零位校准",
+            "采样现在开始。请把手柄平放并完全松开左右摇杆，保持两秒，不要触碰摇杆或按键。");
+        string started = liveSlot.InputSource.StartManualStickCenterCalibration();
+        AppendLog("[PRO2_STICK_CAL] slot=" + liveSlot.Index +
+                  " address=" + address + " " + started);
+        liveSlot.Status = "摇杆零位校准中：请完全松开左右摇杆，保持两秒。";
+        liveSlot.StickCalibrationStatus = "摇杆校准：正在采集零位...";
+        Status = liveSlot.Name + " 正在采集摇杆零位。";
+        await WaitForStickCalibrationAsync(
+            liveSlot,
+            "零位",
+            2,
+            cancellationToken);
+        await Task.Delay(TimeSpan.FromMilliseconds(200), cancellationToken);
+
+        Pro2StickCalibrationResult result =
+            liveSlot.InputSource.CompleteManualStickCenterCalibration();
+        FinishStickCalibration(liveSlot, address, result, "零位");
+    }
+
+    private async Task CalibrateStickRangeSlotAsync(
+        Pro2ControllerSlot? slot,
+        CancellationToken cancellationToken)
+    {
+        if (!TryGetLiveCalibrationTarget(
+                slot,
+                out Pro2ControllerSlot liveSlot,
+                out string address))
+        {
+            return;
+        }
+        if (!liveSlot.InputSource.StickCalibrationProfile.CenterCalibrated)
+        {
+            liveSlot.StickCalibrationStatus = "摇杆校准：请先执行“零位 2 秒”。";
+            Status = liveSlot.Name + " 尚未完成零位校准，请先点击“零位 2 秒”。";
+            AppendLog("[PRO2_STICK_CAL] slot=" + liveSlot.Index +
+                      " address=" + address +
+                      " status=rejected mode=range reason=center_calibration_required");
+            return;
+        }
+
+        string started = liveSlot.InputSource.StartManualStickRangeCalibration();
+        if (!started.Contains("status=started", StringComparison.Ordinal))
+        {
+            liveSlot.StickCalibrationStatus = "摇杆校准：完整行程启动失败。";
+            Status = "完整行程校准未启动：" + started;
+            AppendLog("[PRO2_STICK_CAL] slot=" + liveSlot.Index +
+                      " address=" + address + " " + started);
+            return;
+        }
+
+        RequestUserNotification(
+            "摇杆完整行程校准",
+            "采样现在开始，共八秒。请把左右摇杆分别贴着外圈缓慢转满至少三圈，确保上、下、左、右都推到底，最后松开摇杆。");
+        AppendLog("[PRO2_STICK_CAL] slot=" + liveSlot.Index +
+                  " address=" + address + " " + started);
+        liveSlot.Status = "完整行程校准中：八秒内将左右摇杆沿外圈各转满至少三圈。";
+        liveSlot.StickCalibrationStatus = "摇杆校准：正在采集四轴八方向端点...";
+        Status = liveSlot.Name + " 正在采集完整摇杆行程。";
+        await WaitForStickCalibrationAsync(
+            liveSlot,
+            "完整行程",
+            8,
+            cancellationToken);
+        await Task.Delay(TimeSpan.FromMilliseconds(200), cancellationToken);
+
+        Pro2StickCalibrationResult result =
+            liveSlot.InputSource.CompleteManualStickRangeCalibration();
+        FinishStickCalibration(liveSlot, address, result, "完整行程");
+    }
+
+    private async Task WaitForStickCalibrationAsync(
+        Pro2ControllerSlot slot,
+        string label,
+        int seconds,
+        CancellationToken cancellationToken)
+    {
+        for (int remaining = seconds; remaining > 0; remaining--)
+        {
+            slot.StickCalibrationStatus =
+                "摇杆校准：" + label + "采集中，剩余 " + remaining + " 秒...";
+            Status = slot.Name + " " + label + "校准采集中，剩余 " + remaining + " 秒。";
+            await Task.Delay(TimeSpan.FromSeconds(1), cancellationToken);
+        }
+    }
+
+    private bool TryGetLiveCalibrationTarget(
+        Pro2ControllerSlot? slot,
+        out Pro2ControllerSlot liveSlot,
+        out string address)
+    {
+        if (slot == null || !slot.InputSource.IsRunning)
+        {
+            liveSlot = slot ?? pro2Slots[0];
+            address = "";
+            Status = "请先连接需要校准的真实 Pro2 手柄。";
+            if (slot != null)
+            {
+                slot.StickCalibrationStatus = "摇杆校准：没有 live 手柄，无法采样。";
+                AppendLog("[PRO2_STICK_CAL] slot=" + slot.Index +
+                          " status=rejected reason=no_live_source");
+            }
+            return false;
+        }
+
+        address = V60UserSettings.NormalizeBleAddress(slot.InputSource.ConnectedAddress);
+        if (address.Length == 0)
+        {
+            liveSlot = slot;
+            Status = "当前 Pro2 没有可保存的 BLE 地址，无法建立独立校准档案。";
+            slot.StickCalibrationStatus = "摇杆校准：BLE 地址不可用。";
+            AppendLog("[PRO2_STICK_CAL] slot=" + slot.Index +
+                      " status=rejected reason=missing_ble_address");
+            return false;
+        }
+
+        liveSlot = slot;
+        return true;
+    }
+
+    private void FinishStickCalibration(
+        Pro2ControllerSlot slot,
+        string expectedAddress,
+        Pro2StickCalibrationResult result,
+        string label)
+    {
+        string currentAddress =
+            V60UserSettings.NormalizeBleAddress(slot.InputSource.ConnectedAddress);
+        bool sameLiveController =
+            slot.InputSource.IsRunning &&
+            string.Equals(expectedAddress, currentAddress, StringComparison.OrdinalIgnoreCase);
+        if (!sameLiveController)
+        {
+            Pro2StickCalibrationProfile? savedProfile =
+                ResolveStickCalibration(currentAddress.Length > 0
+                    ? currentAddress
+                    : expectedAddress);
+            slot.InputSource.SetStickCalibration(savedProfile);
+            slot.StickCalibrationStatus = "摇杆校准：手柄在采样过程中离线，未保存。";
+            slot.Status = "校准中断：真实 Pro2 已离线或连接对象发生变化。";
+            Status = slot.Name + " " + label + "校准中断，旧配置保持不变。";
+            AppendLog("[PRO2_STICK_CAL] slot=" + slot.Index +
+                      " address=" + expectedAddress +
+                      " status=rejected mode=" + label +
+                      " reason=controller_changed_or_offline result=\"" +
+                      result.Message + "\"");
+            RequestUserNotification(
+                label + "校准中断",
+                "真实 Pro2 在采样期间离线或连接对象发生变化，旧配置没有被覆盖。");
+            return;
+        }
+        if (!result.Success || result.Profile == null)
+        {
+            slot.StickCalibrationStatus = "摇杆校准：" + label + "采样不完整，旧配置未覆盖。";
+            slot.Status = label + "校准失败，请按提示重试。";
+            Status = slot.Name + " " + label + "校准未通过，旧配置保持不变。";
+            AppendLog("[PRO2_STICK_CAL] slot=" + slot.Index +
+                      " address=" + expectedAddress + " " + result.Message);
+            RequestUserNotification(
+                label + "校准未完成",
+                "采样没有通过，旧配置没有被覆盖。\n\n" +
+                StickCalibrationFailureText(result.Message));
+            return;
+        }
+
+        userSettings.SetStickCalibration(expectedAddress, result.Profile);
+        SaveUserSettings("[PRO2_STICK_CAL]");
+        string applied = slot.InputSource.SetStickCalibration(result.Profile);
+        slot.AppliedStickCalibrationKey =
+            StickCalibrationKey(expectedAddress, result.Profile);
+        slot.StickCalibrationStatus = result.Profile.RangeCalibrated
+            ? "摇杆校准：零位 + 完整行程已保存，按当前手柄地址自动加载。"
+            : "摇杆校准：零位已保存，请继续执行完整行程校准。";
+        slot.Status = label + "校准成功，当前连接已立即应用。";
+        Status = slot.Name + " " + label + "校准完成。";
+        AppendLog("[PRO2_STICK_CAL] slot=" + slot.Index +
+                  " address=" + expectedAddress + " " + result.Message +
+                  " apply=\"" + applied + "\"");
+        RequestUserNotification(
+            label + "校准完成",
+            label + "校准已保存并立即应用到当前手柄。\n\n" +
+            result.Profile.Summary);
+    }
+
+    private static string StickCalibrationFailureText(string result)
+    {
+        if (result.Contains("not_started", StringComparison.Ordinal))
+        {
+            return "采样流程被意外中止，请使用修复后的版本重新尝试。";
+        }
+        if (result.Contains("insufficient_samples", StringComparison.Ordinal))
+        {
+            return "收到的有效手柄数据不足，请确认手柄保持连接后重试。";
+        }
+        if (result.Contains("incomplete_directional_travel", StringComparison.Ordinal))
+        {
+            return "至少一个摇杆方向没有推到底。请让左右摇杆都沿外圈完整转动。";
+        }
+        if (result.Contains("sticks_moved", StringComparison.Ordinal))
+        {
+            return "零位采样期间检测到摇杆移动，请完全松开摇杆后重试。";
+        }
+        return result;
     }
 
     private void UpdateMultiSlotInputStatus()
@@ -2931,7 +3229,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             directory,
             "diagnostics_v6_2_31_" + DateTime.Now.ToString("yyyyMMdd_HHmmss") + ".log");
         var builder = new StringBuilder();
-        builder.AppendLine("# V6.2.31 disconnect-alert diagnostics export");
+        builder.AppendLine("# V6.2.32 stick-calibration-test diagnostics export");
         builder.AppendLine("# session_log=" + sessionLog.FilePath);
         builder.AppendLine();
         foreach (string line in dump)
@@ -3216,7 +3514,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "PRO2WirelessReceiverControlBoard",
             "embedded",
-            "v6.2.31-disconnect-alerts",
+            "v6.2.32-stick-calibration-test-r2",
             "viiper",
             "haptic-v0.8.0");
         Directory.CreateDirectory(root);
